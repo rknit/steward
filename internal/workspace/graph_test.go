@@ -124,16 +124,31 @@ func TestLoad(t *testing.T) {
 	if err := SaveRegistry(root, []string{"services/api", "libs/core"}); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(ConfigPath(root), []byte(ConfigTemplate), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	ws, err := Load(root)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if ws.Wrapper != "" {
+		t.Errorf("Wrapper = %q, want empty", ws.Wrapper)
 	}
 	if got := names(ws.Projects); !slices.Equal(got, []string{"core", "api"}) {
 		t.Errorf("order = %v", got)
 	}
 	if p, ok := ws.Project("api"); !ok || p.Path != "services/api" {
 		t.Errorf("Project(api) = %+v, %v", p, ok)
+	}
+
+	if err := os.WriteFile(ConfigPath(root), []byte(`workspace_wrapper = "tool exec . {{STEW_STEP}}"`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ws, err := Load(root); err != nil {
+		t.Fatal(err)
+	} else if ws.Wrapper != "tool exec . {{STEW_STEP}}" {
+		t.Errorf("Wrapper = %q, want %q", ws.Wrapper, "tool exec . {{STEW_STEP}}")
 	}
 
 	if err := SaveRegistry(root, []string{"libs/core", "missing"}); err != nil {

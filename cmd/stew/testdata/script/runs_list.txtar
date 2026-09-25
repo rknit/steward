@@ -16,6 +16,8 @@ cmp stdout want/table
 exec sh -c 'stew runs list latest; echo "exit=$?"'
 stdout '^exit=2$'
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 this is not valid toml [
 -- .stew/runs/tmp/core-setup.log --

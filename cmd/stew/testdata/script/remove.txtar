@@ -50,6 +50,8 @@ deleted tools/x/stew.toml
 projects = [".", "libs/core", "services/api", "tools/x"]
 -- want/projects-2.toml --
 projects = []
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = [".", "apps/web", "libs/core", "services/api", "tools/x"]
 -- libs/core/.keep --

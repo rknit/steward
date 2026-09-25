@@ -1,0 +1,45 @@
+# The step path never comes from the workspace path: a workspace under a directory with a space and a quote,
+# wrapped by a tool that parses its argument again as a shell string, still runs the command.
+exec chmod 755 bin/runstr
+env PATH=$WORK/bin:$PATH
+env TMPDIR=$WORK/tmp
+mkdir tmp
+cd 'my proj''s'
+exec stew build
+stdout '^==> lib: setup \.\.\. done'
+exists lib/ran
+cd $WORK
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
+# A TMPDIR that needs quoting stops the run with exit 1 before any run directory exists.
+mkdir 'bad tmp'
+env TMPDIR=$WORK/bad' tmp'
+cd 'my proj''s'
+exec sh -c 'stew build; echo "exit=$?"'
+stdout '^exit=1$'
+stderr 'cannot create step directory: .*/bad tmp needs shell quoting; set TMPDIR to a path of letters, digits, and /\._-$'
+cd $WORK
+exec sh -c 'ls my*/.stew/runs | wc -l'
+stdout '^1$'
+exec sh -c 'ls -A "bad tmp" | wc -l'
+stdout '^0$'
+
+-- my proj's/.stew/config.toml --
+workspace_wrapper = "runstr {{STEW_STEP}}"
+-- my proj's/.stew/projects.toml --
+projects = ["lib"]
+-- my proj's/lib/stew.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = "touch ran"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- bin/runstr --
+#!/bin/sh
+exec sh -c "$1"

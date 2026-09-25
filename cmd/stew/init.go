@@ -36,6 +36,9 @@ func newInitCmd(stdout io.Writer) *cobra.Command {
 			if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("runs/\n"), 0o644); err != nil {
 				return rejected(err)
 			}
+			if err := os.WriteFile(workspace.ConfigPath(cwd), []byte(workspace.ConfigTemplate), 0o644); err != nil {
+				return rejected(err)
+			}
 			fmt.Fprintf(stdout, "initialized %s\n", dir)
 			return nil
 		},

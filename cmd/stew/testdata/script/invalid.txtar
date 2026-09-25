@@ -21,6 +21,8 @@ exec sh -c 'stew add api; echo "exit=$?"'
 stdout '^exit=2$'
 stderr 'project "core": missing stew.toml'
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["api", "core"]
 -- api/stew.toml --

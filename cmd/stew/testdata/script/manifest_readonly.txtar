@@ -8,6 +8,8 @@ grep '^\(log error: .*permission denied\)$' out
 grep '^==> app: setup \.\.\. blocked by core$' out
 grep '^stew: log error: .*permission denied$' err
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["app", "core"]
 -- core/stew.toml --

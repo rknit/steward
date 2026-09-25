@@ -60,6 +60,8 @@ stdout '^│ project │ setup │$'
 
 -- feed.txt --
 this must not reach the command
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["api", "core"]
 -- .stew/.gitignore --

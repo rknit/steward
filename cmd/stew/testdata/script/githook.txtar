@@ -42,6 +42,8 @@ exec git add -A
 ! exec git commit -q -m second
 stderr '^==> core: ci\.pre-commit -> ci\.quick \.\.\. fail'
 
+-- mono/.stew/config.toml --
+workspace_wrapper = ""
 -- mono/.stew/projects.toml --
 projects = ["core"]
 -- mono/.stew/.gitignore --

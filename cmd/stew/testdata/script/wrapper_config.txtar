@@ -1,0 +1,71 @@
+# A missing, invalid, or unparsable config stops every workspace command with exit 2 before anything runs.
+exec chmod 755 bin/wrap
+env PATH=$WORK/bin:$PATH
+
+rm .stew/config.toml
+exec sh -c 'stew build; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'config\.toml: missing$'
+! exists lib/ran
+
+cp cfg/none.toml .stew/config.toml
+exec sh -c 'stew build; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'config\.toml: workspace_wrapper: must contain \{\{STEW_STEP\}\} exactly once \(found 0\)$'
+! exists lib/ran
+
+cp cfg/two.toml .stew/config.toml
+exec sh -c 'stew build; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'config\.toml: workspace_wrapper: must contain \{\{STEW_STEP\}\} exactly once \(found 2\)$'
+! exists lib/ran
+
+cp cfg/syntax.toml .stew/config.toml
+exec sh -c 'stew build; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'config\.toml: workspace_wrapper: sh: '
+! exists lib/ran
+
+cp cfg/unknown.toml .stew/config.toml
+exec sh -c 'stew build; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'config\.toml: unknown key "shell"$'
+! exists lib/ran
+
+# A wrapper ending in a newline is accepted and runs the command.
+cp cfg/newline.toml .stew/config.toml
+exec stew build
+stdout '^==> lib: setup \.\.\. done'
+exists lib/ran
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+-- .stew/projects.toml --
+projects = ["lib"]
+-- lib/stew.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = "touch ran"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- bin/wrap --
+#!/bin/sh
+exec "$@"
+-- cfg/none.toml --
+workspace_wrapper = "tool exec ."
+-- cfg/two.toml --
+workspace_wrapper = "tool {{STEW_STEP}} {{STEW_STEP}}"
+-- cfg/syntax.toml --
+workspace_wrapper = 'tool "unbalanced {{STEW_STEP}}'
+-- cfg/unknown.toml --
+workspace_wrapper = ""
+shell = "bash"
+-- cfg/newline.toml --
+workspace_wrapper = """
+wrap {{STEW_STEP}}
+"""

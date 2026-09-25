@@ -18,6 +18,8 @@ exec cat out
 stdout '^\(signal SIGKILL\)$'
 ! exists core/survived
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["core"]
 -- core/stew.toml --

@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// Shell runs commands with `sh -c`, stdin from /dev/null, each in its own session and process group,
+// Shell runs an argv (sh -c by default), stdin from /dev/null, each in its own session and process group,
 // with no controlling terminal.
 type Shell struct {
 	// KillDelay is how long to wait after SIGTERM before SIGKILL, and how long to wait for output pipes
@@ -23,11 +23,11 @@ type Shell struct {
 }
 
 // Run implements Executor.
-func (s Shell) Run(ctx context.Context, dir string, env []string, cmd string, stdout, stderr io.Writer) Result {
+func (s Shell) Run(ctx context.Context, dir string, env []string, argv []string, stdout, stderr io.Writer) Result {
 	if ctx.Err() != nil {
 		return Result{Err: context.Cause(ctx)}
 	}
-	c := exec.Command("sh", "-c", cmd)
+	c := exec.Command(argv[0], argv[1:]...)
 	c.Dir = dir
 	c.Env = append(os.Environ(), env...)
 	c.Stdout = stdout

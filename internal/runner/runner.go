@@ -11,9 +11,10 @@ import (
 	"time"
 )
 
-// Runner executes plans. All fields are required.
+// Runner executes plans. Steps is required only when a job has wrappers; every other field is required.
 type Runner struct {
 	Exec    Executor
+	Steps   Steps
 	OpenLog func(project, phase string) (PhaseLog, error)
 	Report  Reporter
 	Record  Recorder
@@ -140,10 +141,11 @@ func (r *Runner) phase(ctx context.Context, job Job, ph Phase) (out Outcome) {
 	}()
 
 	env := r.env(job.Project, ph)
+	key := job.Project + "-" + ph.Used
 	var steps []StepOutput
 	// run executes one step. done reports that the phase ended early, with outcome end.
 	run := func(step, cmd string) (res Result, done bool, end Outcome) {
-		res, output, logErr := r.step(ctx, job.Dir, env, log, step, cmd)
+		res, output, logErr := r.step(ctx, job.Dir, key, job.Wrappers, env, log, step, cmd)
 		steps = append(steps, StepOutput{Step: step, Cmd: cmd, Output: output})
 		switch {
 		case interrupted(ctx):
@@ -161,7 +163,7 @@ func (r *Runner) phase(ctx context.Context, job Job, ph Phase) (out Outcome) {
 			return end
 		case res.OK():
 			return Outcome{Status: Skip}
-		case ph.Run == "":
+		case res.WrapperFailed() || ph.Run == "":
 			return Outcome{Status: Fail, Steps: steps, Cause: res.Cause()}
 		}
 		steps = steps[:0] // a failed pre-run verify only means "not done yet"; don't replay it
@@ -189,9 +191,16 @@ func (r *Runner) phase(ctx context.Context, job Job, ph Phase) (out Outcome) {
 
 // step runs one command, writing its output to the log files and to a replay buffer.
 // A log write error cancels the command and is returned as logErr.
-func (r *Runner) step(ctx context.Context, dir string, env []string, log PhaseLog, step, cmd string) (res Result, output []byte, logErr error) {
+func (r *Runner) step(ctx context.Context, dir, key string, wrappers, env []string, log PhaseLog, step, cmd string) (res Result, output []byte, logErr error) {
 	if err := log.Marker(step, cmd); err != nil {
 		return Result{}, nil, err
+	}
+	argv := []string{"sh", "-c", cmd}
+	if len(wrappers) > 0 {
+		var err error
+		if argv, err = r.Steps.Prepare(key, wrappers, env, cmd); err != nil {
+			return Result{}, nil, err
+		}
 	}
 
 	stepCtx, cancel := context.WithCancelCause(ctx)
@@ -212,7 +221,17 @@ func (r *Runner) step(ctx context.Context, dir string, env []string, log PhaseLo
 	replay := &lockedBuffer{}
 	stdout := &teeWriter{log: log.Stdout(), replay: replay, fail: fail}
 	stderr := &teeWriter{log: log.Stderr(), replay: replay, fail: fail}
-	res = r.Exec.Run(stepCtx, dir, env, cmd, stdout, stderr)
+	res = r.Exec.Run(stepCtx, dir, env, argv, stdout, stderr)
+	if len(wrappers) > 0 {
+		n, status, finished, err := r.Steps.Collect(key)
+		if err != nil {
+			fail(err)
+		}
+		if n == 1 && finished {
+			res = Result{ExitCode: status}
+		}
+		res.Wrapped, res.Reaches, res.Unfinished = true, n, n == 1 && !finished
+	}
 
 	mu.Lock()
 	defer mu.Unlock()

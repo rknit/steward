@@ -15,7 +15,7 @@ import (
 
 func TestLoadRoundTrip(t *testing.T) {
 	run := newRun(t)
-	if err := run.Start([]string{"build"}, []string{"setup", "build"}, []string{"core"}); err != nil {
+	if err := run.Start([]string{"build"}, "", []string{"setup", "build"}, []string{"core"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := run.PhaseEnd("core", runner.Phase{Name: "setup", Used: "setup"}, runner.Outcome{Status: runner.Done, Duration: time.Second}); err != nil {
@@ -178,7 +178,7 @@ func TestParseKey(t *testing.T) {
 
 func TestUnfinishedAndReadLog(t *testing.T) {
 	run := newRun(t)
-	if err := run.Start([]string{"build"}, []string{"setup", "build"}, []string{"core", "x-build", "api"}); err != nil {
+	if err := run.Start([]string{"build"}, "", []string{"setup", "build"}, []string{"core", "x-build", "api"}); err != nil {
 		t.Fatal(err)
 	}
 	setup := runner.Phase{Name: "setup", Used: "setup"}

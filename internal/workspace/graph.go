@@ -10,12 +10,17 @@ import (
 // Workspace is a loaded and fully validated workspace.
 type Workspace struct {
 	Root     string
+	Wrapper  string     // workspace wrapper from .stew/config.toml; "" means none
 	Projects []*Project // topological order, ties broken by name
 	byName   map[string]*Project
 }
 
-// Load reads the registry and every registered stew.toml, then validates names and dependencies.
+// Load reads the config, the registry, and every registered stew.toml, then validates names and dependencies.
 func Load(root string) (*Workspace, error) {
+	wrapper, err := LoadConfig(root)
+	if err != nil {
+		return nil, err
+	}
 	paths, err := LoadRegistry(root)
 	if err != nil {
 		return nil, err
@@ -28,7 +33,12 @@ func Load(root string) (*Workspace, error) {
 		}
 		projects = append(projects, p)
 	}
-	return newWorkspace(root, projects)
+	ws, err := newWorkspace(root, projects)
+	if err != nil {
+		return nil, err
+	}
+	ws.Wrapper = wrapper
+	return ws, nil
 }
 
 func newWorkspace(root string, projects []*Project) (*Workspace, error) {

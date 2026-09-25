@@ -9,6 +9,8 @@ cmp stdout want/out
 exec sh -c 'cd .stew/runs/* && ls'
 cmp stdout want/files
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["api", "app", "backend", "core", "lib"]
 -- core/stew.toml --

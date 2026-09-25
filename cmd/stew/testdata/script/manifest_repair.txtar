@@ -12,6 +12,8 @@ stdout '^==> a: setup \.\.\. fail \('
 stdout '\(log error: '
 ! stdout 'unfinished'
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["a", "b"]
 -- a/stew.toml --

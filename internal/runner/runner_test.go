@@ -562,6 +562,184 @@ func TestStewEnv(t *testing.T) {
 	}
 }
 
+// runWrapped runs a plan with one wrapped job "p" of phases on h and returns h's outcomes.
+func runWrapped(ctx context.Context, h *harness, phases ...Phase) map[string]Outcome {
+	var columns []string
+	for _, ph := range phases {
+		columns = append(columns, ph.Name)
+	}
+	h.r.Run(ctx, Plan{
+		Columns: columns,
+		Jobs:    []Job{{Project: "p", Dir: "/w/p", Wrappers: []string{"outer {{STEW_STEP}}", "inner {{STEW_STEP}}"}, Phases: phases}},
+	})
+	return h.rec.outcomes
+}
+
+// runWrappedOne is runOne with wrappers on the job.
+func runWrappedOne(t *testing.T, ph Phase, script map[string][]fakeCmd) (Outcome, *harness) {
+	t.Helper()
+	h := newHarness(script)
+	return runWrapped(context.Background(), h, ph)["p "+ph.Name], h
+}
+
+func TestNoWrappersRunsPlainShell(t *testing.T) {
+	_, h := runOne(t, build("r", ""), map[string][]fakeCmd{"r": {ok("")}})
+	if len(h.exec.argvs) != 1 || !slices.Equal(h.exec.argvs[0], []string{"sh", "-c", "r"}) {
+		t.Errorf("argvs = %q", h.exec.argvs)
+	}
+	if len(h.steps.prepared) != 0 {
+		t.Errorf("Prepare called without wrappers: %q", h.steps.prepared)
+	}
+}
+
+func TestWrappedStepRunsPreparedArgv(t *testing.T) {
+	out, h := runWrappedOne(t, build("r", ""), map[string][]fakeCmd{"r": {ok("")}})
+	if out.Status != Done || len(h.exec.argvs) != 1 || !slices.Equal(h.exec.argvs[0], []string{"fake-wrapped", "p-build", "r"}) {
+		t.Errorf("outcome = %+v, argvs = %q", out, h.exec.argvs)
+	}
+	want := []string{"outer {{STEW_STEP}}", "inner {{STEW_STEP}}"}
+	if len(h.steps.wrappers) != 1 || !slices.Equal(h.steps.wrappers[0], want) || !slices.Equal(h.steps.envs[0], h.exec.envs[0]) {
+		t.Errorf("Prepare wrappers = %q, envs = %q", h.steps.wrappers, h.steps.envs)
+	}
+}
+
+func TestWrapperFailureFailsEveryStep(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		ph     Phase
+		script map[string][]fakeCmd
+		want   string
+	}{
+		{"run unreached", build("r", ""), map[string][]fakeCmd{"r": {{unreached: true}}}, "wrapper did not run the command (exit 0)"},
+		{"run twice", build("r", ""), map[string][]fakeCmd{"r": {{twice: true}}}, "wrapper ran the command 2 times (exit 0)"},
+		{"verify after run unreached", build("r", "v"), map[string][]fakeCmd{"v": {bad(""), {unreached: true}}, "r": {ok("")}},
+			"wrapper did not run the command (exit 0)"},
+		{"verify after run twice", build("r", "v"), map[string][]fakeCmd{"v": {bad(""), {twice: true}}, "r": {ok("")}},
+			"wrapper ran the command 2 times (exit 0)"},
+	} {
+		if out, _ := runWrappedOne(t, tc.ph, tc.script); out.Status != Fail || out.Cause != tc.want {
+			t.Errorf("%s: outcome = %+v", tc.name, out)
+		}
+	}
+}
+
+func TestWrapperFailureInPreRunVerifyFailsWithoutRun(t *testing.T) {
+	for _, tc := range []struct {
+		v    fakeCmd
+		want string
+	}{
+		{fakeCmd{wrapperExit: 1, unreached: true}, "wrapper did not run the command (exit 1)"},
+		{fakeCmd{twice: true}, "wrapper ran the command 2 times (exit 0)"},
+	} {
+		out, h := runWrappedOne(t, build("r", "v"), map[string][]fakeCmd{"v": {tc.v}, "r": {ok("")}})
+		if out.Status != Fail || out.Cause != tc.want {
+			t.Errorf("outcome = %+v", out)
+		}
+		if !slices.Equal(stepNames(out), []string{"verify"}) || !slices.Equal(h.exec.calls, []string{"/w/p: v"}) {
+			t.Errorf("steps = %q, calls = %q", stepNames(out), h.exec.calls)
+		}
+	}
+}
+
+func TestReachedFailingCommandHasPlainCause(t *testing.T) {
+	out, _ := runWrappedOne(t, build("r", ""), map[string][]fakeCmd{"r": {bad("")}})
+	if out.Status != Fail || out.Cause != "exit 1" {
+		t.Errorf("outcome = %+v", out)
+	}
+}
+
+func TestReachedStepResultIsTheCommandsStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		r      fakeCmd
+		status Status
+		cause  string
+	}{
+		{"failing command, wrapper exits 0", fakeCmd{exit: 7}, Fail, "exit 7"},
+		{"passing command, wrapper exits 1", fakeCmd{wrapperExit: 1}, Done, ""},
+		{"failing command, wrapper exits 2", fakeCmd{exit: 3, wrapperExit: 2}, Fail, "exit 3"},
+	} {
+		out, _ := runWrappedOne(t, build("r", ""), map[string][]fakeCmd{"r": {tc.r}})
+		if out.Status != tc.status || out.Cause != tc.cause {
+			t.Errorf("%s: outcome = %+v", tc.name, out)
+		}
+	}
+}
+
+func TestUnfinishedCommandFailsEveryStep(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		ph     Phase
+		script map[string][]fakeCmd
+		calls  []string
+	}{
+		{"run", build("r", ""), map[string][]fakeCmd{"r": {{unfinished: true}}}, []string{"/w/p: r"}},
+		{"pre-run verify", build("r", "v"), map[string][]fakeCmd{"v": {{unfinished: true}}, "r": {ok("")}}, []string{"/w/p: v"}},
+		{"verify after run", build("r", "v"), map[string][]fakeCmd{"v": {bad(""), {unfinished: true}}, "r": {ok("")}},
+			[]string{"/w/p: v", "/w/p: r", "/w/p: v"}},
+	} {
+		out, h := runWrappedOne(t, tc.ph, tc.script)
+		if out.Status != Fail || out.Cause != "wrapper exited before the command finished (exit 0)" {
+			t.Errorf("%s: outcome = %+v", tc.name, out)
+		}
+		if !slices.Equal(h.exec.calls, tc.calls) {
+			t.Errorf("%s: calls = %q", tc.name, h.exec.calls)
+		}
+	}
+}
+
+func TestUnfinishedInterruptIsInterrupted(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	h := newHarness(map[string][]fakeCmd{"r": {{unfinished: true, during: func() { cancel(ErrInterrupted) }}}})
+	out := runWrapped(ctx, h, build("r", ""))["p build"]
+	if out.Status != Interrupted || out.Cause != "wrapper exited before the command finished (signal SIGINT)" {
+		t.Errorf("outcome = %+v", out)
+	}
+}
+
+func TestStepsErrorsAreLogErrors(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		set  func(*fakeSteps)
+	}{
+		{"failPrepare", func(s *fakeSteps) { s.failPrepare = true }},
+		{"failCollect", func(s *fakeSteps) { s.failCollect = true }},
+	} {
+		h := newHarness(map[string][]fakeCmd{"r": {ok("")}})
+		tt.set(h.steps)
+		if out := runWrapped(context.Background(), h, build("r", ""))["p build"]; out.Status != Fail || out.Cause != "log error: disk full" {
+			t.Errorf("%s: outcome = %+v", tt.name, out)
+		}
+		if tt.name == "failPrepare" && len(h.exec.calls) != 0 {
+			t.Errorf("failPrepare: exec.calls = %v, want none", h.exec.calls)
+		}
+	}
+}
+
+func TestUnreachedLogWriteErrorIsLogError(t *testing.T) {
+	h := newHarness(map[string][]fakeCmd{"r": {{unreached: true, stdout: "x"}}})
+	h.logs.setup["p-build"] = func(l *fakeLog) { l.failWrite = true }
+	if out := runWrapped(context.Background(), h, build("r", ""))["p build"]; out.Status != Fail || out.Cause != "log error: disk full" {
+		t.Errorf("outcome = %+v", out)
+	}
+}
+
+func TestUnreachedInterruptIsInterrupted(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	h := newHarness(map[string][]fakeCmd{"r": {{unreached: true, during: func() { cancel(ErrInterrupted) }}}})
+	if out := runWrapped(ctx, h, build("r", ""))["p build"]; out.Status != Interrupted || out.Cause != "wrapper did not run the command (signal SIGINT)" {
+		t.Errorf("outcome = %+v", out)
+	}
+}
+
+func TestStepKeysDifferPerPhase(t *testing.T) {
+	h := newHarness(map[string][]fakeCmd{"s": {ok("")}, "b": {ok("")}, "q": {ok("")}})
+	runWrapped(context.Background(), h, setup("s", ""), build("b", ""), ci("pre-commit", "quick", "q"))
+	if want := []string{"p-setup", "p-build", "p-ci.quick"}; !slices.Equal(h.steps.prepared, want) {
+		t.Errorf("keys = %q, want %q", h.steps.prepared, want)
+	}
+}
+
 func TestBlockedRecordErrorChangesNothing(t *testing.T) {
 	script := okScript("core", "api", "backend", "app", "lib")
 	script["core-setup"] = []fakeCmd{{exit: 2}}

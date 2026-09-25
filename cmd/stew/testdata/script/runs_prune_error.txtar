@@ -10,6 +10,8 @@ stderr '^stew: prune 20000101T000000Z-0000: .*permission denied$'
 ! exists .stew/runs/20000102T000000Z-0001
 exists .stew/runs/20000101T000000Z-0000/sub
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = []
 -- .stew/runs/20000101T000000Z-0000/core-setup.log --

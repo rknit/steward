@@ -21,6 +21,10 @@ type fakeCmd struct {
 	stdout, stderr string
 	took           time.Duration
 	during         func() // runs while the command "executes", e.g. to simulate Ctrl-C
+	unreached      bool   // a wrapper exits without running the command
+	twice          bool   // a wrapper runs the command twice
+	unfinished     bool   // a wrapper runs the command once but exits before it finishes
+	wrapperExit    int    // the outermost wrapper's own exit code; exit is the command's
 }
 
 // fakeExec runs scripted commands. Each command string maps to a queue of executions; the last one repeats.
@@ -29,15 +33,19 @@ type fakeExec struct {
 	script    map[string][]fakeCmd
 	calls     []string
 	envs      [][]string // aligned with calls
+	argvs     [][]string // aligned with calls
 	cancelled []string
+	steps     *fakeSteps
 }
 
-func (f *fakeExec) Run(ctx context.Context, dir string, env []string, cmd string, stdout, stderr io.Writer) Result {
+func (f *fakeExec) Run(ctx context.Context, dir string, env []string, argv []string, stdout, stderr io.Writer) Result {
+	cmd := argv[len(argv)-1]
 	if cmd == "" {
 		panic("executor called with an empty command")
 	}
 	f.calls = append(f.calls, dir+": "+cmd)
 	f.envs = append(f.envs, env)
+	f.argvs = append(f.argvs, argv)
 	queue := f.script[cmd]
 	if len(queue) == 0 {
 		panic("unscripted command: " + cmd)
@@ -45,6 +53,21 @@ func (f *fakeExec) Run(ctx context.Context, dir string, env []string, cmd string
 	c := queue[0]
 	if len(queue) > 1 {
 		f.script[cmd] = queue[1:]
+	}
+	wrapped := argv[0] == "fake-wrapped"
+	if wrapped {
+		key := argv[1]
+		switch {
+		case c.unreached:
+			f.steps.reaches[key] = 0
+		case c.twice:
+			f.steps.reaches[key] = 2
+		default:
+			f.steps.reaches[key] = 1
+		}
+		if !c.unreached && !c.unfinished {
+			f.steps.statuses[key] = c.exit
+		}
 	}
 	f.clock.t = f.clock.t.Add(c.took)
 	io.WriteString(stdout, c.stdout)
@@ -59,6 +82,9 @@ func (f *fakeExec) Run(ctx context.Context, dir string, env []string, cmd string
 			return Result{Signal: signalName(i.Signal)}
 		}
 		return Result{Signal: "SIGTERM"}
+	}
+	if wrapped {
+		return Result{ExitCode: c.wrapperExit}
 	}
 	return Result{ExitCode: c.exit}
 }
@@ -95,6 +121,39 @@ func (l *fakeLog) Marker(step, cmd string) error {
 	return nil
 }
 func (l *fakeLog) Close() error { l.closed = true; return nil }
+
+// fakeSteps stands in for StepDir. Its argv "fake-wrapped <key> <cmd>" tells fakeExec to record reaches and
+// the command's status for key.
+type fakeSteps struct {
+	prepared    []string   // keys
+	wrappers    [][]string // aligned with prepared
+	envs        [][]string // aligned with prepared
+	reaches     map[string]int
+	statuses    map[string]int // keys whose command finished
+	failPrepare bool
+	failCollect bool
+}
+
+func (f *fakeSteps) Prepare(key string, wrappers, env []string, cmd string) ([]string, error) {
+	if f.failPrepare {
+		return nil, errors.New("disk full")
+	}
+	f.prepared = append(f.prepared, key)
+	f.wrappers = append(f.wrappers, wrappers)
+	f.envs = append(f.envs, env)
+	return []string{"fake-wrapped", key, cmd}, nil
+}
+
+func (f *fakeSteps) Collect(key string) (reaches, status int, finished bool, err error) {
+	if f.failCollect {
+		return 0, 0, false, errors.New("disk full")
+	}
+	reaches = f.reaches[key]
+	status, finished = f.statuses[key]
+	delete(f.reaches, key)
+	delete(f.statuses, key)
+	return reaches, status, finished, nil
+}
 
 // fakeLogs hands out fakeLogs by "<project>-<phase>".
 type fakeLogs struct {
@@ -172,6 +231,7 @@ func (f *fakeRecord) Blocked(project string, ph Phase, by []string) error {
 type harness struct {
 	clock  *fakeClock
 	exec   *fakeExec
+	steps  *fakeSteps
 	logs   *fakeLogs
 	rec    *recorder
 	record *fakeRecord
@@ -180,15 +240,17 @@ type harness struct {
 
 func newHarness(script map[string][]fakeCmd) *harness {
 	clock := &fakeClock{t: time.Unix(0, 0)}
+	steps := &fakeSteps{reaches: map[string]int{}, statuses: map[string]int{}}
 	h := &harness{
 		clock:  clock,
-		exec:   &fakeExec{clock: clock, script: script},
+		exec:   &fakeExec{clock: clock, script: script, steps: steps},
+		steps:  steps,
 		logs:   newFakeLogs(),
 		rec:    &recorder{},
 		record: &fakeRecord{failPhase: map[string]bool{}},
 	}
 	h.r = &Runner{
-		Exec: h.exec, OpenLog: h.logs.Open, Report: h.rec, Record: h.record, Now: clock.Now,
+		Exec: h.exec, Steps: h.steps, OpenLog: h.logs.Open, Report: h.rec, Record: h.record, Now: clock.Now,
 		RunID: "20260101T000000Z-abcd", Root: "/w",
 	}
 	return h

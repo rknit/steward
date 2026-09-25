@@ -36,6 +36,8 @@ stdout '^exit=2$'
 stderr 'unknown project "nope"'
 ! stdout '==>'
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["api", "core", "lib"]
 -- core/stew.toml --

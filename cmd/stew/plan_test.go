@@ -11,7 +11,8 @@ import (
 )
 
 // testWorkspace writes a workspace with core <- api (api depends on core) and loads it.
-func testWorkspace(t *testing.T) *workspace.Workspace {
+// wrapper, if non-empty, becomes the workspace's workspace_wrapper.
+func testWorkspace(t *testing.T, wrapper string) *workspace.Workspace {
 	t.Helper()
 	root := t.TempDir()
 	write := func(rel, content string) {
@@ -21,6 +22,11 @@ func testWorkspace(t *testing.T) *workspace.Workspace {
 		}
 	}
 	write(".stew/projects.toml", `projects = ["api", "core"]`+"\n")
+	if wrapper == "" {
+		write(".stew/config.toml", workspace.ConfigTemplate)
+	} else {
+		write(".stew/config.toml", `workspace_wrapper = "`+wrapper+`"`+"\n")
+	}
 	write("core/stew.toml", `name = "core"
 dependencies = []
 [setup]
@@ -61,7 +67,7 @@ func phaseNames(job runner.Job) []string {
 }
 
 func TestBuildPlan(t *testing.T) {
-	ws := testWorkspace(t)
+	ws := testWorkspace(t, "")
 	tests := []struct {
 		command string
 		names   []string
@@ -101,6 +107,9 @@ func TestBuildPlan(t *testing.T) {
 			if got := phaseNames(job); !slices.Equal(got, tt.jobs[job.Project]) {
 				t.Errorf("%s %v: %s phases = %v, want %v", tt.command, tt.names, job.Project, got, tt.jobs[job.Project])
 			}
+			if len(job.Wrappers) != 0 {
+				t.Errorf("%s %v: %s wrappers = %v, want none", tt.command, tt.names, job.Project, job.Wrappers)
+			}
 		}
 	}
 
@@ -118,6 +127,19 @@ func TestBuildPlan(t *testing.T) {
 
 	if _, err := buildPlan(ws, "build", []string{"nope"}, workspace.LevelFull); err == nil {
 		t.Error("unknown project accepted")
+	}
+}
+
+func TestBuildPlanWrapper(t *testing.T) {
+	ws := testWorkspace(t, "tool exec . {{STEW_STEP}}")
+	plan, err := buildPlan(ws, "build", []string{"api"}, workspace.LevelFull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, job := range plan.Jobs {
+		if !slices.Equal(job.Wrappers, []string{"tool exec . {{STEW_STEP}}"}) {
+			t.Errorf("%s wrappers = %v, want [tool exec . {{STEW_STEP}}]", job.Project, job.Wrappers)
+		}
 	}
 }
 

@@ -24,6 +24,8 @@ cmp .stew/projects.toml want/empty.toml
 projects = ["libs/core"]
 -- want/empty.toml --
 projects = []
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["libs/core"]
 -- libs/core/stew.toml --

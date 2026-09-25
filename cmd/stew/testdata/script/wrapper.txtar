@@ -1,0 +1,94 @@
+# The workspace wrapper runs every step in the project directory, and its env reaches the command.
+exec chmod 755 bin/wrap-exec bin/wrap-fork
+env PATH=$WORK/bin:$PATH
+env TMPDIR=$WORK/tmp
+mkdir tmp
+exec stew ci
+stdout '^==> lib: ci\.full \.\.\. pass'
+cmp lib/seen want/seen
+exists wrap.log
+grep '^wrap-exec cwd='$WORK'/lib phase=setup root='$WORK'$' wrap.log
+grep '^wrap-exec cwd='$WORK'/lib phase=ci\.full root='$WORK'$' wrap.log
+
+# No step directory is left after the run, and no step file lands in the run directory.
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+exec sh -c 'ls -A .stew/runs/*/ | grep -c -e reach -e step || true'
+stdout '^0$'
+
+# Wrapper output on stdout and stderr lands in the logs unchanged.
+exec sh -c 'cat .stew/runs/*/lib-ci.full.stdout'
+stdout '^wrap-exec says hi on stdout$'
+exec sh -c 'cat .stew/runs/*/lib-ci.full.stderr'
+stdout '^wrap-exec says hi on stderr$'
+
+# run.json and runs show record the wrapper as written.
+exec sh -c 'cat .stew/runs/*/run.json'
+stdout '"workspace_wrapper": "wrap-exec \\"\$STEW_ROOT\\" \{\{STEW_STEP\}\}"'
+exec stew runs show latest
+stdout '^wrapper: wrap-exec "\$STEW_ROOT" \{\{STEW_STEP\}\}$'
+
+# A forking wrapper works the same.
+cp want/fork.toml .stew/config.toml
+rm lib/seen
+exec stew ci
+cmp lib/seen want/seen
+
+# A wrapper that sources a file from the project directory works the same.
+cp want/source.toml .stew/config.toml
+rm lib/seen
+exec stew ci
+cmp lib/seen want/seen
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
+# No wrapper: run.json records "", runs show prints no wrapper line, and no step directory is left.
+# Runs in the same second sort by random suffix, so clear old runs to make latest this one.
+cp want/none.toml .stew/config.toml
+rm .stew/runs
+exec stew ci
+exec sh -c 'cat .stew/runs/*/run.json'
+stdout '"workspace_wrapper": ""'
+exec stew runs show latest
+! stdout '^wrapper'
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
+-- .stew/config.toml --
+workspace_wrapper = 'wrap-exec "$STEW_ROOT" {{STEW_STEP}}'
+-- .stew/projects.toml --
+projects = ["lib"]
+-- lib/stew.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = "true"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = 'echo "WRAPPED=$WRAPPED STEW_PHASE=$STEW_PHASE STEW_PROJECT=$STEW_PROJECT" > seen'
+-- lib/env.sh --
+export WRAPPED=yes STEW_PHASE=clobbered STEW_PROJECT=clobbered
+-- bin/wrap-exec --
+#!/bin/sh
+echo "wrap-exec cwd=$(pwd) phase=$STEW_PHASE root=$1" >> "$STEW_ROOT/wrap.log"
+echo "wrap-exec says hi on stdout"
+echo "wrap-exec says hi on stderr" >&2
+shift
+export WRAPPED=yes STEW_PHASE=clobbered STEW_PROJECT=clobbered
+exec "$@"
+-- bin/wrap-fork --
+#!/bin/sh
+export WRAPPED=yes STEW_PHASE=clobbered STEW_PROJECT=clobbered
+"$@"
+exit $?
+-- want/seen --
+WRAPPED=yes STEW_PHASE=ci.full STEW_PROJECT=lib
+-- want/fork.toml --
+workspace_wrapper = "wrap-fork {{STEW_STEP}}"
+-- want/source.toml --
+workspace_wrapper = ". ./env.sh && {{STEW_STEP}}"
+-- want/none.toml --
+workspace_wrapper = ""

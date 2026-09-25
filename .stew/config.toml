@@ -1,0 +1,2 @@
+# Wraps every command stew runs. {{STEW_STEP}} marks where the command goes. "" means none.
+workspace_wrapper = "direnv exec . {{STEW_STEP}}"

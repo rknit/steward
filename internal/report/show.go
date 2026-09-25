@@ -34,9 +34,12 @@ type ShownSummary struct {
 }
 
 // Show writes the stew runs show page: a header, each phase line with its whole log, then the summary if sum is set.
-func Show(w io.Writer, id string, argv []string, phases []ShownPhase, sum *ShownSummary) {
+func Show(w io.Writer, id string, argv []string, workspaceWrapper string, phases []ShownPhase, sum *ShownSummary) {
 	var b bytes.Buffer
 	b.WriteString("run " + id + ": " + Command(argv) + "\n")
+	if workspaceWrapper != "" {
+		b.WriteString("wrapper: " + displayWrapper(workspaceWrapper) + "\n")
+	}
 
 	for _, p := range phases {
 		if p.Outcome.Status == runner.Blocked {
@@ -70,6 +73,14 @@ func Command(argv []string) string {
 		words = append(words, shellQuote(arg))
 	}
 	return strings.Join(words, " ")
+}
+
+// displayWrapper keeps a wrapper on one line: verbatim, or shell-quoted if it has control characters or invalid UTF-8.
+func displayWrapper(s string) string {
+	if utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return shellQuote(s)
 }
 
 var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"slices"
 	"syscall"
 	"time"
 
@@ -79,6 +80,16 @@ func runPhases(stdout io.Writer, argv []string, command string, names []string, 
 		}
 	}()
 
+	var steps runner.Steps
+	if slices.ContainsFunc(plan.Jobs, func(j runner.Job) bool { return len(j.Wrappers) > 0 }) {
+		d, err := runner.NewStepDir()
+		if err != nil {
+			return rejected(fmt.Errorf("cannot create step directory: %w", err))
+		}
+		defer d.Remove()
+		steps = d
+	}
+
 	logs, err := runlog.Create(filepath.Join(ws.Root, workspace.DirName), time.Now(), rand.Reader)
 	if err != nil {
 		return rejected(fmt.Errorf("cannot create run log directory: %w", err))
@@ -89,12 +100,13 @@ func runPhases(stdout io.Writer, argv []string, command string, names []string, 
 	for i, job := range plan.Jobs {
 		projects[i] = job.Project
 	}
-	if err := logs.Start(argv, plan.Columns, projects); err != nil {
+	if err := logs.Start(argv, ws.Wrapper, plan.Columns, projects); err != nil {
 		return rejected(fmt.Errorf("log error: %w", err))
 	}
 
 	r := &runner.Runner{
-		Exec: runner.Shell{KillDelay: killDelay, Force: force},
+		Exec:  runner.Shell{KillDelay: killDelay, Force: force},
+		Steps: steps,
 		OpenLog: func(project, phase string) (runner.PhaseLog, error) {
 			l, err := logs.OpenPhase(project, phase)
 			if err != nil {

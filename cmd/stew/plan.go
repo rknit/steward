@@ -2,6 +2,7 @@ package main
 
 import (
 	"path/filepath"
+	"slices"
 
 	"github.com/rknit/steward/internal/runner"
 	"github.com/rknit/steward/internal/workspace"
@@ -35,11 +36,17 @@ func buildPlan(ws *workspace.Workspace, command string, names []string, level wo
 			phases = append(phases, runner.Phase{Name: ciName, Used: "ci." + string(used), Run: run, CI: true})
 		}
 		plan.Jobs = append(plan.Jobs, runner.Job{
-			Project: p.Name,
-			Dir:     filepath.Join(ws.Root, filepath.FromSlash(p.Path)),
-			Deps:    p.Dependencies,
-			Phases:  phases,
+			Project:  p.Name,
+			Dir:      filepath.Join(ws.Root, filepath.FromSlash(p.Path)),
+			Deps:     p.Dependencies,
+			Phases:   phases,
+			Wrappers: wrappers(ws.Wrapper),
 		})
 	}
 	return plan, nil
+}
+
+// wrappers returns the non-empty wrappers, outermost first.
+func wrappers(all ...string) []string {
+	return slices.DeleteFunc(all, func(w string) bool { return w == "" })
 }

@@ -38,10 +38,11 @@ func TestShowSpecExample(t *testing.T) {
 		},
 	}
 	var b bytes.Buffer
-	Show(&b, "20260925T043601Z-3f9a", []string{"ci", "--level", "pre-commit"}, phases,
+	Show(&b, "20260925T043601Z-3f9a", []string{"ci", "--level", "pre-commit"}, "tool exec . {{STEW_STEP}}", phases,
 		&ShownSummary{Results: res, Total: ms(75004), Finished: true, Logs: ".stew/runs/20260925T043601Z-3f9a"})
 
 	want := `run 20260925T043601Z-3f9a: stew ci --level pre-commit
+wrapper: tool exec . {{STEW_STEP}}
 ==> core: setup ... skip (0.1s)
 --- stew: verify: test -d node_modules
 ==> core: build ... skip (0.0s)
@@ -91,7 +92,7 @@ func TestShowUnfinishedAndInterrupted(t *testing.T) {
 		Rows:    []runner.Row{{Project: "core", Cells: []runner.Cell{{Status: runner.Interrupted}, {Status: Unfinished, Fallback: "quick"}}}},
 	}
 	var b bytes.Buffer
-	Show(&b, "20260101T000001Z-0001", []string{"ci", "-l", "pre-commit"}, phases,
+	Show(&b, "20260101T000001Z-0001", []string{"ci", "-l", "pre-commit"}, "", phases,
 		&ShownSummary{Results: res, Logs: ".stew/runs/20260101T000001Z-0001"})
 
 	want := `run 20260101T000001Z-0001: stew ci -l pre-commit
@@ -121,13 +122,26 @@ func TestShowWithoutSummaryAndNoLog(t *testing.T) {
 		{Project: "api", Phase: build, Outcome: runner.Outcome{Status: runner.Fail, Duration: ms(1200), Cause: "log error: disk full"}},
 	}
 	var b bytes.Buffer
-	Show(&b, "20260101T000001Z-0001", []string{"build"}, phases, nil)
+	Show(&b, "20260101T000001Z-0001", []string{"build"}, "", phases, nil)
 	want := "run 20260101T000001Z-0001: stew build\n" +
 		"==> lib: setup ... skip (0.0s)\n" +
 		"==> api: build ... fail (1.2s)\n" +
 		"(log error: disk full)\n"
 	if b.String() != want {
 		t.Errorf("got:\n%q\nwant:\n%q", b.String(), want)
+	}
+}
+
+func TestShowWrapperHeader(t *testing.T) {
+	var b bytes.Buffer
+	Show(&b, "20260925T043601Z-3f9a", []string{"ci"}, "tool exec . {{STEW_STEP}}", nil, nil)
+	if got, want := b.String(), "run 20260925T043601Z-3f9a: stew ci\nwrapper: tool exec . {{STEW_STEP}}\n"; got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+	b.Reset()
+	Show(&b, "20260925T043601Z-3f9a", []string{"ci"}, "set -x\ntool exec . {{STEW_STEP}}", nil, nil)
+	if got, want := b.String(), "run 20260925T043601Z-3f9a: stew ci\nwrapper: $'set -x\\ntool exec . {{STEW_STEP}}'\n"; got != want {
+		t.Errorf("got %q\nwant %q", got, want)
 	}
 }
 

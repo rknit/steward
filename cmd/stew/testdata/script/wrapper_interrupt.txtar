@@ -1,0 +1,100 @@
+# Loops are bounded (10s) so a regression fails instead of hanging the suite.
+# SIGINT and SIGTERM reach a wrapped command through an exec-ing and a forking wrapper.
+# After stew exits, neither the wrapper, the step script, nor the command is still running, and the step directory
+# is gone.
+exec chmod 755 bin/wrap-exec bin/wrap-fork bin/interrupt bin/gone
+env PATH=$WORK/bin:$PATH
+env TMPDIR=$WORK/tmp
+mkdir tmp
+
+exec interrupt INT
+stdout '^exit=130$'
+! exists core/survived
+exec cat out
+stdout '^==> core: setup \.\.\. interrupted$'
+stdout '^got-int$'
+exec gone
+stdout '^gone$'
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
+exec interrupt TERM
+stdout '^exit=143$'
+! exists core/survived
+exec cat out
+stdout '^==> core: setup \.\.\. interrupted$'
+stdout '^got-term$'
+exec gone
+stdout '^gone$'
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
+cp want/fork.toml .stew/config.toml
+
+exec interrupt INT
+stdout '^exit=130$'
+! exists core/survived
+exec cat out
+stdout '^==> core: setup \.\.\. interrupted$'
+stdout '^got-int$'
+exec gone
+stdout '^gone$'
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
+exec interrupt TERM
+stdout '^exit=143$'
+! exists core/survived
+exec cat out
+stdout '^==> core: setup \.\.\. interrupted$'
+stdout '^got-term$'
+exec gone
+stdout '^gone$'
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
+-- .stew/config.toml --
+workspace_wrapper = "wrap-exec {{STEW_STEP}}"
+-- .stew/projects.toml --
+projects = ["core"]
+-- core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = "echo $$ > cmd.pid; echo $PPID > step.pid; trap 'echo got-int; exit 1' INT; trap 'echo got-term; exit 1' TERM; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; touch survived"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- bin/wrap-exec --
+#!/bin/sh
+echo $$ > "$STEW_ROOT/wrapper.pid"
+exec "$@"
+-- bin/wrap-fork --
+#!/bin/sh
+echo $$ > "$STEW_ROOT/wrapper.pid"
+"$@"
+exit $?
+-- bin/interrupt --
+#!/bin/sh
+rm -f core/started core/survived
+stew build > out 2>&1 &
+pid=$!
+i=0
+while [ ! -f core/started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done
+kill -"$1" $pid
+wait $pid
+echo "exit=$?"
+-- bin/gone --
+#!/bin/sh
+alive() {
+  for f in wrapper.pid core/step.pid core/cmd.pid; do kill -0 "$(cat $f)" 2>/dev/null && return 0; done
+  return 1
+}
+i=0
+while alive && [ $i -lt 40 ]; do sleep 0.05; i=$((i+1)); done
+if alive; then echo lingering; else echo gone; fi
+-- want/fork.toml --
+workspace_wrapper = "wrap-fork {{STEW_STEP}}"

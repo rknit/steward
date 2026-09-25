@@ -43,12 +43,15 @@ func TestManifestSaves(t *testing.T) {
 	build := runner.Phase{Name: "build", Used: "build"}
 	ciFB := runner.Phase{Name: "ci.pre-commit", Used: "ci.quick", CI: true}
 
-	if err := run.Start([]string{"ci", "--level", "pre-commit"}, []string{"setup", "build", "ci.pre-commit"}, []string{"core", "api", "web"}); err != nil {
+	if err := run.Start([]string{"ci", "--level", "pre-commit"}, "tool exec .", []string{"setup", "build", "ci.pre-commit"}, []string{"core", "api", "web"}); err != nil {
 		t.Fatal(err)
 	}
 	m, raw := readManifest(t, run)
 	if len(m.Phases) != 0 || !strings.Contains(raw, `"phases": []`) || strings.Contains(raw, "total_ms") {
 		t.Errorf("after Start: %s", raw)
+	}
+	if !strings.Contains(raw, `"workspace_wrapper": "tool exec ."`) || m.WorkspaceWrapper != "tool exec ." {
+		t.Errorf("after Start: workspace_wrapper missing or wrong: %s", raw)
 	}
 
 	steps := []error{
@@ -67,9 +70,10 @@ func TestManifestSaves(t *testing.T) {
 
 	got, raw := readManifest(t, run)
 	want := Manifest{
-		Argv:     []string{"ci", "--level", "pre-commit"},
-		Columns:  []string{"setup", "build", "ci.pre-commit"},
-		Projects: []string{"core", "api", "web"},
+		Argv:             []string{"ci", "--level", "pre-commit"},
+		WorkspaceWrapper: "tool exec .",
+		Columns:          []string{"setup", "build", "ci.pre-commit"},
+		Projects:         []string{"core", "api", "web"},
 		Phases: []PhaseRecord{
 			{Project: "core", Phase: "setup", Used: "setup", Status: "skip", DurationMS: i64(104)},
 			{Project: "core", Phase: "ci.pre-commit", Used: "ci.quick", Status: "pass", DurationMS: i64(8210)},
@@ -101,8 +105,11 @@ func TestManifestSaveErrors(t *testing.T) {
 	}
 	run := newRun(t)
 	setup := runner.Phase{Name: "setup", Used: "setup"}
-	if err := run.Start([]string{"build"}, []string{"setup", "build"}, []string{"core", "api", "lib"}); err != nil {
+	if err := run.Start([]string{"build"}, "", []string{"setup", "build"}, []string{"core", "api", "lib"}); err != nil {
 		t.Fatal(err)
+	}
+	if _, raw := readManifest(t, run); !strings.Contains(raw, `"workspace_wrapper": ""`) {
+		t.Errorf("empty wrapper omitted from run.json: %s", raw)
 	}
 	if err := os.Chmod(run.Dir, 0o555); err != nil {
 		t.Fatal(err)
@@ -154,6 +161,17 @@ func TestManifestSaveErrors(t *testing.T) {
 	}
 	if m.Phases[1].Status != "fail" || m.Phases[1].Cause != "exit 1" {
 		t.Errorf("next save did not keep the already-fail record's cause: %+v", m.Phases[1])
+	}
+}
+
+func TestManifestWithoutWrapperField(t *testing.T) {
+	dir := t.TempDir()
+	runDir := filepath.Join(dir, "runs", "20260925T043601Z-3f9a")
+	os.MkdirAll(runDir, 0o755)
+	os.WriteFile(filepath.Join(runDir, ManifestName), []byte(`{"argv":["build"],"columns":["setup","build"],"projects":[],"phases":[]}`), 0o644)
+	run, err := Load(dir, "20260925T043601Z-3f9a")
+	if err != nil || run.Manifest.WorkspaceWrapper != "" {
+		t.Errorf("run = %+v, err = %v", run, err)
 	}
 }
 

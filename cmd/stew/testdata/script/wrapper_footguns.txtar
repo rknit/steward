@@ -1,0 +1,202 @@
+# Each wrapper below ends without running the command: the phase fails with the wrapper cause and ran never exists.
+exec chmod 755 bin/failing-tool bin/wait-finished
+env PATH=$WORK/bin:$PATH
+
+cp cfg/comment.toml .stew/config.toml
+! exec stew build
+stdout '^\(wrapper did not run the command \(exit 2\)\)$'
+! exists lib/ran
+
+cp cfg/echo.toml .stew/config.toml
+! exec stew build
+stdout '^\(wrapper did not run the command \(exit 0\)\)$'
+! exists lib/ran
+
+cp cfg/false-and.toml .stew/config.toml
+! exec stew build
+stdout '^\(wrapper did not run the command \(exit 1\)\)$'
+! exists lib/ran
+
+cp cfg/missing.toml .stew/config.toml
+! exec stew build
+stdout '^\(wrapper did not run the command \(exit 127\)\)$'
+stdout 'no-such-tool-for-stew: .*not found'
+! exists lib/ran
+
+# A loop runs the command twice, and the phase fails.
+cp cfg/loop.toml .stew/config.toml
+cp lib/count.toml lib/stew.toml
+! exec stew build
+stdout '^\(wrapper ran the command 2 times \(exit 0\)\)$'
+exec sh -c 'wc -l < lib/count'
+stdout '^ *2$'
+
+# A pre-run verify through a failing wrapper fails the phase; run never runs.
+cp cfg/failing.toml .stew/config.toml
+cp lib/verify.toml lib/stew.toml
+! exec stew build
+stdout '^\(wrapper did not run the command \(exit 2\)\)$'
+stdout '^--- stew: verify: test -f ran$'
+! stdout 'stew: run: touch ran'
+! exists lib/ran
+
+# ";" keeps sh meaning: the command runs after the failing tool.
+cp cfg/semicolon.toml .stew/config.toml
+cp lib/plain.toml lib/stew.toml
+exec stew build
+exists lib/ran
+rm lib/ran
+
+# A command that fails after the wrapper ran it has a plain exit cause.
+cp cfg/true-and.toml .stew/config.toml
+cp lib/failing.toml lib/stew.toml
+! exec stew build
+stdout '^\(exit 3\)$'
+
+# The step's result is the command's own exit status. What the wrapper does after the command is ignored.
+cp cfg/or-true.toml .stew/config.toml
+cp lib/exit7.toml lib/stew.toml
+! exec stew build
+stdout '^==> lib: build \.\.\. fail'
+stdout '^\(exit 7\)$'
+
+cp cfg/echo-post.toml .stew/config.toml
+cp lib/failing.toml lib/stew.toml
+! exec stew build
+stdout '^==> lib: build \.\.\. fail'
+stdout 'post'
+stdout '^\(exit 3\)$'
+
+cp cfg/then-false.toml .stew/config.toml
+cp lib/plain.toml lib/stew.toml
+exec stew build
+stdout '^==> lib: build \.\.\. done'
+exists lib/ran
+rm lib/ran
+
+# A wrapper that backgrounds the command exits before it finishes, and the phase fails.
+# The command waits for lib/release, so it finishes only after stew has exited.
+cp cfg/background.toml .stew/config.toml
+cp lib/background.toml lib/stew.toml
+! exec stew build
+stdout '^==> lib: build \.\.\. fail'
+stdout '^\(wrapper exited before the command finished \(exit 0\)\)$'
+! exists lib/finished
+exec touch lib/release
+exec wait-finished
+stdout '^finished$'
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+-- .stew/projects.toml --
+projects = ["lib"]
+-- lib/stew.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = "touch ran"
+verify = ""
+[ci.full]
+run = ""
+-- lib/plain.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = "touch ran"
+verify = ""
+[ci.full]
+run = ""
+-- lib/count.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = "echo x >> count"
+verify = ""
+[ci.full]
+run = ""
+-- lib/verify.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = "touch ran"
+verify = "test -f ran"
+[ci.full]
+run = ""
+-- lib/failing.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = "exit 3"
+verify = ""
+[ci.full]
+run = ""
+-- lib/exit7.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = "exit 7"
+verify = ""
+[ci.full]
+run = ""
+-- lib/background.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = "touch started; i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; touch finished; exit 3"
+verify = ""
+[ci.full]
+run = ""
+-- bin/wait-finished --
+#!/bin/sh
+i=0
+while [ ! -f lib/finished ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done
+if [ -f lib/finished ]; then echo finished; else echo unfinished; fi
+-- bin/failing-tool --
+#!/bin/sh
+echo "failing-tool: broken on purpose" >&2
+exit 2
+-- cfg/comment.toml --
+workspace_wrapper = "failing-tool # {{STEW_STEP}}"
+-- cfg/echo.toml --
+workspace_wrapper = "echo {{STEW_STEP}}"
+-- cfg/false-and.toml --
+workspace_wrapper = "false && {{STEW_STEP}}"
+-- cfg/missing.toml --
+workspace_wrapper = "no-such-tool-for-stew {{STEW_STEP}}"
+-- cfg/loop.toml --
+workspace_wrapper = "for i in 1 2; do {{STEW_STEP}}; done"
+-- cfg/failing.toml --
+workspace_wrapper = "failing-tool {{STEW_STEP}}"
+-- cfg/semicolon.toml --
+workspace_wrapper = "failing-tool ; {{STEW_STEP}}"
+-- cfg/true-and.toml --
+workspace_wrapper = "true && {{STEW_STEP}}"
+-- cfg/or-true.toml --
+workspace_wrapper = "{{STEW_STEP}} || true"
+-- cfg/echo-post.toml --
+workspace_wrapper = "{{STEW_STEP}}; echo post"
+-- cfg/then-false.toml --
+workspace_wrapper = "{{STEW_STEP}}; false"
+-- cfg/background.toml --
+workspace_wrapper = "{{STEW_STEP}} >/dev/null 2>&1 & i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"

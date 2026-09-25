@@ -75,6 +75,8 @@ cp want/broken.toml core/stew.toml
 exec stew runs show latest --porcelain
 stdout '^core\tsetup\tdone\t'
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["api", "app", "core", "webapi"]
 -- core/stew.toml --

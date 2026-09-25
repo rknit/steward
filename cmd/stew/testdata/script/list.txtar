@@ -38,8 +38,12 @@ stderr '^stew: project "libs/core": missing stew.toml$'
 api	services/api	core
 core	libs/core	
 web	apps/web	api,core
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["apps/web", "libs/core", "services/api"]
+-- empty/.stew/config.toml --
+workspace_wrapper = ""
 -- empty/.stew/projects.toml --
 projects = []
 -- libs/core/stew.toml --

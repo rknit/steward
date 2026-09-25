@@ -51,10 +51,11 @@ func (p Phase) Fallback() string {
 
 // Job is one project's work in a plan.
 type Job struct {
-	Project string
-	Dir     string   // absolute directory the commands run in
-	Deps    []string // direct dependency names
-	Phases  []Phase
+	Project  string
+	Dir      string   // absolute directory the commands run in
+	Deps     []string // direct dependency names
+	Phases   []Phase
+	Wrappers []string // non-empty wrappers, outermost first; each contains StepPlaceholder once
 }
 
 // Plan is the ordered work for one stew run.
@@ -107,31 +108,49 @@ type Result struct {
 	ExitCode int
 	Signal   string // e.g. "SIGKILL"; set when the command was killed by a signal
 	Err      error  // set when the command could not start
+	Wrapped  bool   // the command ran through wrappers
+	Reaches  int    // with Wrapped: how many times the wrappers ran the command
+	// Unfinished is set with Wrapped and Reaches 1 when the wrappers exited before the command finished.
+	// Then the other fields are the outermost wrapper's result; after a finished single reach, they are the command's.
+	Unfinished bool
 }
 
-// OK reports whether the command exited 0.
+// WrapperFailed reports whether wrappers ran the command other than exactly once, or exited before it finished.
+func (r Result) WrapperFailed() bool { return r.Wrapped && (r.Reaches != 1 || r.Unfinished) }
+
+// OK reports whether the command ran once and exited 0.
 func (r Result) OK() bool {
-	return r.Err == nil && r.Signal == "" && r.ExitCode == 0
+	return !r.WrapperFailed() && r.Err == nil && r.Signal == "" && r.ExitCode == 0
 }
 
 // Cause describes the result for the content area's last line.
 func (r Result) Cause() string {
+	var cause string
 	switch {
 	case r.Err != nil:
-		return "cannot start: " + r.Err.Error()
+		cause = "cannot start: " + r.Err.Error()
 	case r.Signal != "":
-		return "signal " + r.Signal
+		cause = "signal " + r.Signal
 	default:
-		return fmt.Sprintf("exit %d", r.ExitCode)
+		cause = fmt.Sprintf("exit %d", r.ExitCode)
 	}
+	switch {
+	case r.Wrapped && r.Reaches == 0:
+		return "wrapper did not run the command (" + cause + ")"
+	case r.Wrapped && r.Reaches > 1:
+		return fmt.Sprintf("wrapper ran the command %d times (%s)", r.Reaches, cause)
+	case r.Wrapped && r.Unfinished:
+		return "wrapper exited before the command finished (" + cause + ")"
+	}
+	return cause
 }
 
-// Executor runs one shell command in dir, with env ("KEY=value") added to stew's own environment and replacing
+// Executor runs argv in dir, with env ("KEY=value") added to stew's own environment and replacing
 // any inherited value of the same key. When ctx is done it stops the command: cause Interrupt{SIGINT}
 // sends SIGINT to the group and waits; cause Interrupt{SIGTERM} or Interrupt{SIGHUP} sends that signal to
 // the group, then SIGKILL after KillDelay; any other cause sends SIGTERM, then SIGKILL after KillDelay.
 type Executor interface {
-	Run(ctx context.Context, dir string, env []string, cmd string, stdout, stderr io.Writer) Result
+	Run(ctx context.Context, dir string, env []string, argv []string, stdout, stderr io.Writer) Result
 }
 
 // PhaseLog is the on-disk log of one phase.
@@ -140,6 +159,16 @@ type PhaseLog interface {
 	Stderr() io.Writer
 	Marker(step, cmd string) error
 	Close() error
+}
+
+// Steps prepares what a wrapped step runs, then reports how many times its command ran and how it exited.
+type Steps interface {
+	// Prepare writes the step's scripts for key ("<project>-<phase>") and returns the argv that runs cmd
+	// inside wrappers, outermost first.
+	Prepare(key string, wrappers, env []string, cmd string) ([]string, error)
+	// Collect returns how many times the step's command ran and, when its last run finished, its exit status.
+	// Then it removes the step's files.
+	Collect(key string) (reaches, status int, finished bool, err error)
 }
 
 // Cell is one summary table cell. The zero Cell prints as "-".

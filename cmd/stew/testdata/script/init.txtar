@@ -1,7 +1,8 @@
-# init creates the registry and the .gitignore.
+# init creates the registry, the config, and the .gitignore.
 exec stew init
 stdout 'initialized .*/\.stew$'
 cmp .stew/projects.toml want/projects.toml
+cmp .stew/config.toml want/config.toml
 cmp .stew/.gitignore want/gitignore
 
 # A second init is rejected with exit 1.
@@ -17,5 +18,8 @@ stdout '^exit=2$'
 
 -- want/projects.toml --
 projects = []
+-- want/config.toml --
+# Wraps every command stew runs. {{STEW_STEP}} marks where the command goes. "" means none.
+workspace_wrapper = ""
 -- want/gitignore --
 runs/

@@ -21,5 +21,7 @@ stderr '^stew: unknown command "shw" for "stew runs"$'
 exec stew runs
 stdout '^Usage:$'
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = []

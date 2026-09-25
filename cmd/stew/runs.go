@@ -201,7 +201,7 @@ func showRun(stdout, stderr io.Writer, id string, patterns []string, porcelain, 
 		}
 	}
 	var b bytes.Buffer
-	report.Show(&b, id, run.Manifest.Argv, phases, sum)
+	report.Show(&b, id, run.Manifest.Argv, run.Manifest.WorkspaceWrapper, phases, sum)
 	if err := page(stdout, stderr, b.Bytes(), !noPager && isTerminal(stdout)); err != nil {
 		return rejected(err)
 	}

@@ -9,6 +9,8 @@ stdout '^│ core    │ interrupted │ -     │$'
 stdout '^│ lib     │ -           │ -     │$'
 ! exists lib/ran
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["core", "lib"]
 -- core/stew.toml --

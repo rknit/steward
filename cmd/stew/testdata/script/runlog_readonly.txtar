@@ -7,6 +7,8 @@ stdout '^exit=1$'
 stderr 'cannot create run log directory'
 ! exists core/ran
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["core"]
 -- .stew/runs/.keep --

@@ -12,6 +12,8 @@ stdout '^logs: \.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}$'
 ! exists lib/ran
 ! exists core/survived
 
+-- .stew/config.toml --
+workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = ["core", "lib"]
 -- core/stew.toml --

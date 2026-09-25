@@ -1,0 +1,30 @@
+# The pre-commit hook runs through the wrapper, so the command gets the wrapper's environment.
+[!exec:git] skip 'git not installed'
+exec chmod 755 bin/wrap-env
+exec git init -q
+exec stew git install pre-commit
+exec git add -A
+env PATH=$WORK/bin:$PATH
+exec git commit -q -m first
+stderr '^==> core: ci\.pre-commit -> ci\.full \.\.\. pass'
+
+-- .stew/config.toml --
+workspace_wrapper = "wrap-env {{STEW_STEP}}"
+-- .stew/.gitignore --
+runs/
+-- .stew/projects.toml --
+projects = ["core"]
+-- core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = 'test "$FROM_WRAPPER" = yes'
+-- bin/wrap-env --
+#!/bin/sh
+FROM_WRAPPER=yes exec "$@"
