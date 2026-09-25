@@ -1,0 +1,16 @@
+name = "steward"
+dependencies = []
+
+# Each phase: `verify` runs first; exit 0 skips `run`.
+# Otherwise `run` runs, then `verify` confirms. Empty strings are no-ops.
+[setup]
+run = "go mod tidy"
+verify = ""
+
+[build]
+run = "go build ./..."
+verify = ""
+
+# Levels: pre-commit falls back to quick, quick falls back to full.
+[ci.full]
+run = "go test ./..."
