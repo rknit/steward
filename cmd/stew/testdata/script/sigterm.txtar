@@ -4,13 +4,12 @@ exec sh -c 'stew build > out 2>&1 & pid=$!; i=0; while [ ! -f core/started ] && 
 stdout '^exit=143$'
 exec cat out
 stdout '^==> core: setup \.\.\. interrupted$'
+stdout '^got-term$'
 stdout '^│ core    │ interrupted │ -     │$'
 stdout '^│ lib     │ -           │ -     │$'
 stdout '^total: \d+\.\ds$'
 stdout '^logs: \.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}$'
 ! exists lib/ran
-
-exec sleep 2.5
 ! exists core/survived
 
 -- .stew/projects.toml --
@@ -19,7 +18,7 @@ projects = ["core", "lib"]
 name = "core"
 dependencies = []
 [setup]
-run = "touch started; i=0; while [ $i -lt 40 ]; do sleep 0.05; i=$((i+1)); done; touch survived"
+run = "trap 'echo got-term; exit 1' TERM; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; touch survived"
 verify = ""
 [build]
 run = ""

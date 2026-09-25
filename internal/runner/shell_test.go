@@ -15,16 +15,23 @@ import (
 // boundedLoop keeps a command busy for at most 10 s, so a regression fails a test instead of hanging the suite.
 const boundedLoop = "i=0; while [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done"
 
-func runShell(t *testing.T, ctx context.Context, dir, cmd string) (Result, string, string) {
+const (
+	// slowKillDelay never elapses in a passing test; waiting it out means the behavior under test broke.
+	slowKillDelay = 10 * time.Second
+	// fastKillDelay is for tests that wait out KillDelay on purpose.
+	fastKillDelay = 50 * time.Millisecond
+)
+
+func runShell(t *testing.T, ctx context.Context, killDelay time.Duration, dir, cmd string) (Result, string, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	res := Shell{KillDelay: 2 * time.Second}.Run(ctx, dir, cmd, &stdout, &stderr)
+	res := Shell{KillDelay: killDelay}.Run(ctx, dir, cmd, &stdout, &stderr)
 	return res, stdout.String(), stderr.String()
 }
 
 func TestShellExitAndStreams(t *testing.T) {
 	dir := t.TempDir()
-	res, out, errOut := runShell(t, context.Background(), dir, "pwd; echo oops >&2; exit 3")
+	res, out, errOut := runShell(t, context.Background(), slowKillDelay, dir, "pwd; echo oops >&2; exit 3")
 	if res != (Result{ExitCode: 3}) {
 		t.Errorf("result = %+v", res)
 	}
@@ -38,14 +45,14 @@ func TestShellExitAndStreams(t *testing.T) {
 }
 
 func TestShellStdinIsDevNull(t *testing.T) {
-	res, out, _ := runShell(t, context.Background(), t.TempDir(), "cat; echo eof")
+	res, out, _ := runShell(t, context.Background(), slowKillDelay, t.TempDir(), "cat; echo eof")
 	if !res.OK() || out != "eof\n" {
 		t.Errorf("result = %+v, stdout = %q", res, out)
 	}
 }
 
 func TestShellCannotStart(t *testing.T) {
-	res, _, _ := runShell(t, context.Background(), filepath.Join(t.TempDir(), "missing"), "true")
+	res, _, _ := runShell(t, context.Background(), slowKillDelay, filepath.Join(t.TempDir(), "missing"), "true")
 	if res.Err == nil {
 		t.Errorf("result = %+v, want start error", res)
 	}
@@ -54,14 +61,13 @@ func TestShellCannotStart(t *testing.T) {
 func TestShellAlreadyCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	cancel(ErrInterrupted)
-	res, _, _ := runShell(t, ctx, t.TempDir(), "touch ran")
+	res, _, _ := runShell(t, ctx, slowKillDelay, t.TempDir(), "touch ran")
 	if !errors.Is(res.Err, ErrInterrupted) {
 		t.Errorf("result = %+v", res)
 	}
 }
 
 // TestShellCancelKillsGroup checks SIGTERM reaches the whole process group, including a grandchild.
-// The grandchild inherits stdout, so if it survived, Run would wait out WaitDelay (KillDelay, 2s) for the pipe to close.
 func TestShellCancelKillsGroup(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancelCause(context.Background())
@@ -71,13 +77,15 @@ func TestShellCancelKillsGroup(t *testing.T) {
 		cancelledAt <- time.Now()
 		cancel(errors.New("log error"))
 	}()
-	res, _, _ := runShell(t, ctx, dir, "sh -c 'sleep 30' & touch started; wait")
+	res, _, _ := runShell(t, ctx, slowKillDelay, dir,
+		`sh -c 'trap "touch grandchild-term; exit" TERM; touch started; sleep 30 & wait' & wait`)
 	if res.Signal != "SIGTERM" {
 		t.Errorf("result = %+v, want SIGTERM", res)
 	}
 	if took := time.Since(<-cancelledAt); took >= time.Second {
-		t.Errorf("Run returned %v after cancel; the grandchild kept stdout open, so it was not signalled", took)
+		t.Errorf("Run returned %v after cancel; the grandchild kept stdout open", took)
 	}
+	waitForFile(t, filepath.Join(dir, "grandchild-term"))
 }
 
 func TestShellCancelEscalatesToKill(t *testing.T) {
@@ -87,7 +95,7 @@ func TestShellCancelEscalatesToKill(t *testing.T) {
 		waitForFile(t, filepath.Join(dir, "started"))
 		cancel(errors.New("log error"))
 	}()
-	res, _, _ := runShell(t, ctx, dir, "trap '' TERM; touch started; "+boundedLoop)
+	res, _, _ := runShell(t, ctx, fastKillDelay, dir, "trap '' TERM; touch started; "+boundedLoop)
 	if res.Signal != "SIGKILL" {
 		t.Errorf("result = %+v, want SIGKILL", res)
 	}
@@ -100,7 +108,8 @@ func TestShellInterruptSendsSIGINT(t *testing.T) {
 		waitForFile(t, filepath.Join(dir, "started"))
 		cancel(ErrInterrupted)
 	}()
-	res, out, _ := runShell(t, ctx, dir, "trap 'echo got-int; exit 7' INT; touch started; "+boundedLoop)
+	res, out, _ := runShell(t, ctx, slowKillDelay, dir,
+		"trap 'echo got-int; exit 7' INT; touch started; "+boundedLoop)
 	if res != (Result{ExitCode: 7}) || out != "got-int\n" {
 		t.Errorf("result = %+v, stdout = %q", res, out)
 	}
@@ -113,7 +122,7 @@ func TestShellInterruptSendsSIGTERM(t *testing.T) {
 		waitForFile(t, filepath.Join(dir, "started"))
 		cancel(Interrupt{Signal: syscall.SIGTERM})
 	}()
-	res, out, _ := runShell(t, ctx, dir,
+	res, out, _ := runShell(t, ctx, slowKillDelay, dir,
 		"trap 'echo got-term; exit 7' TERM; touch started; "+boundedLoop)
 	if res != (Result{ExitCode: 7}) || out != "got-term\n" {
 		t.Errorf("result = %+v, stdout = %q", res, out)
@@ -127,20 +136,22 @@ func TestShellInterruptSIGTERMEscalatesToKill(t *testing.T) {
 		waitForFile(t, filepath.Join(dir, "started"))
 		cancel(Interrupt{Signal: syscall.SIGTERM})
 	}()
-	res, _, _ := runShell(t, ctx, dir, "trap '' TERM; touch started; "+boundedLoop)
+	res, _, _ := runShell(t, ctx, fastKillDelay, dir, "trap '' TERM; touch started; "+boundedLoop)
 	if res.Signal != "SIGKILL" {
 		t.Errorf("result = %+v, want SIGKILL", res)
 	}
 }
 
+// TestShellBackgroundProcessDoesNotHang checks Run stops waiting on stdout held open by a background process once
+// WaitDelay (KillDelay) passes.
 func TestShellBackgroundProcessDoesNotHang(t *testing.T) {
 	start := time.Now()
-	res, out, _ := runShell(t, context.Background(), t.TempDir(), "sleep 5 & echo started")
+	res, out, _ := runShell(t, context.Background(), fastKillDelay, t.TempDir(), "sleep 5 & echo started")
 	if !res.OK() || out != "started\n" {
 		t.Errorf("result = %+v, stdout = %q", res, out)
 	}
-	if time.Since(start) > 10*time.Second {
-		t.Errorf("took %v", time.Since(start))
+	if took := time.Since(start); took >= 2*time.Second {
+		t.Errorf("took %v; want Run to return once WaitDelay (%v) passes", took, fastKillDelay)
 	}
 }
 
@@ -154,7 +165,7 @@ func waitForFile(t *testing.T, path string) {
 	t.Errorf("timed out waiting for %s", path)
 }
 
-// TestShellForceKillsAfterInterrupt checks that closing Force SIGKILLs a command that ignores the forwarded SIGINT.
+// TestShellForceKillsAfterInterrupt checks that closing Force SIGKILLs a command that survives the forwarded SIGINT.
 func TestShellForceKillsAfterInterrupt(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancelCause(context.Background())
@@ -162,13 +173,13 @@ func TestShellForceKillsAfterInterrupt(t *testing.T) {
 	go func() {
 		waitForFile(t, filepath.Join(dir, "started"))
 		cancel(ErrInterrupted)
-		time.Sleep(100 * time.Millisecond)
+		waitForFile(t, filepath.Join(dir, "got-int"))
 		close(force)
 	}()
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	res := Shell{KillDelay: 2 * time.Second, Force: force}.Run(ctx, dir,
-		"trap '' INT; touch started; "+boundedLoop, &stdout, &stderr)
+	res := Shell{KillDelay: slowKillDelay, Force: force}.Run(ctx, dir,
+		"trap 'touch got-int' INT; touch started; "+boundedLoop, &stdout, &stderr)
 	if res.Signal != "SIGKILL" {
 		t.Errorf("result = %+v, want SIGKILL", res)
 	}
@@ -186,17 +197,17 @@ func TestShellForceSkipsKillDelay(t *testing.T) {
 	go func() {
 		waitForFile(t, filepath.Join(dir, "started"))
 		cancel(Interrupt{Signal: syscall.SIGTERM})
-		time.Sleep(100 * time.Millisecond)
+		waitForFile(t, filepath.Join(dir, "got-term"))
 		close(force)
 	}()
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	res := Shell{KillDelay: 2 * time.Second, Force: force}.Run(ctx, dir,
-		"trap '' TERM; touch started; "+boundedLoop, &stdout, &stderr)
+	res := Shell{KillDelay: slowKillDelay, Force: force}.Run(ctx, dir,
+		"trap 'touch got-term' TERM; touch started; "+boundedLoop, &stdout, &stderr)
 	if res.Signal != "SIGKILL" {
 		t.Errorf("result = %+v, want SIGKILL", res)
 	}
 	if took := time.Since(start); took >= 2*time.Second {
-		t.Errorf("took %v; want the force kill before KillDelay (2s)", took)
+		t.Errorf("took %v; want the force kill well before KillDelay (%v)", took, slowKillDelay)
 	}
 }
