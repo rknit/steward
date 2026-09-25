@@ -1,4 +1,5 @@
-// Package report renders runner events: phase lines, the progress animation, failure content, and the summary.
+// Package report renders runner events: phase lines, the progress animation, failure content, the summary,
+// and the stew runs show page.
 package report
 
 import (

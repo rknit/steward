@@ -1,4 +1,5 @@
-// Package runlog stores every command's output for one stew run under .stew/runs/<run-id>/.
+// Package runlog stores every command's output for one stew run under .stew/runs/<run-id>/,
+// and saves, loads, and validates its run.json manifest.
 package runlog
 
 import (
@@ -9,16 +10,18 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 // maxAttempts bounds retries when a generated run directory already exists.
 const maxAttempts = 16
 
-// Run is one run's log directory.
+// Run is one run's log directory and, once started or loaded, its manifest.
 type Run struct {
-	ID  string
-	Dir string
+	ID       string
+	Dir      string
+	Manifest Manifest
 }
 
 // Create makes <stewDir>/runs/<run-id>/. The ID is the UTC time plus 4 random hex digits read from rand.
@@ -47,44 +50,65 @@ func Create(stewDir string, now time.Time, rand io.Reader) (*Run, error) {
 	return nil, fmt.Errorf("could not create a unique run directory in %s", runs)
 }
 
-// PhaseLog is the stdout/stderr file pair of one project phase.
+// PhaseLog is the stdout, stderr, and combined log files of one project phase.
 type PhaseLog struct {
-	stdout, stderr *os.File
+	stdout, stderr, combined *os.File
+	mu                       sync.Mutex
 }
 
-// OpenPhase creates <project>-<phase>.stdout and .stderr. Both files must not exist yet.
+// OpenPhase creates <project>-<phase>.stdout, .stderr, and .log. None of them may exist yet.
 func (r *Run) OpenPhase(project, phase string) (*PhaseLog, error) {
 	base := filepath.Join(r.Dir, project+"-"+phase)
 	const flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL | os.O_APPEND
-	stdout, err := os.OpenFile(base+".stdout", flags, 0o644)
-	if err != nil {
-		return nil, err
+	var files []*os.File
+	for _, ext := range []string{".stdout", ".stderr", ".log"} {
+		f, err := os.OpenFile(base+ext, flags, 0o644)
+		if err != nil {
+			for _, open := range files {
+				open.Close()
+			}
+			return nil, err
+		}
+		files = append(files, f)
 	}
-	stderr, err := os.OpenFile(base+".stderr", flags, 0o644)
-	if err != nil {
-		stdout.Close()
-		return nil, err
-	}
-	return &PhaseLog{stdout: stdout, stderr: stderr}, nil
+	return &PhaseLog{stdout: files[0], stderr: files[1], combined: files[2]}, nil
 }
 
-// Stdout returns the writer for the phase's stdout file.
-func (l *PhaseLog) Stdout() io.Writer { return l.stdout }
+// Stdout returns the writer for the phase's stdout; it also writes to the combined log.
+func (l *PhaseLog) Stdout() io.Writer { return &streamWriter{log: l, file: l.stdout} }
 
-// Stderr returns the writer for the phase's stderr file.
-func (l *PhaseLog) Stderr() io.Writer { return l.stderr }
+// Stderr returns the writer for the phase's stderr; it also writes to the combined log.
+func (l *PhaseLog) Stderr() io.Writer { return &streamWriter{log: l, file: l.stderr} }
 
-// Marker writes "--- stew: <step>: <cmd>" to both files.
+// streamWriter writes one stream to its own file and to the combined log, holding the lock so each write stays whole.
+type streamWriter struct {
+	log  *PhaseLog
+	file *os.File
+}
+
+func (w *streamWriter) Write(p []byte) (int, error) {
+	w.log.mu.Lock()
+	defer w.log.mu.Unlock()
+	if n, err := w.file.Write(p); err != nil {
+		return n, err
+	}
+	return w.log.combined.Write(p)
+}
+
+// Marker writes "--- stew: <step>: <cmd>" to all three files.
 func (l *PhaseLog) Marker(step, cmd string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	line := "--- stew: " + step + ": " + cmd + "\n"
-	if _, err := io.WriteString(l.stdout, line); err != nil {
-		return err
+	for _, f := range []*os.File{l.stdout, l.stderr, l.combined} {
+		if _, err := io.WriteString(f, line); err != nil {
+			return err
+		}
 	}
-	_, err := io.WriteString(l.stderr, line)
-	return err
+	return nil
 }
 
-// Close closes both files and returns the first error.
+// Close closes all three files and returns the errors joined.
 func (l *PhaseLog) Close() error {
-	return errors.Join(l.stdout.Close(), l.stderr.Close())
+	return errors.Join(l.stdout.Close(), l.stderr.Close(), l.combined.Close())
 }

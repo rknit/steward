@@ -23,6 +23,7 @@ stew setup [name...]
 stew build [name...]
 stew ci [name...] [-l/--level full|quick|pre-commit]
 stew git install pre-commit
+stew runs show <run-id> [<project-phase-regex>...] [--porcelain] [--no-pager]
 ```
 
 - Projects are referenced only by `name`. Only `stew add` takes a path.
@@ -45,8 +46,11 @@ stew git install pre-commit
     projects.toml          # committed; the registry
     runs/                  # ignored; per-run command logs
       20260925T043601Z-3f9a/
+        run.json
+        core-setup.log
         core-setup.stdout
         core-setup.stderr
+        core-build.log
         core-build.stdout
         core-build.stderr
   libs/core/stew.toml
@@ -81,16 +85,22 @@ Every `setup`, `build`, or `ci` invocation is one run. Each run captures all com
   `.stew/runs/` itself is created on demand.
 - **Run ID.** `<UTC time>-<4 random hex>`, e.g. `20260925T043601Z-3f9a`. IDs sort by start time.
   The directory is created with `os.Mkdir`. If it already exists, a new random suffix is drawn.
-- **Files.** `<project>-<phase>.stdout` and `<project>-<phase>.stderr`, e.g. `api-build.stderr`.
-  - One run directory holds a pair for every project-phase the run executed.
+- **Files.** `<project>-<phase>.stdout`, `<project>-<phase>.stderr`, and `<project>-<phase>.log`,
+  e.g. `api-build.stderr`. `<project>-<phase>` is the phase's key.
+  - One run directory holds a triple for every project-phase the run executed.
     Because phases are cumulative, `stew ci api` writes `core-setup`, `core-build`, `api-setup`, `api-build`,
-    and `api-ci.<level>` pairs into the same directory.
+    and `api-ci.<level>` triples into the same directory.
   - For CI, `<phase>` is the level that ran after fallback, e.g. `api-ci.quick.stdout`.
-  - A phase that runs at least one command gets both files, even if one stays empty.
+  - `.log` holds stdout and stderr combined, in the order stew received the writes, with no stream tags.
+    It holds the same bytes as the live failure replay; order across the two streams is approximate.
+    A mutex keeps each write whole.
+  - A phase that runs at least one command gets all three files, even if some stay empty.
+    They are created together. If one cannot be created, the phase does not start.
   - A phase that runs no command (`skip` with both commands `""`, or `blocked`) gets no files.
-  - Each step in a phase appends to the same pair of files, in step order. That includes a pre-run `verify`.
-- **Step markers.** Before each step's output, stew writes one line to both files:
+  - Each step in a phase appends to the same files, in step order. That includes a pre-run `verify`.
+- **Step markers.** Before each step's output, stew writes one line to all three files:
   `--- stew: <step>: <cmd>`, where `<step>` is `verify`, `run`, or `verify after run`.
+- **Manifest.** `run.json` records the run for `stew runs show` (see Run Manifest).
 - **Location in output.** After the summary and total, stew prints `logs: .stew/runs/<run-id>` (root-relative).
 - **Log errors.** No command runs without a complete log.
   - Run directory cannot be created: the command exits 1 before any phase runs.
@@ -101,6 +111,52 @@ Every `setup`, `build`, or `ci` invocation is one run. Each run captures all com
     It is handled like any other `fail`: the project stops, its dependents are `blocked`,
     and independent projects keep running.
 - **Retention.** Runs are never deleted automatically. `stew prune` is planned for later.
+
+### Run Manifest (`run.json`)
+
+```json
+{
+  "argv": ["ci", "--level", "pre-commit"],
+  "columns": ["setup", "build", "ci.pre-commit"],
+  "projects": ["core", "api", "web"],
+  "phases": [
+    {"project": "core", "phase": "setup", "used": "setup", "status": "skip", "duration_ms": 104},
+    {"project": "core", "phase": "build", "used": "build", "status": "skip", "duration_ms": 31},
+    {"project": "core", "phase": "ci.pre-commit", "used": "ci.quick", "status": "pass", "duration_ms": 8210},
+    {"project": "api", "phase": "setup", "used": "setup", "status": "skip", "duration_ms": 95},
+    {"project": "api", "phase": "build", "used": "build", "status": "fail", "duration_ms": 63012, "cause": "exit 1"},
+    {"project": "web", "phase": "setup", "used": "setup", "status": "blocked", "blocked_by": ["api"]}
+  ],
+  "total_ms": 75004
+}
+```
+
+| Field           | Content                                                                        |
+| --------------- | ------------------------------------------------------------------------------ |
+| `argv`          | Arguments after `stew`, for the `stew runs show` header.                       |
+| `columns`       | Summary columns, as in the live summary.                                       |
+| `projects`      | Selected projects in execution order: the summary rows.                        |
+| `phases`        | Phases that ended or were blocked, in execution order.                         |
+| `phase`, `used` | Requested and actual phase name. They differ only on CI fallback.              |
+| `duration_ms`   | Phase duration in milliseconds. Absent on `blocked` and `interrupted`.         |
+| `cause`         | Content area last line without parentheses. Only on `fail` and `interrupted`.  |
+| `blocked_by`    | Direct dependencies that failed or were blocked. Only on `blocked`.            |
+| `total_ms`      | Run wall time in milliseconds. Present only once the run has finished.         |
+
+- JSON via `encoding/json`. The file is machine-written only.
+- Every save rewrites the whole file from memory: a temp file in the run directory, then rename.
+  A failed save is repaired by the next successful one.
+- Saves happen at run start, after each phase ends or is blocked, and at run end.
+- A phase that started but has no entry has a `.log` whose key is missing from `phases`.
+  Execution is sequential, so at most one exists, unless phase-end saves failed. Several are sorted by key.
+- Save errors follow the log error rules:
+
+  | Save fails at | Effect                                                                                    |
+  | ------------- | ----------------------------------------------------------------------------------------- |
+  | Run start     | Exit 1 before any phase runs, like a run directory that cannot be created.               |
+  | Phase end     | The phase becomes `fail` with last line `(log error: <error>)`, unless it already is `fail` or `interrupted`. Dependents are `blocked`; independent projects keep running. The record is kept as that `fail`; the next successful save includes it. |
+  | Blocked       | Nothing else changes. The next successful save includes it.                              |
+  | Run end       | `stew: log error: <error>` on stderr. Exit 1 if the exit code would otherwise be 0.      |
 
 ### `stew.toml`
 
@@ -430,9 +486,116 @@ logs: .stew/runs/20260925T043601Z-3f9a
 | Code | Meaning                                                                                              |
 | ---- | ---------------------------------------------------------------------------------------------------- |
 | 0    | Success.                                                                                             |
-| 1    | A phase failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed.   |
+| 1    | A phase failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no match or an unreadable run. |
 | 2    | Invalid CLI usage or invalid workspace configuration.                                                |
 | 130  | Interrupted by Ctrl-C (SIGINT). SIGTERM exits 143 and SIGHUP exits 129.                              |
+
+## `stew runs show <run-id> [<project-phase-regex>...] [--porcelain] [--no-pager]`
+
+Shows a past or running run from its logs.
+
+- Root discovery only. The workspace is not loaded or validated, so logs stay readable while a `stew.toml` is broken.
+- `<run-id>` is an exact run ID or `latest`, the ID that sorts last in `.stew/runs/`.
+- Selection:
+  - Each regex is Go RE2 and must match the whole phase key `<project>-<phase>`, e.g. `api-build`, `api-.*`,
+    `.*-ci\..*`. `api` does not match `webapi-build`.
+  - `<phase>` is the level used after fallback (`ci.quick`), as in the log file names.
+  - Several regexes are OR-ed. No regex selects every phase of the run.
+- Errors:
+
+  | Case                                  | Message                    | Exit |
+  | ------------------------------------- | -------------------------- | ---- |
+  | Unknown run ID, or `latest` with none | `unknown run "<id>"`       | 2    |
+  | Invalid regex                         | the regex error            | 2    |
+  | Regexes given, no phase matches       | `no phase matches`         | 1    |
+  | No `run.json`                         | `run <id> has no run.json` | 1    |
+  | `run.json` unreadable or invalid      | `read run <id>: <error>`   | 1    |
+
+  Runs recorded before `run.json` existed have no fallback reader.
+
+### Default Output
+
+The live plain format, without animation, plus one header line.
+Example: `stew runs show latest` for the run in Run Manifest, where `api` depends on `core` and `web` on `api`.
+
+```
+run 20260925T043601Z-3f9a: stew ci --level pre-commit
+==> core: setup ... skip (0.1s)
+--- stew: verify: test -d node_modules
+==> core: build ... skip (0.0s)
+--- stew: verify: test -f dist/index.js
+==> core: ci.pre-commit -> ci.quick ... pass (8.2s)
+--- stew: run: npm run lint
+lint ok
+==> api: setup ... skip (0.1s)
+--- stew: verify: test -d node_modules
+==> api: build ... fail (1m3s)
+--- stew: verify: test -f dist/index.js
+--- stew: run: npm run build
+
+> api@1.0.0 build
+> tsc
+
+src/db.ts(12,5): error TS2322: Type 'string' is not assignable to type 'number'.
+src/api.ts(40,1): error TS2304: Cannot find name 'handler'.
+done in 4.1s
+--- stew: verify after run: test -f dist/index.js
+(exit 1)
+==> web: setup ... blocked by api
+┌─────────┬─────────┬───────┬───────────────┐
+│ project │ setup   │ build │ ci.pre-commit │
+├─────────┼─────────┼───────┼───────────────┤
+│ core    │ skip    │ skip  │ pass (quick)  │
+│ api     │ skip    │ fail  │ -             │
+│ web     │ blocked │ -     │ -             │
+└─────────┴─────────┴───────┴───────────────┘
+total: 1m15s
+logs: .stew/runs/20260925T043601Z-3f9a
+```
+
+- **Header.** `run <id>: stew <argv>`, with each argument shell-quoted when needed.
+- **Order.** Matched phases in execution order, from `run.json`.
+- **Phase line.** Identical to the live line, including `<requested> -> <used>` and `blocked by <names>`.
+- **Body.** Every phase that ran a command prints its whole `.log` verbatim, markers included.
+  - This includes `done`, `skip`, and `pass` phases, and a failed pre-run `verify`.
+  - A newline is added if the log does not end in one.
+- **Last line.** `(<cause>)` after `fail` and `interrupted`, as in the live output.
+- **No command.** `blocked` and a `skip` with both commands `""` print the line only.
+- **Summary.** The summary table, `total:`, and `logs:` lines print only when no regex is given.
+- **Unfinished run** (still running, or stew was killed):
+  - A phase without an entry prints `==> <project>: <phase> ... unfinished`, then its partial `.log`.
+    No duration, no last line. Such phases print after all phases in `run.json`.
+  - Its project and used phase come from the `.log` name. A used `ci.*` level maps to the CI column in `columns`,
+    which gives the requested name for the phase line and summary cell.
+  - Its summary cell is `unfinished`. The `total:` line is `total: unfinished`.
+  - Stew cannot tell a running run from a killed one, so both use the same word.
+- **Stream order.** stdout and stderr share one body in arrival order. Order within one stream is exact.
+  Across streams it is approximate, as in the live replay: tools often buffer stdout when it is a pipe,
+  and the two streams are copied on separate goroutines. The `.stdout` and `.stderr` files keep them apart.
+
+### `--porcelain`
+
+One line per matched phase, in execution order, and nothing else:
+
+```
+<project>\t<phase>\t<status>\t<duration-ms>\t<log-path>
+```
+
+- `<phase>` is the level used. `<status>` is a status word or `unfinished`.
+- `<duration-ms>` is `-` when there is no duration.
+- `<log-path>` is root-relative, e.g. `.stew/runs/<id>/api-build.log`, or `-` when the phase has no log.
+- Never paged.
+
+### Paging
+
+- The default output goes through a pager only when stdout is a terminal (the reporter's TTY check).
+- Pager: the first non-empty value of `STEW_PAGER`, `PAGER`, then `less`, run as `sh -c "<pager>"`.
+- If `LESS` is unset, the pager gets `LESS=FRX`: quit if the output fits one screen, pass escape codes,
+  keep the output on screen after quitting.
+- `--no-pager`, `STEW_PAGER=cat`, or `PAGER=cat` disables paging.
+- If the pager cannot run (`sh` fails to start, or exits 126 or 127), stew prints the whole page directly.
+- While the pager runs, stew catches and drops SIGINT, so Ctrl-C reaches only the pager.
+- Quitting the pager early is not an error: stew ignores the broken pipe, waits for the pager, and exits 0.
 
 ## `stew git install pre-commit`
 
@@ -459,14 +622,16 @@ logs: .stew/runs/20260925T043601Z-3f9a
 
 ```
 cmd/stew/            main: cobra commands, error → exit code mapping
+  runs.go            `runs show`: run lookup, regex selection, porcelain lines
+  pager.go           pager choice, LESS default, direct-output fallback, broken-pipe handling
 internal/workspace/
   root.go            Find(cwd) → root
   registry.go        load/save .stew/projects.toml
   project.go         stew.toml schema, strict parse, required-key checks, add template
   graph.go           name index, dependency validation, cycle detection, Select(names) → plan
 internal/runner/     plan execution: phase algorithm, level resolution, blocked propagation, results
-internal/report/     phase lines, progress animation, failure replay, summary table
-internal/runlog/     run ID, run directory, per-phase log files and step markers
+internal/report/     phase lines, progress animation, failure replay, summary table, `runs show` page
+internal/runlog/     run ID, run directory, per-phase log files and step markers, run.json save/load
 internal/githook/    hooks-dir lookup via git, hook install
 ```
 
@@ -482,6 +647,14 @@ internal/githook/    hooks-dir lookup via git, hook install
 - `runner` builds each writer as a tee: log file plus the phase's combined replay buffer.
   The combined buffer is guarded by a mutex, because `os/exec` copies stdout and stderr on separate goroutines.
 - `runlog` gives `runner` a writer pair per phase. `runner` does not know file paths.
+  Each writer also writes to the phase's `.log`, so `runner` is unaware of the combined file.
+- `runner` records results through a `Recorder` interface: `PhaseEnd(project, ph, out) error` and
+  `Blocked(project, ph, by) error`. Each is called before the matching `Reporter` event,
+  so a `PhaseEnd` save error can still turn the phase into `fail`. `runlog` implements it by saving `run.json`.
+- `runlog` also provides `Load(stewDir, id)` and `Latest(stewDir)`, and finds the unfinished phase from `.log` names.
+- `report` builds the `runs show` page from a loaded run. It reuses the phase-line, duration, and summary helpers,
+  and rebuilds the summary from `run.json`.
+- The pager's TTY check and environment are injected, so tests can drive it.
 - A log write error cancels the command's context. The real `Executor` then signals the command's process group
   (SIGTERM, SIGKILL after 5 s). The phase then fails like any other.
 - `report` has two `Reporter` implementations: TTY (animated) and plain. `cmd/stew` picks one by checking whether
@@ -531,12 +704,21 @@ internal/githook/    hooks-dir lookup via git, hook install
   - log write failure mid-command: the command's context is cancelled and the phase reports `fail`;
   - in both phase cases, dependents are `blocked` and independent projects still run.
 - Final results and exit status.
+- `Recorder`:
+  - called in execution order for phase end and blocked, and not called for phases after an interrupt;
+  - a `PhaseEnd` error turns `done`, `skip`, or `pass` into `fail` with `(log error: ...)`;
+    dependents are `blocked` and independent projects still run;
+  - a `PhaseEnd` error never overrides `fail` or `interrupted`.
 
 ### Unit: `runlog`
 
 - Run ID format and sort order; retry with a new suffix when the directory already exists.
 - File names, including CI fallback level; both files created; step markers in both files; append order.
 - Creation and write errors are returned to the caller, never swallowed.
+- `.log`: markers once per step; both streams in write order; created with the pair or not at all.
+- `run.json`: round trip; atomic save leaves no temp file; `total_ms` only after the run-end save.
+- `Latest` over several IDs; unknown ID; missing `run.json`; invalid JSON.
+- Unfinished phase: a `.log` without an entry is found; none when all logs have entries.
 
 ### Unit: `report`
 
@@ -549,6 +731,16 @@ internal/githook/    hooks-dir lookup via git, hook install
 - TTY reporter: a fake ticker drives frames `.` → `..` → `...` → `.`; the final redraw clears the line.
 - Summary: exact bytes for the example above, including `total:` and `logs:` lines; column widths, `-` cells,
   fallback cells.
+- `runs show` page: exact bytes for the Default Output example; body without a trailing newline;
+  argv shell quoting; unfinished phase, `unfinished` cell, and `total: unfinished`; no summary when regexes are given.
+
+### Unit: pager
+
+- `STEW_PAGER` → `PAGER` → `less` precedence; empty values skipped.
+- `LESS=FRX` set only when `LESS` is unset.
+- No pager when stdout is not a TTY, with `--porcelain`, or with `--no-pager`.
+- A pager that cannot start falls back to direct output.
+- A pager that exits early gives exit 0.
 
 ### Integration: testscript
 
@@ -572,6 +764,15 @@ internal/githook/    hooks-dir lookup via git, hook install
 - Output under testscript is not a TTY, so it matches the plain format with no escape codes.
 - Cumulative phases and dependency selection with real `sh`.
 - Exit codes 0, 1, 2.
+- Run logs: `run.json` and a `.log` per phase exist after `build`.
+- A phase command that makes the run directory read-only: that phase reports `fail` with `(log error: ...)`, exit 1.
+- `runs show`:
+  - `latest` and an exact ID after a failing `build`: phase lines, full bodies, summary;
+  - regex selection, several regexes OR-ed, whole-key matching (`api` does not match `webapi-build`);
+  - `--porcelain` lines;
+  - no match exits 1; invalid regex exits 2; unknown run exits 2; missing `run.json` exits 1;
+  - works while a `stew.toml` is invalid;
+  - output is not paged under testscript.
 
 ### Integration: git hook
 
@@ -588,6 +789,8 @@ internal/githook/    hooks-dir lookup via git, hook install
 ## Out of Scope (v1)
 
 - `stew prune`
+- `stew runs list`
+- Colors in the `runs show` page
 - Parallel execution
 - Changed-only selection (`--staged`, `--since`)
 - Windows

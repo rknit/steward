@@ -1,0 +1,34 @@
+# A run.json save that fails at phase end turns that phase into a log error failure.
+# core's setup makes the run directory read-only while it runs.
+[root] skip 'root ignores directory permissions'
+exec sh -c 'stew build > out 2> err; echo "exit=$?"; chmod 0755 .stew/runs/*'
+stdout '^exit=1$'
+grep '^==> core: setup \.\.\. fail \(\d+\.\ds\)$' out
+grep '^\(log error: .*permission denied\)$' out
+grep '^==> app: setup \.\.\. blocked by core$' out
+grep '^stew: log error: .*permission denied$' err
+
+-- .stew/projects.toml --
+projects = ["app", "core"]
+-- core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = "chmod 0555 ../.stew/runs/*"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- app/stew.toml --
+name = "app"
+dependencies = ["core"]
+[setup]
+run = "echo never"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""

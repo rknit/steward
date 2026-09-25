@@ -102,9 +102,25 @@ func TestPhaseLog(t *testing.T) {
 	if got, want := read("api-ci.quick.stderr"), "--- stew: verify: test -f x\nerr1\n--- stew: run: make\n"; got != want {
 		t.Errorf("stderr = %q, want %q", got, want)
 	}
+	if got, want := read("api-ci.quick.log"), "--- stew: verify: test -f x\nout1\nerr1\n--- stew: run: make\nout2\n"; got != want {
+		t.Errorf("log = %q, want %q", got, want)
+	}
 
 	if _, err := run.OpenPhase("api", "ci.quick"); err == nil {
 		t.Error("reopening an existing phase log succeeded")
+	}
+}
+
+func TestOpenPhaseExistingLog(t *testing.T) {
+	run, err := Create(t.TempDir(), now, bytes.NewReader([]byte{1, 2}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(run.Dir, "api-build.log"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run.OpenPhase("api", "build"); err == nil {
+		t.Error("OpenPhase with an existing .log succeeded")
 	}
 }
 

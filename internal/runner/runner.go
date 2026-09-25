@@ -16,6 +16,7 @@ type Runner struct {
 	Exec    Executor
 	OpenLog func(project, phase string) (PhaseLog, error)
 	Report  Reporter
+	Record  Recorder
 	Now     func() time.Time
 }
 
@@ -52,6 +53,7 @@ func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 		if len(by) > 0 {
 			slices.SortFunc(by, func(a, b string) int { return position[a] - position[b] })
 			first := job.Phases[0]
+			_ = r.Record.Blocked(job.Project, first, by)
 			r.Report.Blocked(job.Project, first, by)
 			cells[column[first.Name]] = Cell{Status: Blocked}
 			stopped[job.Project] = true
@@ -68,6 +70,9 @@ func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 			start := r.Now()
 			out := r.phase(ctx, job, ph)
 			out.Duration = r.Now().Sub(start)
+			if err := r.Record.PhaseEnd(job.Project, ph, out); err != nil {
+				out = LogErrorOutcome(out, err)
+			}
 			r.Report.PhaseEnd(job.Project, ph, out)
 			cells[column[ph.Name]] = Cell{Status: out.Status, Fallback: ph.Fallback()}
 

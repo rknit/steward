@@ -31,13 +31,20 @@ exists core/artifact
 exists core/stdin-got
 ! grep . core/stdin-got
 
-# One run dir with a stdout/stderr pair per phase that ran a command.
+# One run dir with a stdout/stderr/log triple per phase that ran a command.
 exec sh -c 'cd .stew/runs/* && ls'
 cmp stdout want/files
 exec sh -c 'cat .stew/runs/*/api-build.stdout'
 cmp stdout want/api-build.stdout
 exec sh -c 'cat .stew/runs/*/api-build.stderr'
 cmp stdout want/api-build.stderr
+exec sh -c 'cat .stew/runs/*/api-build.log'
+stdout '^--- stew: run: echo api-build-out; echo api-build-err >&2; exit 3$'
+stdout '^api-build-out$'
+stdout '^api-build-err$'
+exec sh -c 'cat .stew/runs/*/run.json'
+stdout '"cause": "exit 3"'
+stdout '"total_ms": \d+'
 
 # Second run: verify passes, so core's phases skip.
 exec stew build core
@@ -87,12 +94,16 @@ verify = ""
 run = ""
 -- api/src/.keep --
 -- want/files --
+api-build.log
 api-build.stderr
 api-build.stdout
+core-build.log
 core-build.stderr
 core-build.stdout
+core-setup.log
 core-setup.stderr
 core-setup.stdout
+run.json
 -- want/api-build.stdout --
 --- stew: run: echo api-build-out; echo api-build-err >&2; exit 3
 api-build-out

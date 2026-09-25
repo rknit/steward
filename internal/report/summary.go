@@ -11,6 +11,11 @@ import (
 
 // Summary writes the bordered results table, then the total run time and the logs directory.
 func Summary(w io.Writer, res *runner.Results, total time.Duration, logs string) {
+	summary(w, res, FormatDuration(total), logs)
+}
+
+// summary writes the table, then "total: <total>" and "logs: <logs>".
+func summary(w io.Writer, res *runner.Results, total, logs string) {
 	table := [][]string{append([]string{"project"}, res.Columns...)}
 	for _, row := range res.Rows {
 		line := []string{row.Project}
@@ -22,7 +27,7 @@ func Summary(w io.Writer, res *runner.Results, total time.Duration, logs string)
 
 	var b strings.Builder
 	Table(&b, table)
-	b.WriteString("total: " + FormatDuration(total) + "\n")
+	b.WriteString("total: " + total + "\n")
 	b.WriteString("logs: " + logs + "\n")
 	io.WriteString(w, b.String())
 }

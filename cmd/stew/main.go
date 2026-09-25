@@ -38,7 +38,7 @@ func invalid(err error) error { return &exitError{code: 2, err: err} }
 // run executes stew with args and returns the exit code. Errors not wrapped in exitError come from
 // cobra (unknown command, bad flag, wrong argument count) and are usage errors.
 func run(args []string, stdout, stderr io.Writer) int {
-	root := newRootCmd(stdout)
+	root := newRootCmd(stdout, args)
 	root.SetArgs(args)
 	root.SetOut(stdout)
 	root.SetErr(stderr)
@@ -56,7 +56,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return ee.code
 }
 
-func newRootCmd(stdout io.Writer) *cobra.Command {
+func newRootCmd(stdout io.Writer, argv []string) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "stew",
 		Short:         "Stack-agnostic monorepo orchestrator",
@@ -69,10 +69,11 @@ func newRootCmd(stdout io.Writer) *cobra.Command {
 		newAddCmd(stdout),
 		newRemoveCmd(stdout),
 		newListCmd(stdout),
-		newPhaseCmd(stdout, "setup", "Set up projects and their dependencies"),
-		newPhaseCmd(stdout, "build", "Set up and build projects and their dependencies"),
-		newPhaseCmd(stdout, "ci", "Set up and build dependencies, then run CI for projects"),
+		newPhaseCmd(stdout, argv, "setup", "Set up projects and their dependencies"),
+		newPhaseCmd(stdout, argv, "build", "Set up and build projects and their dependencies"),
+		newPhaseCmd(stdout, argv, "ci", "Set up and build dependencies, then run CI for projects"),
 		newGitCmd(stdout),
+		newRunsCmd(stdout),
 	)
 	return root
 }

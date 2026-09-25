@@ -23,13 +23,13 @@ import (
 // killDelay is how long a stopped command gets between SIGTERM and SIGKILL.
 const killDelay = 5 * time.Second
 
-func newPhaseCmd(stdout io.Writer, command, short string) *cobra.Command {
+func newPhaseCmd(stdout io.Writer, argv []string, command, short string) *cobra.Command {
 	var level string
 	cmd := &cobra.Command{
 		Use:   command + " [name...]",
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPhases(stdout, command, args, level)
+			return runPhases(stdout, argv, command, args, level)
 		},
 	}
 	if command == "ci" {
@@ -38,7 +38,7 @@ func newPhaseCmd(stdout io.Writer, command, short string) *cobra.Command {
 	return cmd
 }
 
-func runPhases(stdout io.Writer, command string, names []string, levelFlag string) error {
+func runPhases(stdout io.Writer, argv []string, command string, names []string, levelFlag string) error {
 	level := workspace.LevelFull
 	if command == "ci" {
 		l, err := workspace.ParseLevel(levelFlag)
@@ -84,6 +84,13 @@ func runPhases(stdout io.Writer, command string, names []string, levelFlag strin
 		return rejected(fmt.Errorf("cannot create run log directory: %w", err))
 	}
 	start := time.Now()
+	projects := make([]string, len(plan.Jobs))
+	for i, job := range plan.Jobs {
+		projects[i] = job.Project
+	}
+	if err := logs.Start(argv, plan.Columns, projects); err != nil {
+		return rejected(fmt.Errorf("log error: %w", err))
+	}
 
 	r := &runner.Runner{
 		Exec: runner.Shell{KillDelay: killDelay, Force: force},
@@ -95,11 +102,17 @@ func runPhases(stdout io.Writer, command string, names []string, levelFlag strin
 			return l, nil
 		},
 		Report: newReporter(stdout),
+		Record: logs,
 		Now:    time.Now,
 	}
 	res := r.Run(ctx, plan)
-	report.Summary(stdout, res, time.Since(start), path.Join(workspace.DirName, "runs", logs.ID))
-	if code := res.ExitCode(); code != 0 {
+	total := time.Since(start)
+	report.Summary(stdout, res, total, path.Join(workspace.DirName, "runs", logs.ID))
+	code := res.ExitCode()
+	if err := logs.Finish(total); err != nil {
+		return &exitError{code: max(code, 1), err: fmt.Errorf("log error: %w", err)}
+	}
+	if code != 0 {
 		return &exitError{code: code}
 	}
 	return nil
@@ -107,10 +120,18 @@ func runPhases(stdout io.Writer, command string, names []string, levelFlag strin
 
 // newReporter animates when stdout is a terminal and prints plain lines otherwise.
 func newReporter(stdout io.Writer) runner.Reporter {
-	if f, ok := stdout.(*os.File); ok {
-		if info, err := f.Stat(); err == nil && info.Mode()&os.ModeCharDevice != 0 {
-			return report.NewTTY(stdout)
-		}
+	if isTerminal(stdout) {
+		return report.NewTTY(stdout)
 	}
 	return &report.Plain{W: stdout}
+}
+
+// isTerminal reports whether w is a character device, such as a terminal.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := f.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }

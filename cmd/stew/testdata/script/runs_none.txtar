@@ -1,0 +1,14 @@
+# latest with no runs is an unknown run.
+exec sh -c 'stew runs show latest; echo "exit=$?"'
+stdout '^exit=2$'
+stderr '^stew: unknown run "latest"$'
+
+# An unknown subcommand of a command group is a usage error; bare "runs" prints help and exits 0.
+exec sh -c 'stew runs shw latest; echo "exit=$?"'
+stdout '^exit=2$'
+stderr '^stew: unknown command "shw" for "stew runs"$'
+exec stew runs
+stdout '^Usage:$'
+
+-- .stew/projects.toml --
+projects = []

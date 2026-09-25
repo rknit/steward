@@ -471,3 +471,83 @@ func TestResultCause(t *testing.T) {
 		}
 	}
 }
+
+func TestRecorderCalls(t *testing.T) {
+	script := okScript("core", "api", "backend", "app", "lib")
+	script["core-setup"] = []fakeCmd{{exit: 2}}
+	h := newHarness(script)
+	h.r.Run(context.Background(), diamond())
+
+	want := []string{
+		"end core setup fail",
+		"blocked api setup by core",
+		"blocked backend setup by core",
+		"blocked app setup by api, backend",
+		"end lib setup done",
+		"end lib build done",
+	}
+	if !slices.Equal(h.record.calls, want) {
+		t.Errorf("record calls:\n%s\nwant:\n%s", strings.Join(h.record.calls, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestRecordErrorFailsPhase(t *testing.T) {
+	h := newHarness(okScript("core", "api", "backend", "app", "lib"))
+	h.record.failPhase["core setup"] = true
+	res := h.r.Run(context.Background(), diamond())
+
+	out := h.rec.outcomes["core setup"]
+	if out.Status != Fail || out.Cause != "log error: read-only file system" || out.Duration != time.Second {
+		t.Errorf("outcome = %+v", out)
+	}
+	if !slices.Contains(h.rec.events, "blocked api setup by core") || !slices.Contains(h.rec.events, "end lib build done") {
+		t.Errorf("events = %q", h.rec.events)
+	}
+	if slices.Contains(h.rec.events, "start core build") {
+		t.Errorf("core kept running after its record failed: %q", h.rec.events)
+	}
+	if res.ExitCode() != 1 {
+		t.Errorf("exit = %d", res.ExitCode())
+	}
+}
+
+func TestRecordErrorKeepsFailCause(t *testing.T) {
+	script := okScript("core", "api", "backend", "app", "lib")
+	script["core-setup"] = []fakeCmd{{exit: 2}}
+	h := newHarness(script)
+	h.record.failPhase["core setup"] = true
+	h.r.Run(context.Background(), diamond())
+	if out := h.rec.outcomes["core setup"]; out.Status != Fail || out.Cause != "exit 2" {
+		t.Errorf("outcome = %+v", out)
+	}
+}
+
+func TestRecordErrorKeepsInterrupted(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	script := okScript("core", "api", "backend", "app", "lib")
+	script["core-setup"] = []fakeCmd{{during: func() { cancel(ErrInterrupted) }}}
+	h := newHarness(script)
+	h.record.failPhase["core setup"] = true
+	h.r.Run(ctx, diamond())
+	if out := h.rec.outcomes["core setup"]; out.Status != Interrupted {
+		t.Errorf("outcome = %+v", out)
+	}
+	if !slices.Equal(h.record.calls, []string{"end core setup interrupted"}) {
+		t.Errorf("record calls after interrupt = %q", h.record.calls)
+	}
+}
+
+func TestBlockedRecordErrorChangesNothing(t *testing.T) {
+	script := okScript("core", "api", "backend", "app", "lib")
+	script["core-setup"] = []fakeCmd{{exit: 2}}
+	h := newHarness(script)
+	h.record.failBlocked = true
+	res := h.r.Run(context.Background(), diamond())
+	if !slices.Contains(h.rec.events, "blocked app setup by api, backend") || !slices.Contains(h.rec.events, "end lib build done") {
+		t.Errorf("events = %q", h.rec.events)
+	}
+	if res.ExitCode() != 1 {
+		t.Errorf("exit = %d", res.ExitCode())
+	}
+}

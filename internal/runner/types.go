@@ -78,11 +78,28 @@ type Outcome struct {
 	Cause    string       // "exit 2", "signal SIGINT", "cannot start: ...", "log error: ..."; Fail and Interrupted only
 }
 
+// LogErrorOutcome turns a Recorder save error into the outcome it makes the phase report.
+// It returns out unchanged if its Status is already Fail or Interrupted; otherwise it returns
+// a Fail outcome with the same Duration and Cause "log error: " + err.Error().
+func LogErrorOutcome(out Outcome, err error) Outcome {
+	if out.Status == Fail || out.Status == Interrupted {
+		return out
+	}
+	return Outcome{Status: Fail, Duration: out.Duration, Cause: "log error: " + err.Error()}
+}
+
 // Reporter receives progress events.
 type Reporter interface {
 	PhaseStart(project string, ph Phase)
 	PhaseEnd(project string, ph Phase, out Outcome)
 	Blocked(project string, ph Phase, by []string)
+}
+
+// Recorder persists phase results. It is called before the matching Reporter event.
+// A PhaseEnd error turns a phase that has not already failed or been interrupted into a log error failure.
+type Recorder interface {
+	PhaseEnd(project string, ph Phase, out Outcome) error
+	Blocked(project string, ph Phase, by []string) error
 }
 
 // Result is how one command ended.

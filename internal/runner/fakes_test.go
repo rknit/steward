@@ -143,23 +143,48 @@ func (r *recorder) Blocked(project string, ph Phase, by []string) {
 	r.events = append(r.events, fmt.Sprintf("blocked %s %s by %s", project, ph.Name, strings.Join(by, ", ")))
 }
 
+// fakeRecord records Recorder calls. failPhase makes PhaseEnd fail for "<project> <phase>".
+type fakeRecord struct {
+	calls       []string
+	failPhase   map[string]bool
+	failBlocked bool
+}
+
+func (f *fakeRecord) PhaseEnd(project string, ph Phase, out Outcome) error {
+	f.calls = append(f.calls, fmt.Sprintf("end %s %s %s", project, ph.Name, out.Status))
+	if f.failPhase[project+" "+ph.Name] {
+		return errors.New("read-only file system")
+	}
+	return nil
+}
+
+func (f *fakeRecord) Blocked(project string, ph Phase, by []string) error {
+	f.calls = append(f.calls, fmt.Sprintf("blocked %s %s by %s", project, ph.Name, strings.Join(by, ", ")))
+	if f.failBlocked {
+		return errors.New("read-only file system")
+	}
+	return nil
+}
+
 // harness wires a Runner to the fakes.
 type harness struct {
-	clock *fakeClock
-	exec  *fakeExec
-	logs  *fakeLogs
-	rec   *recorder
-	r     *Runner
+	clock  *fakeClock
+	exec   *fakeExec
+	logs   *fakeLogs
+	rec    *recorder
+	record *fakeRecord
+	r      *Runner
 }
 
 func newHarness(script map[string][]fakeCmd) *harness {
 	clock := &fakeClock{t: time.Unix(0, 0)}
 	h := &harness{
-		clock: clock,
-		exec:  &fakeExec{clock: clock, script: script},
-		logs:  newFakeLogs(),
-		rec:   &recorder{},
+		clock:  clock,
+		exec:   &fakeExec{clock: clock, script: script},
+		logs:   newFakeLogs(),
+		rec:    &recorder{},
+		record: &fakeRecord{failPhase: map[string]bool{}},
 	}
-	h.r = &Runner{Exec: h.exec, OpenLog: h.logs.Open, Report: h.rec, Now: clock.Now}
+	h.r = &Runner{Exec: h.exec, OpenLog: h.logs.Open, Report: h.rec, Record: h.record, Now: clock.Now}
 	return h
 }

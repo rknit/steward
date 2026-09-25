@@ -1,0 +1,157 @@
+# stew runs show replays a run from .stew/runs. Two hand-made fixture runs from 2026-01-01 sort before the real one.
+# app -> api -> core, webapi -> core. api's build fails, so app is blocked.
+exec sh -c 'stew build > /dev/null; echo "exit=$?"'
+stdout '^exit=1$'
+
+# Exact run ID: full page with every phase's output, including output a passing phase hides live.
+exec sh -c 'stew runs show "$(ls .stew/runs | tail -n 1)"'
+stdout '^run \d{8}T\d{6}Z-[0-9a-f]{4}: stew build$'
+stdout '^==> core: setup \.\.\. done \(\d+\.\ds\)$'
+stdout '^--- stew: run: echo core-setup-out$'
+stdout '^core-setup-out$'
+stdout '^==> core: build \.\.\. skip \(\d+\.\ds\)$'
+stdout '^==> api: build \.\.\. fail \(\d+\.\ds\)$'
+stdout '^api-build-err$'
+stdout '^\(exit 3\)$'
+stdout '^==> app: setup \.\.\. blocked by api$'
+stdout '^webapi-setup-out$'
+stdout '^│ app     │ blocked │ -     │$'
+stdout '^total: \d+\.\ds$'
+stdout '^logs: \.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}$'
+! stdout '\x1b'
+
+# latest is the real run, not a fixture.
+exec stew runs show latest
+stdout '^run \d{8}T\d{6}Z-[0-9a-f]{4}: stew build$'
+! stdout '20260101'
+
+# Regexes match the whole <project>-<phase> key; several are OR-ed; no summary with regexes.
+exec stew runs show latest 'api-.*'
+stdout '^==> api: setup \.\.\. skip'
+stdout '^==> api: build \.\.\. fail'
+! stdout 'webapi'
+! stdout '^┌'
+! stdout '^total:'
+exec stew runs show latest api-build 'core-.*'
+stdout '^==> core: setup'
+stdout '^==> core: build'
+stdout '^==> api: build'
+! stdout '^==> api: setup'
+exec sh -c 'stew runs show latest api; echo "exit=$?"'
+stdout '^exit=1$'
+stderr '^stew: no phase matches$'
+
+# Porcelain: one tab-separated line per phase; "-" for no duration or no log.
+exec stew runs show latest --porcelain
+stdout '^core\tsetup\tdone\t\d+\t\.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}/core-setup\.log$'
+stdout '^core\tbuild\tskip\t\d+\t-$'
+stdout '^api\tbuild\tfail\t\d+\t\.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}/api-build\.log$'
+stdout '^app\tsetup\tblocked\t-\t-$'
+! stdout '==>'
+
+# Errors.
+exec sh -c 'stew runs show latest "("; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'missing closing \)'
+exec sh -c 'stew runs show 20000101T000000Z-0000; echo "exit=$?"'
+stdout '^exit=2$'
+stderr '^stew: unknown run "20000101T000000Z-0000"$'
+exec sh -c 'stew runs show ../../etc; echo "exit=$?"'
+stdout '^exit=2$'
+stderr '^stew: unknown run "\.\./\.\./etc"$'
+exec sh -c 'stew runs show 20260101T000000Z-0000; echo "exit=$?"'
+stdout '^exit=1$'
+stderr '^stew: run 20260101T000000Z-0000 has no run\.json$'
+exec sh -c 'stew runs show 20260101T000002Z-0002; echo "exit=$?"'
+stdout '^exit=1$'
+stderr '^stew: read run 20260101T000002Z-0002: invalid run\.json: phase 0: unknown status "great"$'
+
+# An unfinished run: the phase without a record shows its partial log; total is unfinished.
+exec stew runs show 20260101T000001Z-0001
+cmp stdout want/unfinished
+
+# The workspace is not validated, so logs stay readable while a stew.toml is broken.
+cp want/broken.toml core/stew.toml
+exec stew runs show latest --porcelain
+stdout '^core\tsetup\tdone\t'
+
+-- .stew/projects.toml --
+projects = ["api", "app", "core", "webapi"]
+-- core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = "echo core-setup-out"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- api/stew.toml --
+name = "api"
+dependencies = ["core"]
+[setup]
+run = ""
+verify = ""
+[build]
+run = "echo api-build-out; echo api-build-err >&2; exit 3"
+verify = ""
+[ci.full]
+run = ""
+-- app/stew.toml --
+name = "app"
+dependencies = ["api"]
+[setup]
+run = "echo never"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- webapi/stew.toml --
+name = "webapi"
+dependencies = ["core"]
+[setup]
+run = "echo webapi-setup-out"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- want/broken.toml --
+name = "core"
+-- .stew/runs/20260101T000000Z-0000/core-setup.stdout --
+old run without a manifest
+-- .stew/runs/20260101T000002Z-0002/run.json --
+{"argv":["build"],"columns":["setup"],"projects":["core"],"phases":[{"project":"core","phase":"setup","used":"setup","status":"great"}]}
+-- .stew/runs/20260101T000001Z-0001/run.json --
+{"argv":["ci","--level","pre-commit"],"columns":["setup","build","ci.pre-commit"],"projects":["core","api"],"phases":[{"project":"core","phase":"setup","used":"setup","status":"skip","duration_ms":104},{"project":"core","phase":"build","used":"build","status":"done","duration_ms":2500}]}
+-- .stew/runs/20260101T000001Z-0001/core-setup.log --
+--- stew: verify: true
+-- .stew/runs/20260101T000001Z-0001/core-build.log --
+--- stew: run: make
+built
+-- .stew/runs/20260101T000001Z-0001/core-ci.quick.log --
+--- stew: run: npm run lint
+linting
+-- want/unfinished --
+run 20260101T000001Z-0001: stew ci --level pre-commit
+==> core: setup ... skip (0.1s)
+--- stew: verify: true
+==> core: build ... done (2.5s)
+--- stew: run: make
+built
+==> core: ci.pre-commit -> ci.quick ... unfinished
+--- stew: run: npm run lint
+linting
+┌─────────┬───────┬───────┬────────────────────┐
+│ project │ setup │ build │ ci.pre-commit      │
+├─────────┼───────┼───────┼────────────────────┤
+│ core    │ skip  │ done  │ unfinished (quick) │
+│ api     │ -     │ -     │ -                  │
+└─────────┴───────┴───────┴────────────────────┘
+total: unfinished
+logs: .stew/runs/20260101T000001Z-0001

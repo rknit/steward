@@ -88,7 +88,10 @@ broken
 total: T
 logs: .stew/runs/ID
 -- want/files --
+core-setup.log
 core-setup.stderr
 core-setup.stdout
+lib-build.log
 lib-build.stderr
 lib-build.stdout
+run.json
