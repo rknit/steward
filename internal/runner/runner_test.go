@@ -538,6 +538,30 @@ func TestRecordErrorKeepsInterrupted(t *testing.T) {
 	}
 }
 
+func TestStewEnv(t *testing.T) {
+	h := newHarness(map[string][]fakeCmd{"v": {bad(""), ok("")}, "r": {ok("")}, "q": {ok("")}})
+	h.r.Run(context.Background(), Plan{
+		Columns: []string{"setup", "ci.pre-commit"},
+		Jobs: []Job{{Project: "my.lib", Dir: "/w/lib", Phases: []Phase{
+			setup("r", "v"),
+			ci("pre-commit", "quick", "q"),
+		}}},
+	})
+	env := func(phase string) []string {
+		return []string{
+			"STEW_RUN_ID=20260101T000000Z-abcd",
+			"STEW_ROOT=/w",
+			"STEW_PROJECT=my.lib",
+			"STEW_PHASE=" + phase,
+			"STEW_TAG=my.lib." + phase,
+		}
+	}
+	want := [][]string{env("setup"), env("setup"), env("setup"), env("ci.quick")}
+	if !slices.EqualFunc(h.exec.envs, want, slices.Equal) {
+		t.Errorf("envs = %q\nwant %q", h.exec.envs, want)
+	}
+}
+
 func TestBlockedRecordErrorChangesNothing(t *testing.T) {
 	script := okScript("core", "api", "backend", "app", "lib")
 	script["core-setup"] = []fakeCmd{{exit: 2}}

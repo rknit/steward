@@ -25,7 +25,7 @@ const (
 func runShell(t *testing.T, ctx context.Context, killDelay time.Duration, dir, cmd string) (Result, string, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	res := Shell{KillDelay: killDelay}.Run(ctx, dir, cmd, &stdout, &stderr)
+	res := Shell{KillDelay: killDelay}.Run(ctx, dir, nil, cmd, &stdout, &stderr)
 	return res, stdout.String(), stderr.String()
 }
 
@@ -48,6 +48,17 @@ func TestShellStdinIsDevNull(t *testing.T) {
 	res, out, _ := runShell(t, context.Background(), slowKillDelay, t.TempDir(), "cat; echo eof")
 	if !res.OK() || out != "eof\n" {
 		t.Errorf("result = %+v, stdout = %q", res, out)
+	}
+}
+
+func TestShellEnvOverridesInherited(t *testing.T) {
+	t.Setenv("STEW_TAG", "parent.build")
+	t.Setenv("STEW_TEST_KEPT", "kept")
+	var stdout, stderr bytes.Buffer
+	res := Shell{KillDelay: slowKillDelay}.Run(context.Background(), t.TempDir(), []string{"STEW_TAG=child.setup"},
+		`env | grep -c '^STEW_TAG='; echo "$STEW_TAG $STEW_TEST_KEPT"`, &stdout, &stderr)
+	if !res.OK() || stdout.String() != "1\nchild.setup kept\n" {
+		t.Errorf("result = %+v, stdout = %q, stderr = %q", res, stdout.String(), stderr.String())
 	}
 }
 
@@ -178,7 +189,7 @@ func TestShellForceKillsAfterInterrupt(t *testing.T) {
 	}()
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	res := Shell{KillDelay: slowKillDelay, Force: force}.Run(ctx, dir,
+	res := Shell{KillDelay: slowKillDelay, Force: force}.Run(ctx, dir, nil,
 		"trap 'touch got-int' INT; touch started; "+boundedLoop, &stdout, &stderr)
 	if res.Signal != "SIGKILL" {
 		t.Errorf("result = %+v, want SIGKILL", res)
@@ -202,7 +213,7 @@ func TestShellForceSkipsKillDelay(t *testing.T) {
 	}()
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	res := Shell{KillDelay: slowKillDelay, Force: force}.Run(ctx, dir,
+	res := Shell{KillDelay: slowKillDelay, Force: force}.Run(ctx, dir, nil,
 		"trap 'touch got-term' TERM; touch started; "+boundedLoop, &stdout, &stderr)
 	if res.Signal != "SIGKILL" {
 		t.Errorf("result = %+v, want SIGKILL", res)

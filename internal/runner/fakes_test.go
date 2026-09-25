@@ -28,14 +28,16 @@ type fakeExec struct {
 	clock     *fakeClock
 	script    map[string][]fakeCmd
 	calls     []string
+	envs      [][]string // aligned with calls
 	cancelled []string
 }
 
-func (f *fakeExec) Run(ctx context.Context, dir, cmd string, stdout, stderr io.Writer) Result {
+func (f *fakeExec) Run(ctx context.Context, dir string, env []string, cmd string, stdout, stderr io.Writer) Result {
 	if cmd == "" {
 		panic("executor called with an empty command")
 	}
 	f.calls = append(f.calls, dir+": "+cmd)
+	f.envs = append(f.envs, env)
 	queue := f.script[cmd]
 	if len(queue) == 0 {
 		panic("unscripted command: " + cmd)
@@ -185,6 +187,9 @@ func newHarness(script map[string][]fakeCmd) *harness {
 		rec:    &recorder{},
 		record: &fakeRecord{failPhase: map[string]bool{}},
 	}
-	h.r = &Runner{Exec: h.exec, OpenLog: h.logs.Open, Report: h.rec, Record: h.record, Now: clock.Now}
+	h.r = &Runner{
+		Exec: h.exec, OpenLog: h.logs.Open, Report: h.rec, Record: h.record, Now: clock.Now,
+		RunID: "20260101T000000Z-abcd", Root: "/w",
+	}
 	return h
 }

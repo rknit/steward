@@ -23,12 +23,13 @@ type Shell struct {
 }
 
 // Run implements Executor.
-func (s Shell) Run(ctx context.Context, dir, cmd string, stdout, stderr io.Writer) Result {
+func (s Shell) Run(ctx context.Context, dir string, env []string, cmd string, stdout, stderr io.Writer) Result {
 	if ctx.Err() != nil {
 		return Result{Err: context.Cause(ctx)}
 	}
 	c := exec.Command("sh", "-c", cmd)
 	c.Dir = dir
+	c.Env = append(os.Environ(), env...)
 	c.Stdout = stdout
 	c.Stderr = stderr
 	// c.Stdin stays nil: the command reads from /dev/null.

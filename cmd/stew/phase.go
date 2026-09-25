@@ -105,6 +105,8 @@ func runPhases(stdout io.Writer, argv []string, command string, names []string, 
 		Report: newReporter(stdout),
 		Record: logs,
 		Now:    time.Now,
+		RunID:  logs.ID,
+		Root:   ws.Root,
 	}
 	res := r.Run(ctx, plan)
 	total := time.Since(start)

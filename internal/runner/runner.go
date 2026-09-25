@@ -18,6 +18,19 @@ type Runner struct {
 	Report  Reporter
 	Record  Recorder
 	Now     func() time.Time
+	RunID   string // exported to commands as STEW_RUN_ID
+	Root    string // workspace root, exported to commands as STEW_ROOT
+}
+
+// env is what every command of phase ph gets on top of stew's own environment.
+func (r *Runner) env(project string, ph Phase) []string {
+	return []string{
+		"STEW_RUN_ID=" + r.RunID,
+		"STEW_ROOT=" + r.Root,
+		"STEW_PROJECT=" + project,
+		"STEW_PHASE=" + ph.Used,
+		"STEW_TAG=" + project + "." + ph.Used,
+	}
 }
 
 // Run executes the plan in order. It never returns early on failure: independent projects keep running.
@@ -126,10 +139,11 @@ func (r *Runner) phase(ctx context.Context, job Job, ph Phase) (out Outcome) {
 		}
 	}()
 
+	env := r.env(job.Project, ph)
 	var steps []StepOutput
 	// run executes one step. done reports that the phase ended early, with outcome end.
 	run := func(step, cmd string) (res Result, done bool, end Outcome) {
-		res, output, logErr := r.step(ctx, job.Dir, log, step, cmd)
+		res, output, logErr := r.step(ctx, job.Dir, env, log, step, cmd)
 		steps = append(steps, StepOutput{Step: step, Cmd: cmd, Output: output})
 		switch {
 		case interrupted(ctx):
@@ -175,7 +189,7 @@ func (r *Runner) phase(ctx context.Context, job Job, ph Phase) (out Outcome) {
 
 // step runs one command, writing its output to the log files and to a replay buffer.
 // A log write error cancels the command and is returned as logErr.
-func (r *Runner) step(ctx context.Context, dir string, log PhaseLog, step, cmd string) (res Result, output []byte, logErr error) {
+func (r *Runner) step(ctx context.Context, dir string, env []string, log PhaseLog, step, cmd string) (res Result, output []byte, logErr error) {
 	if err := log.Marker(step, cmd); err != nil {
 		return Result{}, nil, err
 	}
@@ -198,7 +212,7 @@ func (r *Runner) step(ctx context.Context, dir string, log PhaseLog, step, cmd s
 	replay := &lockedBuffer{}
 	stdout := &teeWriter{log: log.Stdout(), replay: replay, fail: fail}
 	stderr := &teeWriter{log: log.Stderr(), replay: replay, fail: fail}
-	res = r.Exec.Run(stepCtx, dir, cmd, stdout, stderr)
+	res = r.Exec.Run(stepCtx, dir, env, cmd, stdout, stderr)
 
 	mu.Lock()
 	defer mu.Unlock()

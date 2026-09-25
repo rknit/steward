@@ -363,7 +363,18 @@ Stew never invokes `sh -c ""`.
 ### Command Execution
 
 - Each command runs as `sh -c "<cmd>"` with cwd set to the project directory.
-- The environment is inherited unchanged. Stew adds no environment variables.
+- The environment is inherited, plus the variables below. They replace inherited values of the same name,
+  such as those of an outer stew run whose command runs stew.
+
+  | Variable       | Value                                                            |
+  | -------------- | ---------------------------------------------------------------- |
+  | `STEW_RUN_ID`  | run ID, as in `.stew/runs/<run-id>/`                             |
+  | `STEW_ROOT`    | absolute workspace root                                          |
+  | `STEW_PROJECT` | project name                                                     |
+  | `STEW_PHASE`   | phase that runs, after CI fallback: `setup`, `build`, `ci.quick` |
+  | `STEW_TAG`     | `<project>.<phase>`, e.g. `core.ci.quick`                        |
+
+  `STEW_TAG` is a label, not something to parse: project names may contain `.`.
 - Nothing streams live. Each command's output goes to two places:
   - stdout to the phase's `.stdout` log file, stderr to its `.stderr` log file;
   - both, in write order, to one in-memory buffer per phase, which is replayed on failure.
@@ -788,6 +799,7 @@ internal/githook/    hooks-dir lookup via git, hook install
 - Cumulative phases per command.
 - Blocked propagation: transitive dependents blocked at `setup` only, independent projects still run.
 - Captured output passed on failure excludes a failed pre-run `verify` and includes every later step.
+- Every step of a phase gets the same `STEW_*` variables; `STEW_PHASE` is the phase used after CI fallback.
 - Blocked names list only direct dependencies that failed or were blocked, in execution order.
   Case: `app -> {api, backend} -> core` with `core` failing gives `api`/`backend` blocked by `core`,
   and `app` blocked by `api, backend`.
@@ -860,6 +872,7 @@ internal/githook/    hooks-dir lookup via git, hook install
 - Commands run with cwd set to the project directory.
 - A passing command's output does not appear; a failing command's output does.
 - stdin is `/dev/null`: a command that reads stdin gets EOF and does not hang.
+- Commands get the exact `STEW_*` values, replacing inherited ones.
 - Output under testscript is not a TTY, so it matches the plain format with no escape codes.
 - Cumulative phases and dependency selection with real `sh`.
 - Exit codes 0, 1, 2.
@@ -900,4 +913,3 @@ internal/githook/    hooks-dir lookup via git, hook install
 - Windows
 - Git hooks other than `pre-commit`
 - `--force` overwrite for `init`, `add`, or `git install`
-- Stew-provided environment variables

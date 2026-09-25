@@ -126,11 +126,12 @@ func (r Result) Cause() string {
 	}
 }
 
-// Executor runs one shell command in dir. When ctx is done it stops the command: cause Interrupt{SIGINT}
+// Executor runs one shell command in dir, with env ("KEY=value") added to stew's own environment and replacing
+// any inherited value of the same key. When ctx is done it stops the command: cause Interrupt{SIGINT}
 // sends SIGINT to the group and waits; cause Interrupt{SIGTERM} or Interrupt{SIGHUP} sends that signal to
 // the group, then SIGKILL after KillDelay; any other cause sends SIGTERM, then SIGKILL after KillDelay.
 type Executor interface {
-	Run(ctx context.Context, dir, cmd string, stdout, stderr io.Writer) Result
+	Run(ctx context.Context, dir string, env []string, cmd string, stdout, stderr io.Writer) Result
 }
 
 // PhaseLog is the on-disk log of one phase.
