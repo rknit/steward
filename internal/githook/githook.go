@@ -8,11 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
 // Supported lists the hooks stew can install.
-var Supported = []string{"pre-commit"}
+var Supported = []string{"pre-commit", "pre-push"}
 
 // ErrExists is returned when the hook file already exists.
 var ErrExists = errors.New("hook already exists")
@@ -22,7 +23,7 @@ var ErrUnsupported = errors.New("unsupported hook")
 
 // Install writes the named hook for the workspace at root and returns the hook's path.
 func Install(root, hook string) (string, error) {
-	if hook != "pre-commit" {
+	if !slices.Contains(Supported, hook) {
 		return "", fmt.Errorf("%w %q (supported: %s)", ErrUnsupported, hook, strings.Join(Supported, ", "))
 	}
 	hooksDir, err := git(root, "rev-parse", "--git-path", "hooks")
@@ -60,7 +61,7 @@ func Install(root, hook string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	_, werr := f.WriteString(Script(filepath.ToSlash(rel)))
+	_, werr := f.WriteString(Script(filepath.ToSlash(rel), hook))
 	if err := errors.Join(werr, f.Chmod(0o755), f.Close()); err != nil {
 		os.Remove(path)
 		return "", err
@@ -68,13 +69,14 @@ func Install(root, hook string) (string, error) {
 	return path, nil
 }
 
-// Script returns the pre-commit hook for a stew root at rel (slash-separated) below the git top level.
-func Script(rel string) string {
+// Script returns the named hook for a stew root at rel (slash-separated) below the git top level.
+// The hook runs the CI level of the same name.
+func Script(rel, hook string) string {
 	dir := `"$(git rev-parse --show-toplevel)"`
 	if rel != "." {
 		dir = `"$(git rev-parse --show-toplevel)/` + escapeDoubleQuoted(rel) + `"`
 	}
-	return "#!/bin/sh\n# installed by stew\ncd " + dir + " && exec stew ci --level pre-commit\n"
+	return "#!/bin/sh\n# installed by stew\ncd " + dir + " && exec stew ci --level " + hook + "\n"
 }
 
 // escapeDoubleQuoted escapes the characters that stay special inside a sh double-quoted string.

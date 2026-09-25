@@ -39,15 +39,16 @@ func gitInit(t *testing.T, dir string, args ...string) {
 }
 
 func TestScript(t *testing.T) {
-	tests := []struct{ rel, want string }{
-		{".", `cd "$(git rev-parse --show-toplevel)" && exec stew ci --level pre-commit`},
-		{"mono/repo", `cd "$(git rev-parse --show-toplevel)/mono/repo" && exec stew ci --level pre-commit`},
-		{`we"ird $dir`, `cd "$(git rev-parse --show-toplevel)/we\"ird \$dir" && exec stew ci --level pre-commit`},
+	tests := []struct{ rel, hook, want string }{
+		{".", "pre-commit", `cd "$(git rev-parse --show-toplevel)" && exec stew ci --level pre-commit`},
+		{"mono/repo", "pre-commit", `cd "$(git rev-parse --show-toplevel)/mono/repo" && exec stew ci --level pre-commit`},
+		{`we"ird $dir`, "pre-commit", `cd "$(git rev-parse --show-toplevel)/we\"ird \$dir" && exec stew ci --level pre-commit`},
+		{".", "pre-push", `cd "$(git rev-parse --show-toplevel)" && exec stew ci --level pre-push`},
 	}
 	for _, tt := range tests {
 		want := "#!/bin/sh\n# installed by stew\n" + tt.want + "\n"
-		if got := Script(tt.rel); got != want {
-			t.Errorf("Script(%q) = %q, want %q", tt.rel, got, want)
+		if got := Script(tt.rel, tt.hook); got != want {
+			t.Errorf("Script(%q, %q) = %q, want %q", tt.rel, tt.hook, got, want)
 		}
 	}
 }
@@ -75,7 +76,7 @@ func TestInstallInSubdirectory(t *testing.T) {
 		t.Errorf("mode = %v", info.Mode().Perm())
 	}
 	data, _ := os.ReadFile(path)
-	if string(data) != Script("mono") {
+	if string(data) != Script("mono", "pre-commit") {
 		t.Errorf("content = %q", data)
 	}
 
@@ -102,7 +103,7 @@ func TestInstallRespectsHooksPath(t *testing.T) {
 }
 
 func TestInstallErrors(t *testing.T) {
-	if _, err := Install(t.TempDir(), "pre-push"); err == nil || !strings.Contains(err.Error(), "supported: pre-commit") {
+	if _, err := Install(t.TempDir(), "post-merge"); err == nil || !strings.Contains(err.Error(), "supported: pre-commit, pre-push") {
 		t.Errorf("unsupported hook: err = %v", err)
 	}
 	if _, err := exec.LookPath("git"); err != nil {

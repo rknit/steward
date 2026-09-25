@@ -1,4 +1,4 @@
-# core defines full+quick, api defines full+pre-commit, lib defines only full (empty). api depends on core.
+# core defines full+quick, api defines full+pre-commit+pre-push, lib defines only full (empty). api depends on core.
 
 # Naming api: core is a dependency only, so it gets setup+build but no CI.
 exec stew ci api -l quick
@@ -13,6 +13,13 @@ stdout '^==> core: ci\.pre-commit -> ci\.quick \.\.\. pass'
 stdout '^==> api: ci\.pre-commit \.\.\. pass'
 stdout '^==> lib: ci\.pre-commit -> ci\.full \.\.\. skip'
 exec sh -c 'ls .stew/runs/*/core-ci.quick.stdout'
+
+# pre-push falls back straight to full, skipping quick.
+exec stew ci --level pre-push
+stdout '^==> core: ci\.pre-push -> ci\.full \.\.\. pass'
+stdout '^==> api: ci\.pre-push \.\.\. pass'
+stdout '^==> lib: ci\.pre-push -> ci\.full \.\.\. skip'
+exec sh -c 'ls .stew/runs/*/api-ci.pre-push.stdout'
 
 # Default level is full.
 exec stew ci core
@@ -68,6 +75,8 @@ verify = ""
 run = "echo api-full"
 [ci.pre-commit]
 run = "echo api-pre"
+[ci.pre-push]
+run = "echo api-push"
 -- lib/stew.toml --
 name = "lib"
 dependencies = []

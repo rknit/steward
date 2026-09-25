@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -21,7 +22,7 @@ func newGitCmd(stdout io.Writer) *cobra.Command {
 	}
 	git.AddCommand(&cobra.Command{
 		Use:   "install <hook>",
-		Short: "Install a git hook that runs stew (supported: pre-commit)",
+		Short: "Install a git hook that runs stew (supported: " + strings.Join(githook.Supported, ", ") + ")",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cwd, err := os.Getwd()

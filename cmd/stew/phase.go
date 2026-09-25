@@ -34,7 +34,7 @@ func newPhaseCmd(stdout io.Writer, argv []string, command, short string) *cobra.
 		},
 	}
 	if command == "ci" {
-		cmd.Flags().StringVarP(&level, "level", "l", "full", "CI level: full, quick, or pre-commit")
+		cmd.Flags().StringVarP(&level, "level", "l", "full", "CI level: full, quick, pre-commit, or pre-push")
 	}
 	return cmd
 }

@@ -14,7 +14,7 @@ verify = ""
 run = "go build ./..."
 verify = ""
 
-# Levels: pre-commit falls back to quick, quick falls back to full.
+# Levels: pre-commit falls back to quick; quick and pre-push fall back to full.
 [ci.full]
 run = "go test -race ./..."
 

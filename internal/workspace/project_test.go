@@ -22,6 +22,9 @@ run = "npm test"
 
 [ci.pre-commit]
 run = "npm run lint"
+
+[ci.pre-push]
+run = "npm run e2e"
 `
 
 func TestParseProjectValid(t *testing.T) {
@@ -38,7 +41,7 @@ func TestParseProjectValid(t *testing.T) {
 	if p.Build != (Phase{Run: "npm run build", Verify: ""}) {
 		t.Errorf("build = %+v", p.Build)
 	}
-	if len(p.CI) != 2 || p.CI[LevelFull] != "npm test" || p.CI[LevelPreCommit] != "npm run lint" {
+	if len(p.CI) != 3 || p.CI[LevelFull] != "npm test" || p.CI[LevelPreCommit] != "npm run lint" || p.CI[LevelPrePush] != "npm run e2e" {
 		t.Errorf("ci = %v", p.CI)
 	}
 }
@@ -102,7 +105,7 @@ verify = ""
 run = ""
 verify = ""
 
-# Levels: pre-commit falls back to quick, quick falls back to full.
+# Levels: pre-commit falls back to quick; quick and pre-push fall back to full.
 [ci.full]
 run = ""
 `
@@ -187,6 +190,11 @@ func TestResolveCI(t *testing.T) {
 		{[]Level{LevelFull, LevelQuick, LevelPreCommit}, LevelPreCommit, LevelPreCommit},
 		{[]Level{LevelFull, LevelQuick, LevelPreCommit}, LevelQuick, LevelQuick},
 		{[]Level{LevelFull, LevelQuick, LevelPreCommit}, LevelFull, LevelFull},
+		{[]Level{LevelFull}, LevelPrePush, LevelFull},
+		{[]Level{LevelFull, LevelQuick, LevelPreCommit}, LevelPrePush, LevelFull},
+		{[]Level{LevelFull, LevelPrePush}, LevelPrePush, LevelPrePush},
+		{[]Level{LevelFull, LevelPrePush}, LevelPreCommit, LevelFull},
+		{[]Level{LevelFull, LevelPrePush}, LevelQuick, LevelFull},
 	}
 	for _, tt := range tests {
 		p := &Project{Name: "p", CI: map[Level]string{}}
@@ -201,7 +209,7 @@ func TestResolveCI(t *testing.T) {
 }
 
 func TestParseLevel(t *testing.T) {
-	for _, s := range []string{"full", "quick", "pre-commit"} {
+	for _, s := range []string{"full", "quick", "pre-commit", "pre-push"} {
 		if l, err := ParseLevel(s); err != nil || string(l) != s {
 			t.Errorf("ParseLevel(%q) = %q, %v", s, l, err)
 		}

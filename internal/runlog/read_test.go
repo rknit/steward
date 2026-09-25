@@ -174,6 +174,7 @@ func TestParseKey(t *testing.T) {
 		{"my-app-setup", PhaseKey{"my-app", "setup"}, true},
 		{"api-ci.pre-commit", PhaseKey{"api", "ci.pre-commit"}, true},
 		{"api-ci.quick", PhaseKey{"api", "ci.quick"}, true},
+		{"api-ci.pre-push", PhaseKey{"api", "ci.pre-push"}, true},
 		{"x-build-build", PhaseKey{"x-build", "build"}, true},
 		{"x-setup-ci.full", PhaseKey{"x-setup", "ci.full"}, true},
 		{"api-lint", PhaseKey{}, false},

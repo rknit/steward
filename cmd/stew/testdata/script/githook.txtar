@@ -21,9 +21,9 @@ cd mono
 exec sh -c 'stew git install pre-commit; echo "exit=$?"'
 stdout '^exit=1$'
 stderr 'hook already exists'
-exec sh -c 'stew git install pre-push; echo "exit=$?"'
+exec sh -c 'stew git install post-merge; echo "exit=$?"'
 stdout '^exit=2$'
-stderr 'supported: pre-commit'
+stderr 'supported: pre-commit, pre-push'
 cd $WORK
 
 # A passing pre-commit CI lets the commit through; quick is used as the fallback.
@@ -41,6 +41,24 @@ cp want/failing.toml mono/core/stew.toml
 exec git add -A
 ! exec git commit -q -m second
 stderr '^==> core: ci\.pre-commit -> ci\.quick \.\.\. fail'
+
+# The pre-push hook runs ci.pre-push, falling back to full; a failing CI blocks the push.
+# Unlike pre-commit, git keeps pre-push hook output on stdout.
+cd mono
+exec stew git install pre-push
+stdout '^installed .*/\.git/hooks/pre-push$'
+cd $WORK
+exec test -x .git/hooks/pre-push
+cmp .git/hooks/pre-push want/push-hook
+exec git init -q --bare remote.git
+cp want/push-failing.toml mono/core/stew.toml
+! exec git push -q remote.git HEAD:refs/heads/main
+stdout '^==> core: ci\.pre-push -> ci\.full \.\.\. fail'
+! exec git --git-dir=remote.git rev-parse -q --verify refs/heads/main
+cp want/push-passing.toml mono/core/stew.toml
+exec git push -q remote.git HEAD:refs/heads/main
+stdout '^==> core: ci\.pre-push \.\.\. pass'
+exec git --git-dir=remote.git rev-parse -q --verify refs/heads/main
 
 -- mono/.stew/config.toml --
 workspace_wrapper = ""
@@ -80,3 +98,35 @@ run = "exit 1"
 #!/bin/sh
 # installed by stew
 cd "$(git rev-parse --show-toplevel)/mono" && exec stew ci --level pre-commit
+-- want/push-hook --
+#!/bin/sh
+# installed by stew
+cd "$(git rev-parse --show-toplevel)/mono" && exec stew ci --level pre-push
+-- want/push-failing.toml --
+name = "core"
+dependencies = []
+project_wrapper = ""
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = "exit 1"
+[ci.quick]
+run = "echo quick-ok"
+-- want/push-passing.toml --
+name = "core"
+dependencies = []
+project_wrapper = ""
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = "exit 1"
+[ci.pre-push]
+run = "echo push-ok"

@@ -65,7 +65,7 @@ verify = ""
 run = ""
 verify = ""
 
-# Levels: pre-commit falls back to quick, quick falls back to full.
+# Levels: pre-commit falls back to quick; quick and pre-push fall back to full.
 [ci.full]
 run = ""
 -- want/projects-1.toml --

@@ -21,8 +21,8 @@ stew remove <name>... [--clean]
 stew list [--porcelain]
 stew setup [name...]
 stew build [name...]
-stew ci [name...] [-l/--level full|quick|pre-commit]
-stew git install pre-commit
+stew ci [name...] [-l/--level full|quick|pre-commit|pre-push]
+stew git install pre-commit|pre-push
 stew runs show <run-id> [<project-phase-regex>...] [--porcelain] [--no-pager]
 stew runs list [--porcelain] [--no-pager]
 stew runs prune [--keep-since <time>] [--keep-last-n <n>]
@@ -216,6 +216,9 @@ run = "npm run lint"
 
 [ci.pre-commit]
 run = "npm run lint -- --cache"
+
+[ci.pre-push]
+run = "npm run test:e2e"
 ```
 
 | Key / section     | Required | Rule                                                            |
@@ -228,6 +231,7 @@ run = "npm run lint -- --cache"
 | `[ci.full]`       | yes      | Key `run` required.                                             |
 | `[ci.quick]`      | no       | Key `run` required if the section exists.                       |
 | `[ci.pre-commit]` | no       | Key `run` required if the section exists.                       |
+| `[ci.pre-push]`   | no       | Key `run` required if the section exists.                       |
 
 - Required keys must be present. Their value may be `""`.
 - Sections are forced so that an empty command is always a deliberate choice.
@@ -257,7 +261,7 @@ verify = ""
 run = ""
 verify = ""
 
-# Levels: pre-commit falls back to quick, quick falls back to full.
+# Levels: pre-commit falls back to quick; quick and pre-push fall back to full.
 [ci.full]
 run = ""
 ```
@@ -369,8 +373,8 @@ Phases are cumulative.
 ### CI Levels
 
 - `--level` defaults to `full`.
-- Resolution chain: `pre-commit → quick → full`.
-  A requested level that the project does not define falls back to the next level in the chain.
+- Resolution chains: `pre-commit → quick → full` and `pre-push → full`.
+  A requested level that the project does not define falls back to the next level in its chain.
 - `full` always exists, so resolution always succeeds.
 - When a fallback is used, the phase header and summary show it (see Output).
 
@@ -875,7 +879,9 @@ Deletes the runs that no keep rule keeps. A run in progress is never deleted.
   A partly deleted run is listed as `unreadable` by `stew runs list`.
 - `.stew/runs/` cannot be read: `read runs: <error>`, exit 1. A missing `.stew/runs/` prunes nothing.
 
-## `stew git install pre-commit`
+## `stew git install <hook>`
+
+`<hook>` is `pre-commit` or `pre-push`. The hook runs the CI level of the same name.
 
 1. Find the root. The workspace is not validated.
 2. Find the hooks directory with `git rev-parse --git-path hooks`, run from the root.
@@ -887,12 +893,12 @@ Deletes the runs that no keep rule keeps. A run in progress is never deleted.
    ```sh
    #!/bin/sh
    # installed by stew
-   cd "$(git rev-parse --show-toplevel)/<rel>" && exec stew ci --level pre-commit
+   cd "$(git rev-parse --show-toplevel)/<rel>" && exec stew ci --level <hook>
    ```
 
    `<rel>` is the path from step 3. When it is `.`, the line is `cd "$(git rev-parse --show-toplevel)"`.
 
-- Only `pre-commit` is supported. Any other hook name is an error listing the supported hooks.
+- Only `pre-commit` and `pre-push` are supported. Any other hook name is an error listing the supported hooks.
 - The hook calls `stew` from `PATH`.
 - The hook checks the working tree, not the staged snapshot. Unstaged edits can affect the result.
 
@@ -1166,6 +1172,7 @@ internal/githook/    hooks-dir lookup via git, hook install
 - Install: hook content and mode `0755`; second install rejected; unsupported hook name rejected.
 - `git commit` runs `stew ci --level pre-commit`.
 - A failing CI command blocks the commit.
+- `git push` runs `stew ci --level pre-push`, falling back to `full`; a failing CI command blocks the push.
 - Fallback to `quick`/`full` works from the hook.
 - The hook runs through the workspace wrapper, and the command gets the wrapper's environment.
 
@@ -1179,5 +1186,5 @@ internal/githook/    hooks-dir lookup via git, hook install
 - Parallel execution
 - Changed-only selection (`--staged`, `--since`)
 - Windows
-- Git hooks other than `pre-commit`
+- Git hooks other than `pre-commit` and `pre-push`
 - `--force` overwrite for `init`, `add`, or `git install`

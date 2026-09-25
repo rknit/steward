@@ -27,7 +27,7 @@ var idPattern = regexp.MustCompile(`^\d{8}T\d{6}Z-[0-9a-f]{4}$`)
 var projectPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
 // phaseNames are the phase names that can appear in a log file name, as used after CI fallback.
-var phaseNames = []string{"setup", "build", "ci.full", "ci.quick", "ci.pre-commit"}
+var phaseNames = []string{"setup", "build", "ci.full", "ci.quick", "ci.pre-commit", "ci.pre-push"}
 
 var statuses = []runner.Status{runner.Done, runner.Pass, runner.Skip, runner.Fail, runner.Blocked, runner.Interrupted}
 

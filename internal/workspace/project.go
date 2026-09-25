@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -20,21 +19,25 @@ type Level string
 // CI levels.
 const (
 	LevelPreCommit Level = "pre-commit"
+	LevelPrePush   Level = "pre-push"
 	LevelQuick     Level = "quick"
 	LevelFull      Level = "full"
 )
 
-// Levels is the fallback chain: each level falls back to the next one.
-var Levels = []Level{LevelPreCommit, LevelQuick, LevelFull}
+// fallback maps each level to the level used when a project does not define it. LevelFull has none.
+var fallback = map[Level]Level{
+	LevelPreCommit: LevelQuick,
+	LevelPrePush:   LevelFull,
+	LevelQuick:     LevelFull,
+}
 
 // ParseLevel returns the Level named s, or an error for an unknown name.
 func ParseLevel(s string) (Level, error) {
-	for _, l := range Levels {
-		if string(l) == s {
-			return l, nil
-		}
+	l := Level(s)
+	if _, ok := fallback[l]; ok || l == LevelFull {
+		return l, nil
 	}
-	return "", fmt.Errorf("unknown CI level %q (want full, quick, or pre-commit)", s)
+	return "", fmt.Errorf("unknown CI level %q (want full, quick, pre-commit, or pre-push)", s)
 }
 
 // Phase holds a setup or build phase's commands. An empty string means "no command".
@@ -56,13 +59,14 @@ type Project struct {
 
 // ResolveCI walks the fallback chain from the requested level and returns the first level the project defines.
 func (p *Project) ResolveCI(requested Level) (used Level, run string) {
-	start := slices.Index(Levels, requested)
-	for _, l := range Levels[start:] {
+	for l := requested; ; l = fallback[l] {
 		if cmd, ok := p.CI[l]; ok {
 			return l, cmd
 		}
+		if l == LevelFull {
+			panic("workspace: project without ci.full: " + p.Name)
+		}
 	}
-	panic("workspace: project without ci.full: " + p.Name)
 }
 
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
@@ -198,7 +202,7 @@ var templateLines = []string{
 	`run = ""`,
 	`verify = ""`,
 	``,
-	`# Levels: pre-commit falls back to quick, quick falls back to full.`,
+	`# Levels: pre-commit falls back to quick; quick and pre-push fall back to full.`,
 	`[ci.full]`,
 	`run = ""`,
 }
