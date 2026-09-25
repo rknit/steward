@@ -1,0 +1,69 @@
+# Invalid configuration exits 2, names the file and problem, and runs nothing.
+cp bad/typo.toml core/stew.toml
+exec sh -c 'stew build; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'core/stew.toml: unknown key "buidl"'
+! stdout '==>'
+! exists .stew/runs
+
+cp bad/cycle.toml core/stew.toml
+exec sh -c 'stew build; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'dependency cycle: api -> core -> api'
+
+cp bad/missing.toml core/stew.toml
+exec sh -c 'stew setup; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'missing key "setup.verify"'
+
+rm core/stew.toml
+exec sh -c 'stew add api; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'project "core": missing stew.toml'
+
+-- .stew/projects.toml --
+projects = ["api", "core"]
+-- api/stew.toml --
+name = "api"
+dependencies = ["core"]
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- core/.keep --
+-- bad/typo.toml --
+name = "core"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[buidl]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- bad/cycle.toml --
+name = "core"
+dependencies = ["api"]
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- bad/missing.toml --
+name = "core"
+dependencies = []
+[setup]
+run = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""

@@ -1,0 +1,35 @@
+# Loops are bounded (10s) so a regression fails instead of hanging the suite.
+# SIGINT reaches stew, which forwards it to the running command, stops, prints the summary, and exits 130.
+exec sh -c 'stew build > out 2>&1 & pid=$!; i=0; while [ ! -f core/started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; wait $pid; echo "exit=$?"'
+stdout '^exit=130$'
+exec cat out
+stdout '^==> core: setup \.\.\. interrupted$'
+stdout '^got-int$'
+stdout '^│ core    │ interrupted │ -     │$'
+stdout '^│ lib     │ -           │ -     │$'
+! exists lib/ran
+
+-- .stew/projects.toml --
+projects = ["core", "lib"]
+-- core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = "trap 'echo got-int; exit 1' INT; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- lib/stew.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = "touch ran"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""

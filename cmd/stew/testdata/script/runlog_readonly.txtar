@@ -1,0 +1,23 @@
+# If the run directory cannot be created, nothing runs and stew exits 1.
+[root] skip 'root ignores directory permissions'
+chmod 0555 .stew/runs
+exec sh -c 'stew build; echo "exit=$?"'
+chmod 0755 .stew/runs
+stdout '^exit=1$'
+stderr 'cannot create run log directory'
+! exists core/ran
+
+-- .stew/projects.toml --
+projects = ["core"]
+-- .stew/runs/.keep --
+-- core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = "touch ran"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""

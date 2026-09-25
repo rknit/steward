@@ -1,0 +1,71 @@
+# The stew root is a subdirectory of the git repo.
+[!exec:git] skip 'git not installed'
+exec git init -q
+
+cd mono
+exec stew git install pre-commit
+stdout '^installed .*/\.git/hooks/pre-commit$'
+cd $WORK
+exec test -x .git/hooks/pre-commit
+cmp .git/hooks/pre-commit want/hook
+
+# Reinstalling is rejected (exit 1); unsupported hooks are usage errors (exit 2).
+cd mono
+exec sh -c 'stew git install pre-commit; echo "exit=$?"'
+stdout '^exit=1$'
+stderr 'hook already exists'
+exec sh -c 'stew git install pre-push; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'supported: pre-commit'
+cd $WORK
+
+# A passing pre-commit CI lets the commit through; quick is used as the fallback.
+# git sends hook output to stderr.
+exec git add -A
+exec git commit -q -m first
+stderr '^==> core: ci\.pre-commit -> ci\.quick \.\.\. pass'
+
+# Run logs stay out of git.
+exec git status --porcelain
+! stdout 'runs'
+
+# A failing CI blocks the commit.
+cp want/failing.toml mono/core/stew.toml
+exec git add -A
+! exec git commit -q -m second
+stderr '^==> core: ci\.pre-commit -> ci\.quick \.\.\. fail'
+
+-- mono/.stew/projects.toml --
+projects = ["core"]
+-- mono/.stew/.gitignore --
+runs/
+-- mono/core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = "exit 1"
+[ci.quick]
+run = "echo quick-ok"
+-- want/failing.toml --
+name = "core"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+[ci.quick]
+run = "exit 1"
+-- want/hook --
+#!/bin/sh
+# installed by stew
+cd "$(git rev-parse --show-toplevel)/mono" && exec stew ci --level pre-commit

@@ -1,0 +1,101 @@
+# Run from a nested directory: stew walks up to find .stew/.
+cd api/src
+stdin $WORK/feed.txt
+exec sh -c 'stew build; echo "exit=$?"'
+cd $WORK
+
+# Phase lines in dependency order; plain format (not a TTY), no escape codes.
+stdout '^==> core: setup \.\.\. done \(\d+\.\ds\)$'
+stdout '^==> core: build \.\.\. done \(\d+\.\ds\)$'
+stdout '^==> api: setup \.\.\. skip \(\d+\.\ds\)$'
+stdout '^==> api: build \.\.\. fail \(\d+\.\ds\)$'
+! stdout '\x1b'
+
+# Passing output is hidden; failing output is replayed with a marker and the exit code.
+! stdout 'core-setup-out'
+stdout '^--- stew: run: echo api-build-out; echo api-build-err >&2; exit 3$'
+stdout '^api-build-out$'
+stdout '^api-build-err$'
+stdout '^\(exit 3\)$'
+stdout '^exit=1$'
+
+# Summary, total, and logs lines.
+stdout '^│ core    │ done  │ done  │$'
+stdout '^│ api     │ skip  │ fail  │$'
+stdout '^total: \d+\.\ds$'
+stdout '^logs: \.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}$'
+
+# Commands ran in the project dir, with stdin from /dev/null (not the fed file).
+grep '/core$' core/where
+exists core/artifact
+exists core/stdin-got
+! grep . core/stdin-got
+
+# One run dir with a stdout/stderr pair per phase that ran a command.
+exec sh -c 'cd .stew/runs/* && ls'
+cmp stdout want/files
+exec sh -c 'cat .stew/runs/*/api-build.stdout'
+cmp stdout want/api-build.stdout
+exec sh -c 'cat .stew/runs/*/api-build.stderr'
+cmp stdout want/api-build.stderr
+
+# Second run: verify passes, so core's phases skip.
+exec stew build core
+stdout '^==> core: setup \.\.\. skip \(\d+\.\ds\)$'
+stdout '^==> core: build \.\.\. skip \(\d+\.\ds\)$'
+! stdout '==> api'
+
+# setup runs only setup.
+exec stew setup core
+stdout '^==> core: setup \.\.\. skip'
+! stdout '==> core: build'
+stdout '^│ project │ setup │$'
+
+-- feed.txt --
+this must not reach the command
+-- .stew/projects.toml --
+projects = ["api", "core"]
+-- .stew/.gitignore --
+runs/
+-- core/stew.toml --
+name = "core"
+dependencies = []
+
+[setup]
+run = "echo core-setup-out; pwd > where; touch .setup-done"
+verify = "test -f .setup-done"
+
+[build]
+run = "cat > stdin-got; echo built > artifact"
+verify = "test -f artifact"
+
+[ci.full]
+run = ""
+-- api/stew.toml --
+name = "api"
+dependencies = ["core"]
+
+[setup]
+run = ""
+verify = ""
+
+[build]
+run = "echo api-build-out; echo api-build-err >&2; exit 3"
+verify = ""
+
+[ci.full]
+run = ""
+-- api/src/.keep --
+-- want/files --
+api-build.stderr
+api-build.stdout
+core-build.stderr
+core-build.stdout
+core-setup.stderr
+core-setup.stdout
+-- want/api-build.stdout --
+--- stew: run: echo api-build-out; echo api-build-err >&2; exit 3
+api-build-out
+-- want/api-build.stderr --
+--- stew: run: echo api-build-out; echo api-build-err >&2; exit 3
+api-build-err

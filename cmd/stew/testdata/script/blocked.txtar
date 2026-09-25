@@ -1,0 +1,94 @@
+# app -> {api, backend} -> core; lib is independent. core's setup fails.
+# Durations and the run ID vary, so they are normalized before comparing the whole output.
+exec sh -c 'stew build > out; echo "exit=$?"'
+stdout '^exit=1$'
+exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
+cmp stdout want/out
+
+# Only phases that ran a command have log files; blocked and empty phases have none.
+exec sh -c 'cd .stew/runs/* && ls'
+cmp stdout want/files
+
+-- .stew/projects.toml --
+projects = ["api", "app", "backend", "core", "lib"]
+-- core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = "echo broken; exit 2"
+verify = ""
+[build]
+run = "echo never"
+verify = ""
+[ci.full]
+run = ""
+-- api/stew.toml --
+name = "api"
+dependencies = ["core"]
+[setup]
+run = "echo never"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- backend/stew.toml --
+name = "backend"
+dependencies = ["core"]
+[setup]
+run = "echo never"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- app/stew.toml --
+name = "app"
+dependencies = ["backend", "api"]
+[setup]
+run = "echo never"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- lib/stew.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = "true"
+verify = ""
+[ci.full]
+run = ""
+-- want/out --
+==> core: setup ... fail (T)
+--- stew: run: echo broken; exit 2
+broken
+(exit 2)
+==> api: setup ... blocked by core
+==> backend: setup ... blocked by core
+==> app: setup ... blocked by api, backend
+==> lib: setup ... skip (T)
+==> lib: build ... done (T)
+┌─────────┬─────────┬───────┐
+│ project │ setup   │ build │
+├─────────┼─────────┼───────┤
+│ core    │ fail    │ -     │
+│ api     │ blocked │ -     │
+│ backend │ blocked │ -     │
+│ app     │ blocked │ -     │
+│ lib     │ skip    │ done  │
+└─────────┴─────────┴───────┘
+total: T
+logs: .stew/runs/ID
+-- want/files --
+core-setup.stderr
+core-setup.stdout
+lib-build.stderr
+lib-build.stdout

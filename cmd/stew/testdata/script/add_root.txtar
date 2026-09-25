@@ -1,0 +1,10 @@
+# The workspace root itself can be a project; its name is the root directory's name.
+mkdir my-mono
+cd my-mono
+exec stew init
+exec stew add .
+stdout '^added my-mono \(\.\)$'
+cmp .stew/projects.toml $WORK/want/projects.toml
+
+-- want/projects.toml --
+projects = ["."]

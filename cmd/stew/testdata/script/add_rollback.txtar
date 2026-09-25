@@ -1,0 +1,14 @@
+# If the registry cannot be written, add removes the stew.toml it wrote.
+[root] skip 'root ignores directory permissions'
+exec stew init
+chmod 0555 .stew
+exec sh -c 'stew add libs/core; echo "exit=$?"'
+chmod 0755 .stew
+stdout '^exit=1$'
+stderr 'register libs/core'
+! exists libs/core/stew.toml
+cmp .stew/projects.toml want/projects.toml
+
+-- want/projects.toml --
+projects = []
+-- libs/core/.keep --

@@ -1,0 +1,21 @@
+# A project directory with spaces works for add, commands, and logs.
+exec stew init
+exec stew add 'apps/My App' -a my-app
+cp want/stew.toml 'apps/My App/stew.toml'
+exec stew build
+stdout '^==> my-app: build \.\.\. done'
+grep '/apps/My App$' 'apps/My App/where'
+exec sh -c 'ls .stew/runs/*/my-app-build.stdout'
+
+-- apps/My App/.keep --
+-- want/stew.toml --
+name = "my-app"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = "pwd > where"
+verify = ""
+[ci.full]
+run = ""

@@ -1,0 +1,8 @@
+# A fresh workspace with no projects runs cleanly and prints a header-only table.
+exec stew init
+exec stew build
+stdout '^│ project │ setup │ build │$'
+! stdout '==>'
+stdout '^total: '
+exec stew ci
+stdout '^│ project │ setup │ build │ ci\.full │$'

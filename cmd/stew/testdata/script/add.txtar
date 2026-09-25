@@ -1,0 +1,77 @@
+# Commands outside a workspace fail with exit 2.
+exec sh -c 'stew add libs/core; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'not a stew workspace'
+
+exec stew init
+
+# add writes the template and registers the path.
+exec stew add libs/core
+stdout '^added core \(libs/core\)$'
+cmp libs/core/stew.toml want/core.toml
+cmp .stew/projects.toml want/projects-1.toml
+
+# The alias sets the name. Paths resolve against cwd, even from a nested dir.
+cd libs
+exec stew add ../apps/Web -a web
+stdout '^added web \(apps/Web\)$'
+cd $WORK
+grep '^name = "web"$' apps/Web/stew.toml
+cmp .stew/projects.toml want/projects-2.toml
+
+# Rejections exit 1 and change nothing.
+exec sh -c 'stew add libs/core; echo "exit=$?"'
+stdout '^exit=1$'
+stderr 'stew.toml already exists'
+
+exec stew add -a web2 apps/Web2
+
+exec sh -c 'stew add "apps/My App"; echo "exit=$?"'
+stdout '^exit=1$'
+stderr 'invalid project name "My App".*pick one with -a'
+
+exec sh -c 'stew add apps/dup -a core; echo "exit=$?"'
+stdout '^exit=1$'
+stderr 'project name "core" is already used by libs/core'
+
+exec sh -c 'stew add ..; echo "exit=$?"'
+stdout '^exit=1$'
+stderr 'outside the workspace root'
+
+exec sh -c 'stew add missing; echo "exit=$?"'
+stdout '^exit=1$'
+
+exec sh -c 'stew add file.txt; echo "exit=$?"'
+stdout '^exit=1$'
+stderr 'not a directory'
+
+! exists 'apps/My App/stew.toml'
+! exists apps/dup/stew.toml
+
+-- want/core.toml --
+name = "core"
+dependencies = []
+
+# Each phase: `verify` runs first; exit 0 skips `run`.
+# Otherwise `run` runs, then `verify` confirms. Empty strings are no-ops.
+[setup]
+run = ""
+verify = ""
+
+[build]
+run = ""
+verify = ""
+
+# Levels: pre-commit falls back to quick, quick falls back to full.
+[ci.full]
+run = ""
+-- want/projects-1.toml --
+projects = ["libs/core"]
+-- want/projects-2.toml --
+projects = ["apps/Web", "libs/core"]
+-- libs/core/.keep --
+-- apps/Web/.keep --
+-- apps/Web2/.keep --
+-- apps/My App/.keep --
+-- apps/dup/.keep --
+-- file.txt --
