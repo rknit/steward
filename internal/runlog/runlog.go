@@ -21,13 +21,15 @@ const idTimeLayout = "20060102T150405Z"
 const maxAttempts = 16
 
 // Run is one run's log directory and, once started or loaded, its manifest.
+// A created run holds its directory's lock until Close.
 type Run struct {
 	ID       string
 	Dir      string
 	Manifest Manifest
+	lock     *os.File
 }
 
-// Create makes <stewDir>/runs/<run-id>/. The ID is the UTC time plus 4 random hex digits read from rand.
+// Create makes <stewDir>/runs/<run-id>/ and locks it. The ID is the UTC time plus 4 random hex digits read from rand.
 func Create(stewDir string, now time.Time, rand io.Reader) (*Run, error) {
 	runs := filepath.Join(stewDir, "runs")
 	if err := os.MkdirAll(runs, 0o755); err != nil {
@@ -48,9 +50,25 @@ func Create(stewDir string, now time.Time, rand io.Reader) (*Run, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &Run{ID: id, Dir: dir}, nil
+		lock, err := lockDir(dir)
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, ErrRunning) {
+			// A concurrent prune took the new, still unlocked directory.
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &Run{ID: id, Dir: dir, lock: lock}, nil
 	}
 	return nil, fmt.Errorf("could not create a unique run directory in %s", runs)
+}
+
+// Close releases the run's lock. A loaded run holds no lock.
+func (r *Run) Close() error {
+	if r.lock == nil {
+		return nil
+	}
+	return r.lock.Close()
 }
 
 // PhaseLog is the stdout, stderr, and combined log files of one project phase.

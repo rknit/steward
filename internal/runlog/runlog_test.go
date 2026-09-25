@@ -2,10 +2,12 @@ package runlog
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -26,6 +28,75 @@ func TestCreate(t *testing.T) {
 	}
 	if info, err := os.Stat(run.Dir); err != nil || !info.IsDir() {
 		t.Errorf("run dir: %v", err)
+	}
+}
+
+func TestCreateLocksRun(t *testing.T) {
+	run, err := Create(t.TempDir(), now, bytes.NewReader([]byte{0x3f, 0x9a}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lockDir(run.Dir); !errors.Is(err, ErrRunning) {
+		t.Fatalf("lockDir while the run is open = %v, want ErrRunning", err)
+	}
+	if err := run.Close(); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := lockDir(run.Dir)
+	if err != nil {
+		t.Fatalf("lockDir after Close = %v", err)
+	}
+	lock.Close()
+}
+
+func TestCreateRetriesWhenPruneTakesTheDirectory(t *testing.T) {
+	interfere := map[string]func(t *testing.T, dir string){
+		"removed before the lock": func(t *testing.T, dir string) {
+			if err := os.Remove(dir); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"replaced before the lock": func(t *testing.T, dir string) {
+			if err := os.Remove(dir); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		},
+		"locked by prune": func(t *testing.T, dir string) {
+			f, err := os.Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { f.Close() })
+			if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, act := range interfere {
+		t.Run(name, func(t *testing.T) {
+			first := true
+			beforeFlock = func(dir string) {
+				if first {
+					first = false
+					act(t, dir)
+				}
+			}
+			t.Cleanup(func() { beforeFlock = func(string) {} })
+			run, err := Create(t.TempDir(), now, bytes.NewReader([]byte{0x00, 0x01, 0x00, 0x02}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer run.Close()
+			if run.ID != "20260924T213601Z-0002" {
+				t.Errorf("ID = %q, want a retry with the second suffix", run.ID)
+			}
+			if _, err := lockDir(run.Dir); !errors.Is(err, ErrRunning) {
+				t.Errorf("lockDir on the created run = %v, want ErrRunning", err)
+			}
+		})
 	}
 }
 

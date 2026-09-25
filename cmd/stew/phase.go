@@ -83,6 +83,7 @@ func runPhases(stdout io.Writer, argv []string, command string, names []string, 
 	if err != nil {
 		return rejected(fmt.Errorf("cannot create run log directory: %w", err))
 	}
+	defer logs.Close()
 	start := time.Now()
 	projects := make([]string, len(plan.Jobs))
 	for i, job := range plan.Jobs {

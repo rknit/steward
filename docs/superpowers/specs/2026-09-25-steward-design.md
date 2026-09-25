@@ -86,6 +86,11 @@ Every `setup`, `build`, or `ci` invocation is one run. Each run captures all com
   `.stew/runs/` itself is created on demand.
 - **Run ID.** `<UTC time>-<4 random hex>`, e.g. `20260925T043601Z-3f9a`. IDs sort by start time.
   The directory is created with `os.Mkdir`. If it already exists, a new random suffix is drawn.
+- **Lock.** From creation until it exits, stew holds an exclusive `flock` on the run directory.
+  The kernel drops it when stew exits or dies, so an unlocked run is finished or crashed. Commands do not inherit it.
+  After locking, stew checks the directory is still the one it made. If a concurrent `stew runs prune` removed
+  or locked it first, stew draws a new suffix. Any other lock failure exits 1 before any phase runs,
+  as when the directory cannot be created.
 - **Files.** `<project>-<phase>.stdout`, `<project>-<phase>.stderr`, and `<project>-<phase>.log`,
   e.g. `api-build.stderr`. `<project>-<phase>` is the phase's key.
   - One run directory holds a triple for every project-phase the run executed.
@@ -682,7 +687,7 @@ internal/workspace/
   graph.go           name index, dependency validation, cycle detection, Select(names) → plan
 internal/runner/     plan execution: phase algorithm, level resolution, blocked propagation, results
 internal/report/     phase lines, progress animation, failure replay, summary table, `runs show` page
-internal/runlog/     run ID, run directory, per-phase log files and step markers, run.json save/load
+internal/runlog/     run ID, run directory and its lock, per-phase log files and step markers, run.json save/load
 internal/githook/    hooks-dir lookup via git, hook install
 ```
 
@@ -770,6 +775,7 @@ internal/githook/    hooks-dir lookup via git, hook install
 - `run.json`: round trip; atomic save leaves no temp file; `total_ms` only after the run-end save.
 - `Latest` over several IDs; unknown ID; missing `run.json`; invalid JSON.
 - Unfinished phase: a `.log` without an entry is found; none when all logs have entries.
+- A created run is locked until `Close`; a second lock on its directory fails with `ErrRunning`.
 
 ### Unit: `report`
 
