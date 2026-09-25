@@ -26,7 +26,7 @@ import (
 func newRunsCmd(stdout io.Writer) *cobra.Command {
 	runs := &cobra.Command{
 		Use:   "runs",
-		Short: "Inspect past runs",
+		Short: "Inspect and prune past runs",
 		Args:  cobra.NoArgs,
 		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
@@ -52,7 +52,7 @@ func newRunsCmd(stdout io.Writer) *cobra.Command {
 	}
 	list.Flags().BoolVar(&listPorcelain, "porcelain", false, "print tab-separated start time, run ID, result, total in ms, and command")
 	list.Flags().BoolVar(&listNoPager, "no-pager", false, "print directly instead of through a pager")
-	runs.AddCommand(show, list)
+	runs.AddCommand(show, list, newRunsPruneCmd(stdout))
 	return runs
 }
 

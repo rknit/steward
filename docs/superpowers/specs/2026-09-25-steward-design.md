@@ -25,6 +25,7 @@ stew ci [name...] [-l/--level full|quick|pre-commit]
 stew git install pre-commit
 stew runs show <run-id> [<project-phase-regex>...] [--porcelain] [--no-pager]
 stew runs list [--porcelain] [--no-pager]
+stew runs prune [--keep-since <time>] [--keep-last-n <n>]
 ```
 
 - Projects are referenced only by `name`. Only `stew add` takes a path.
@@ -116,7 +117,7 @@ Every `setup`, `build`, or `ci` invocation is one run. Each run captures all com
   - In both phase cases, the phase reports `fail` with last line `(log error: <error>)` in its content area.
     It is handled like any other `fail`: the project stops, its dependents are `blocked`,
     and independent projects keep running.
-- **Retention.** Runs are never deleted automatically. `stew prune` is planned for later.
+- **Retention.** Runs are never deleted automatically. `stew runs prune` deletes them on request.
 
 ### Run Manifest (`run.json`)
 
@@ -492,7 +493,7 @@ logs: .stew/runs/20260925T043601Z-3f9a
 | Code | Meaning                                                                                              |
 | ---- | ---------------------------------------------------------------------------------------------------- |
 | 0    | Success.                                                                                             |
-| 1    | A phase failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no match or an unreadable run; `runs list` could not read `.stew/runs/`. |
+| 1    | A phase failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no match or an unreadable run; `runs list` could not read `.stew/runs/`; `runs prune` could not read `.stew/runs/` or delete a run. |
 | 2    | Invalid CLI usage or invalid workspace configuration.                                                |
 | 130  | Interrupted by Ctrl-C (SIGINT). SIGTERM exits 143 and SIGHUP exits 129.                              |
 
@@ -653,6 +654,40 @@ One line per run, in the same order, and nothing else. No runs prints nothing. N
 - `<total-ms>` is `-` when there is no total.
 - `<command>` is last. Quoting keeps it on one line with no tabs.
 
+## `stew runs prune [--keep-since <time>] [--keep-last-n <n>]`
+
+Deletes the runs that no keep rule keeps. A run in progress is never deleted.
+
+- Root discovery only, as in `stew runs show`.
+- Runs: every directory in `.stew/runs/` whose name is a run ID. Other entries, including symlinks, are never touched.
+- A run is kept when at least one given rule keeps it:
+  - `--keep-since <time>`: the run ID's start time is at or after `<time>`;
+  - `--keep-last-n <n>`: the run is one of the `n` newest by ID.
+- At least one rule is required. With neither: `at least one of --keep-since or --keep-last-n is required`, exit 2.
+- `<time>` is one of:
+  - a duration before now, as whole numbers with units `w` (7 days), `d` (24 h), `h`, `m`, `s`: `36h`, `7d`, `1w2d`;
+  - a local date `YYYY-MM-DD` (midnight), or a local date and time `YYYY-MM-DD hh:mm:ss`;
+  - an RFC 3339 time, e.g. `2026-09-01T15:04:05+07:00`.
+
+  Anything else: `invalid --keep-since "<value>": <reason>`, exit 2.
+- `<n>` is 0 or more. A negative `n`: `invalid --keep-last-n <n>: must be 0 or more`, exit 2.
+- Age is the start time. A run that started before `<time>` is deleted even if it ended after it.
+- A run ID whose time is not a valid date is never kept by `--keep-since`.
+- `run.json` is not read. Finished, `unfinished`, and `unreadable` runs are all deleted by the same rules.
+- Runs in progress hold their lock (see Run Logs) and are kept. Prune deletes a run while holding its lock.
+  A run whose stew crashed or was killed, even with SIGKILL, is unlocked and deleted like any other.
+- One line per run the rules do not keep, oldest first, and nothing else. Never paged.
+
+  ```
+  pruned 20260924T220001Z-0b3d
+  kept 20260925T051200Z-a1c2: running
+  ```
+
+- A run another process removed meanwhile is skipped silently.
+- A failed delete prints `stew: prune <id>: <error>` to stderr. Prune goes on with the next run and exits 1.
+  A partly deleted run is listed as `unreadable` by `stew runs list`.
+- `.stew/runs/` cannot be read: `read runs: <error>`, exit 1. A missing `.stew/runs/` prunes nothing.
+
 ## `stew git install pre-commit`
 
 1. Find the root. The workspace is not validated.
@@ -679,6 +714,7 @@ One line per run, in the same order, and nothing else. No runs prints nothing. N
 ```
 cmd/stew/            main: cobra commands, error → exit code mapping
   runs.go            `runs show` and `runs list`: run lookup, regex selection, result, porcelain lines
+  prune.go           `runs prune`: keep flags, --keep-since parsing, output
   pager.go           pager choice, LESS default, direct-output fallback, broken-pipe handling
 internal/workspace/
   root.go            Find(cwd) → root
@@ -708,6 +744,8 @@ internal/githook/    hooks-dir lookup via git, hook install
   `Blocked(project, ph, by) error`. Each is called before the matching `Reporter` event,
   so a `PhaseEnd` save error can still turn the phase into `fail`. `runlog` implements it by saving `run.json`.
 - `runlog` also provides `Load(stewDir, id)` and `Latest(stewDir)`, and finds the unfinished phase from `.log` names.
+- `runlog.Retention` picks the runs to delete from their IDs alone. `runlog.Delete` removes one run while holding
+  its lock, and returns `ErrRunning` for a run in progress.
 - `report` builds the `runs show` page from a loaded run. It reuses the phase-line, duration, and summary helpers,
   and rebuilds the summary from `run.json`.
 - The pager's TTY check and environment are injected, so tests can drive it.
@@ -776,6 +814,10 @@ internal/githook/    hooks-dir lookup via git, hook install
 - `Latest` over several IDs; unknown ID; missing `run.json`; invalid JSON.
 - Unfinished phase: a `.log` without an entry is found; none when all logs have entries.
 - A created run is locked until `Close`; a second lock on its directory fails with `ErrRunning`.
+- `Retention.Expired`: `LastN` alone, `LastN` 0, `Since` alone including its boundary and an invalid-date ID,
+  both rules as a union, no rule.
+- `Delete`: a locked run is `ErrRunning` and untouched; an unlocked run is removed; a missing run, a non-ID,
+  a symlink, and a file are `ErrUnknownRun` and untouched; a removal error is returned.
 
 ### Unit: `report`
 
@@ -830,6 +872,13 @@ internal/githook/    hooks-dir lookup via git, hook install
   - no match exits 1; invalid regex exits 2; unknown run exits 2; missing `run.json` exits 1;
   - works while a `stew.toml` is invalid;
   - output is not paged under testscript.
+- `runs prune`:
+  - both rules as a union, oldest first; nothing to prune prints nothing; non-run entries untouched;
+  - no rule, bad `--keep-since`, too-long duration, negative `--keep-last-n`, and an extra argument exit 2;
+  - a run in progress is `kept`; a command's background process does not keep the lock after stew exits;
+  - stew killed with SIGKILL mid-run leaves an `unfinished` run that prune deletes;
+  - a failed delete continues with the other runs and exits 1;
+  - works while `projects.toml` is invalid, and with no `.stew/runs/`.
 
 ### Integration: git hook
 
@@ -845,8 +894,6 @@ internal/githook/    hooks-dir lookup via git, hook install
 
 ## Out of Scope (v1)
 
-- `stew prune`
-- `stew runs list`
 - Colors in the `runs show` page
 - Parallel execution
 - Changed-only selection (`--staged`, `--since`)

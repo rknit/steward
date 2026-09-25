@@ -1,0 +1,18 @@
+# A run that cannot be deleted is reported; prune goes on with the others and exits 1.
+[root] skip 'root ignores directory permissions'
+mkdir .stew/runs/20000101T000000Z-0000/sub
+chmod 0555 .stew/runs/20000101T000000Z-0000
+exec sh -c 'stew runs prune --keep-last-n 0; echo "exit=$?"'
+chmod 0755 .stew/runs/20000101T000000Z-0000
+stdout '^pruned 20000102T000000Z-0001$'
+stdout '^exit=1$'
+stderr '^stew: prune 20000101T000000Z-0000: .*permission denied$'
+! exists .stew/runs/20000102T000000Z-0001
+exists .stew/runs/20000101T000000Z-0000/sub
+
+-- .stew/projects.toml --
+projects = []
+-- .stew/runs/20000101T000000Z-0000/core-setup.log --
+x
+-- .stew/runs/20000102T000000Z-0001/core-setup.log --
+x

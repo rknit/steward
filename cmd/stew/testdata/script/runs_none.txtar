@@ -9,6 +9,11 @@ stdout '^no runs$'
 exec stew runs list --porcelain
 ! stdout .
 
+# runs prune with no runs directory prints nothing.
+exec stew runs prune --keep-last-n 0
+! stdout .
+! stderr .
+
 # An unknown subcommand of a command group is a usage error; bare "runs" prints help and exits 0.
 exec sh -c 'stew runs shw latest; echo "exit=$?"'
 stdout '^exit=2$'
