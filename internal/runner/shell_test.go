@@ -7,9 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
+
+// boundedLoop keeps a command busy for at most 10 s, so a regression fails a test instead of hanging the suite.
+const boundedLoop = "i=0; while [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done"
 
 func runShell(t *testing.T, ctx context.Context, dir, cmd string) (Result, string, string) {
 	t.Helper()
@@ -83,7 +87,7 @@ func TestShellCancelEscalatesToKill(t *testing.T) {
 		waitForFile(t, filepath.Join(dir, "started"))
 		cancel(errors.New("log error"))
 	}()
-	res, _, _ := runShell(t, ctx, dir, "trap '' TERM; touch started; while :; do sleep 0.1; done")
+	res, _, _ := runShell(t, ctx, dir, "trap '' TERM; touch started; "+boundedLoop)
 	if res.Signal != "SIGKILL" {
 		t.Errorf("result = %+v, want SIGKILL", res)
 	}
@@ -96,9 +100,36 @@ func TestShellInterruptSendsSIGINT(t *testing.T) {
 		waitForFile(t, filepath.Join(dir, "started"))
 		cancel(ErrInterrupted)
 	}()
-	res, out, _ := runShell(t, ctx, dir, "trap 'echo got-int; exit 7' INT; touch started; while :; do sleep 0.1; done")
+	res, out, _ := runShell(t, ctx, dir, "trap 'echo got-int; exit 7' INT; touch started; "+boundedLoop)
 	if res != (Result{ExitCode: 7}) || out != "got-int\n" {
 		t.Errorf("result = %+v, stdout = %q", res, out)
+	}
+}
+
+func TestShellInterruptSendsSIGTERM(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	go func() {
+		waitForFile(t, filepath.Join(dir, "started"))
+		cancel(Interrupt{Signal: syscall.SIGTERM})
+	}()
+	res, out, _ := runShell(t, ctx, dir,
+		"trap 'echo got-term; exit 7' TERM; touch started; "+boundedLoop)
+	if res != (Result{ExitCode: 7}) || out != "got-term\n" {
+		t.Errorf("result = %+v, stdout = %q", res, out)
+	}
+}
+
+func TestShellInterruptSIGTERMEscalatesToKill(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	go func() {
+		waitForFile(t, filepath.Join(dir, "started"))
+		cancel(Interrupt{Signal: syscall.SIGTERM})
+	}()
+	res, _, _ := runShell(t, ctx, dir, "trap '' TERM; touch started; "+boundedLoop)
+	if res.Signal != "SIGKILL" {
+		t.Errorf("result = %+v, want SIGKILL", res)
 	}
 }
 
@@ -121,4 +152,51 @@ func waitForFile(t *testing.T, path string) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Errorf("timed out waiting for %s", path)
+}
+
+// TestShellForceKillsAfterInterrupt checks that closing Force SIGKILLs a command that ignores the forwarded SIGINT.
+func TestShellForceKillsAfterInterrupt(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	force := make(chan struct{})
+	go func() {
+		waitForFile(t, filepath.Join(dir, "started"))
+		cancel(ErrInterrupted)
+		time.Sleep(100 * time.Millisecond)
+		close(force)
+	}()
+	var stdout, stderr bytes.Buffer
+	start := time.Now()
+	res := Shell{KillDelay: 2 * time.Second, Force: force}.Run(ctx, dir,
+		"trap '' INT; touch started; "+boundedLoop, &stdout, &stderr)
+	if res.Signal != "SIGKILL" {
+		t.Errorf("result = %+v, want SIGKILL", res)
+	}
+	if took := time.Since(start); took >= 2*time.Second {
+		t.Errorf("took %v; want the force kill well before the command's own 10 s loop", took)
+	}
+}
+
+// TestShellForceSkipsKillDelay checks that closing Force during a SIGTERM stop kills at once instead of waiting
+// out KillDelay.
+func TestShellForceSkipsKillDelay(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	force := make(chan struct{})
+	go func() {
+		waitForFile(t, filepath.Join(dir, "started"))
+		cancel(Interrupt{Signal: syscall.SIGTERM})
+		time.Sleep(100 * time.Millisecond)
+		close(force)
+	}()
+	var stdout, stderr bytes.Buffer
+	start := time.Now()
+	res := Shell{KillDelay: 2 * time.Second, Force: force}.Run(ctx, dir,
+		"trap '' TERM; touch started; "+boundedLoop, &stdout, &stderr)
+	if res.Signal != "SIGKILL" {
+		t.Errorf("result = %+v, want SIGKILL", res)
+	}
+	if took := time.Since(start); took >= 2*time.Second {
+		t.Errorf("took %v; want the force kill before KillDelay (2s)", took)
+	}
 }

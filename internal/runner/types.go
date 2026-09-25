@@ -4,9 +4,9 @@ package runner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
+	"syscall"
 	"time"
 )
 
@@ -23,8 +23,14 @@ const (
 	Interrupted Status = "interrupted"
 )
 
-// ErrInterrupted is the context cause that means the user pressed Ctrl-C.
-var ErrInterrupted = errors.New("interrupted")
+// Interrupt is the context cause for a signal that stops the whole run (Ctrl-C, SIGTERM, SIGHUP).
+type Interrupt struct{ Signal syscall.Signal }
+
+// Error implements error.
+func (i Interrupt) Error() string { return "interrupted by " + signalName(i.Signal) }
+
+// ErrInterrupted is the cause for Ctrl-C.
+var ErrInterrupted = Interrupt{Signal: syscall.SIGINT}
 
 // Phase is one phase of one project, with its commands already resolved.
 type Phase struct {
@@ -103,8 +109,9 @@ func (r Result) Cause() string {
 	}
 }
 
-// Executor runs one shell command in dir. When ctx is done it stops the command:
-// SIGINT if the cause is ErrInterrupted, otherwise SIGTERM and then SIGKILL.
+// Executor runs one shell command in dir. When ctx is done it stops the command: cause Interrupt{SIGINT}
+// sends SIGINT to the group and waits; cause Interrupt{SIGTERM} or Interrupt{SIGHUP} sends that signal to
+// the group, then SIGKILL after KillDelay; any other cause sends SIGTERM, then SIGKILL after KillDelay.
 type Executor interface {
 	Run(ctx context.Context, dir, cmd string, stdout, stderr io.Writer) Result
 }
@@ -133,15 +140,16 @@ type Row struct {
 type Results struct {
 	Columns     []string
 	Rows        []Row
-	Failed      bool // some phase failed or was blocked
-	Interrupted bool
+	Failed      bool           // some phase failed or was blocked
+	Interrupted syscall.Signal // 0 unless a signal stopped the run
 }
 
-// ExitCode maps results to stew's exit code: 130 interrupted, 1 failed or blocked, 0 success.
+// ExitCode maps results to stew's exit code: 128+signal if interrupted (SIGINT 130, SIGTERM 143, SIGHUP 129),
+// 1 failed or blocked, 0 success.
 func (r *Results) ExitCode() int {
 	switch {
-	case r.Interrupted:
-		return 130
+	case r.Interrupted != 0:
+		return 128 + int(r.Interrupted)
 	case r.Failed:
 		return 1
 	}

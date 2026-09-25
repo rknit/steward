@@ -52,8 +52,9 @@ func (f *fakeExec) Run(ctx context.Context, dir, cmd string, stdout, stderr io.W
 	}
 	if ctx.Err() != nil {
 		f.cancelled = append(f.cancelled, cmd)
-		if errors.Is(context.Cause(ctx), ErrInterrupted) {
-			return Result{Signal: "SIGINT"}
+		var i Interrupt
+		if errors.As(context.Cause(ctx), &i) {
+			return Result{Signal: signalName(i.Signal)}
 		}
 		return Result{Signal: "SIGTERM"}
 	}

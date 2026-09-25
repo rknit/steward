@@ -7,6 +7,7 @@ import (
 	"io"
 	"slices"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -19,7 +20,7 @@ type Runner struct {
 }
 
 // Run executes the plan in order. It never returns early on failure: independent projects keep running.
-// After an interrupt (ctx cancelled with ErrInterrupted) no new phase starts.
+// After an interrupt (ctx cancelled with an Interrupt cause: Ctrl-C, SIGTERM, or SIGHUP) no new phase starts.
 func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 	res := &Results{Columns: plan.Columns}
 	column := make(map[string]int, len(plan.Columns))
@@ -35,10 +36,10 @@ func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 	for _, job := range plan.Jobs {
 		res.Rows = append(res.Rows, Row{Project: job.Project, Cells: make([]Cell, len(plan.Columns))})
 		cells := res.Rows[len(res.Rows)-1].Cells
-		if interrupted(ctx) {
-			res.Interrupted = true
+		if sig, ok := interruptSignal(ctx); ok {
+			res.Interrupted = sig
 		}
-		if res.Interrupted {
+		if res.Interrupted != 0 {
 			continue
 		}
 
@@ -59,8 +60,8 @@ func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 		}
 
 		for _, ph := range job.Phases {
-			if interrupted(ctx) {
-				res.Interrupted = true
+			if sig, ok := interruptSignal(ctx); ok {
+				res.Interrupted = sig
 				break
 			}
 			r.Report.PhaseStart(job.Project, ph)
@@ -71,7 +72,9 @@ func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 			cells[column[ph.Name]] = Cell{Status: out.Status, Fallback: ph.Fallback()}
 
 			if out.Status == Interrupted {
-				res.Interrupted = true
+				if sig, ok := interruptSignal(ctx); ok {
+					res.Interrupted = sig
+				}
 				break
 			}
 			if out.Status == Fail {
@@ -84,8 +87,18 @@ func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 	return res
 }
 
+// interruptSignal reports the signal that stopped the run, if the context's cancellation cause is an Interrupt.
+func interruptSignal(ctx context.Context) (syscall.Signal, bool) {
+	var i Interrupt
+	if errors.As(context.Cause(ctx), &i) {
+		return i.Signal, true
+	}
+	return 0, false
+}
+
 func interrupted(ctx context.Context) bool {
-	return errors.Is(context.Cause(ctx), ErrInterrupted)
+	_, ok := interruptSignal(ctx)
+	return ok
 }
 
 // phase runs the phase algorithm. Duration is filled in by the caller.

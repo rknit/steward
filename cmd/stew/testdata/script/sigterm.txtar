@@ -1,0 +1,39 @@
+# Loops are bounded (10s) so a regression fails instead of hanging the suite.
+# SIGTERM reaches stew, which forwards it to the running command, stops, prints the summary, and exits 143.
+exec sh -c 'stew build > out 2>&1 & pid=$!; i=0; while [ ! -f core/started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -TERM $pid; wait $pid; echo "exit=$?"'
+stdout '^exit=143$'
+exec cat out
+stdout '^==> core: setup \.\.\. interrupted$'
+stdout '^│ core    │ interrupted │ -     │$'
+stdout '^│ lib     │ -           │ -     │$'
+stdout '^total: \d+\.\ds$'
+stdout '^logs: \.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}$'
+! exists lib/ran
+
+exec sleep 2.5
+! exists core/survived
+
+-- .stew/projects.toml --
+projects = ["core", "lib"]
+-- core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = "touch started; i=0; while [ $i -lt 40 ]; do sleep 0.05; i=$((i+1)); done; touch survived"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- lib/stew.toml --
+name = "lib"
+dependencies = []
+[setup]
+run = "touch ran"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""

@@ -11,11 +11,15 @@ import (
 	"time"
 )
 
-// Shell runs commands with `sh -c`, stdin from /dev/null, each in its own process group.
+// Shell runs commands with `sh -c`, stdin from /dev/null, each in its own session and process group,
+// with no controlling terminal.
 type Shell struct {
 	// KillDelay is how long to wait after SIGTERM before SIGKILL, and how long to wait for output pipes
-	// to close after the shell exits (a background process may keep them open).
+	// to close after the shell exits (a background process may keep them open). It must be greater than zero.
 	KillDelay time.Duration
+	// Force, when closed, SIGKILLs the running command's process group at once. stew closes it on a second stop
+	// signal (Ctrl-C, SIGTERM, or SIGHUP) while it waits for an interrupted command. A nil Force never fires.
+	Force <-chan struct{}
 }
 
 // Run implements Executor.
@@ -28,7 +32,10 @@ func (s Shell) Run(ctx context.Context, dir, cmd string, stdout, stderr io.Write
 	c.Stdout = stdout
 	c.Stderr = stderr
 	// c.Stdin stays nil: the command reads from /dev/null.
-	c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Setsid (not Setpgid) makes the command a session and process-group leader with no controlling
+	// terminal: syscall.Kill(-pid, sig) still reaches the whole group, but opening /dev/tty fails with
+	// ENXIO instead of stopping the command with SIGTTIN/SIGTTOU against stew's terminal.
+	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	c.WaitDelay = s.KillDelay
 	if err := c.Start(); err != nil {
 		return Result{Err: err}
@@ -42,15 +49,28 @@ func (s Shell) Run(ctx context.Context, dir, cmd string, stdout, stderr io.Write
 	case err = <-done:
 	case <-ctx.Done():
 		group := -c.Process.Pid
-		if errors.Is(context.Cause(ctx), ErrInterrupted) {
-			syscall.Kill(group, syscall.SIGINT)
-			err = <-done
-			break
+		var i Interrupt
+		stop := syscall.SIGTERM
+		if errors.As(context.Cause(ctx), &i) {
+			if i.Signal == syscall.SIGINT {
+				syscall.Kill(group, syscall.SIGINT)
+				select {
+				case err = <-done:
+				case <-s.Force:
+					syscall.Kill(group, syscall.SIGKILL)
+					err = <-done
+				}
+				break
+			}
+			stop = i.Signal
 		}
-		syscall.Kill(group, syscall.SIGTERM)
+		syscall.Kill(group, stop)
 		select {
 		case err = <-done:
 		case <-time.After(s.KillDelay):
+			syscall.Kill(group, syscall.SIGKILL)
+			err = <-done
+		case <-s.Force:
 			syscall.Kill(group, syscall.SIGKILL)
 			err = <-done
 		}

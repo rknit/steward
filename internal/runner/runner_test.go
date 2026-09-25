@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -223,7 +224,7 @@ func TestBlockedByDirectDependencies(t *testing.T) {
 			t.Errorf("cells[%s] = %q, want %q", p, cells[p], w)
 		}
 	}
-	if !res.Failed || res.Interrupted || res.ExitCode() != 1 {
+	if !res.Failed || res.Interrupted != 0 || res.ExitCode() != 1 {
 		t.Errorf("failed=%v interrupted=%v exit=%d", res.Failed, res.Interrupted, res.ExitCode())
 	}
 }
@@ -252,7 +253,7 @@ func TestFailureStopsOnlyThatProject(t *testing.T) {
 func TestAllPass(t *testing.T) {
 	h := newHarness(okScript("core", "api", "backend", "app", "lib"))
 	res := h.r.Run(context.Background(), diamond())
-	if res.Failed || res.Interrupted || res.ExitCode() != 0 {
+	if res.Failed || res.Interrupted != 0 || res.ExitCode() != 0 {
 		t.Errorf("failed=%v interrupted=%v exit=%d", res.Failed, res.Interrupted, res.ExitCode())
 	}
 	if len(h.exec.calls) != 10 {
@@ -356,7 +357,37 @@ func TestInterrupt(t *testing.T) {
 	if out.Cause != "signal SIGINT" || len(out.Steps) != 1 || string(out.Steps[0].Output) != "partial\n" {
 		t.Errorf("outcome = %+v", out)
 	}
-	if !res.Interrupted || res.ExitCode() != 130 {
+	if res.Interrupted != syscall.SIGINT || res.ExitCode() != 130 {
+		t.Errorf("interrupted=%v exit=%d", res.Interrupted, res.ExitCode())
+	}
+	if len(res.Rows) != 5 {
+		t.Errorf("rows = %d, want all 5 projects", len(res.Rows))
+	}
+	if res.Rows[1].Cells[1] != (Cell{}) || res.Rows[4].Cells[0] != (Cell{}) {
+		t.Errorf("unreached cells not empty: %+v %+v", res.Rows[1].Cells, res.Rows[4].Cells)
+	}
+}
+
+func TestInterruptSIGTERM(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	script := okScript("core", "api", "backend", "app", "lib")
+	script["api-setup"] = []fakeCmd{{stdout: "partial\n", during: func() { cancel(Interrupt{Signal: syscall.SIGTERM}) }}}
+	h := newHarness(script)
+	res := h.r.Run(ctx, diamond())
+
+	want := []string{
+		"start core setup", "end core setup done", "start core build", "end core build done",
+		"start api setup", "end api setup interrupted",
+	}
+	if !slices.Equal(h.rec.events, want) {
+		t.Errorf("events:\n%s\nwant:\n%s", strings.Join(h.rec.events, "\n"), strings.Join(want, "\n"))
+	}
+	out := h.rec.outcomes["api setup"]
+	if out.Cause != "signal SIGTERM" || len(out.Steps) != 1 || string(out.Steps[0].Output) != "partial\n" {
+		t.Errorf("outcome = %+v", out)
+	}
+	if res.Interrupted != syscall.SIGTERM || res.ExitCode() != 143 {
 		t.Errorf("interrupted=%v exit=%d", res.Interrupted, res.ExitCode())
 	}
 	if len(res.Rows) != 5 {
@@ -406,7 +437,7 @@ func TestInterruptBeforeBlockedJobs(t *testing.T) {
 			}
 		}
 	}
-	if !res.Interrupted || res.ExitCode() != 130 {
+	if res.Interrupted != syscall.SIGINT || res.ExitCode() != 130 {
 		t.Errorf("interrupted=%v exit=%d, want true, 130", res.Interrupted, res.ExitCode())
 	}
 }

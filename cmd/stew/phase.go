@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -63,27 +64,37 @@ func runPhases(stdout io.Writer, command string, names []string, levelFlag strin
 		return invalid(err)
 	}
 
+	// The first stop signal interrupts the run; a second one force-kills the command stew is waiting for.
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	finished := make(chan struct{})
+	defer close(finished)
+	force := make(chan struct{})
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer signal.Stop(sigs)
+	go func() {
+		select {
+		case sig := <-sigs:
+			cancel(runner.Interrupt{Signal: sig.(syscall.Signal)})
+		case <-finished:
+			return
+		}
+		select {
+		case <-sigs:
+			close(force)
+		case <-finished:
+		}
+	}()
+
 	logs, err := runlog.Create(filepath.Join(root, workspace.DirName), time.Now(), rand.Reader)
 	if err != nil {
 		return rejected(fmt.Errorf("cannot create run log directory: %w", err))
 	}
 	start := time.Now()
 
-	ctx, cancel := context.WithCancelCause(context.Background())
-	defer cancel(nil)
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt)
-	defer signal.Stop(sigs)
-	go func() {
-		select {
-		case <-sigs:
-			cancel(runner.ErrInterrupted)
-		case <-ctx.Done():
-		}
-	}()
-
 	r := &runner.Runner{
-		Exec: runner.Shell{KillDelay: killDelay},
+		Exec: runner.Shell{KillDelay: killDelay, Force: force},
 		OpenLog: func(project, phase string) (runner.PhaseLog, error) {
 			l, err := logs.OpenPhase(project, phase)
 			if err != nil {

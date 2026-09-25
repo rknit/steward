@@ -1,0 +1,32 @@
+# A second stop signal while stew waits for an interrupted command SIGKILLs the command's process group.
+# The command ignores INT and TERM. Loops are bounded (10s) so a regression fails instead of hanging the suite.
+exec sh -c 'stew build > out 2>&1 & pid=$!; i=0; while [ ! -f core/started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; sleep 0.3; kill -INT $pid; wait $pid; echo "exit=$?"'
+stdout '^exit=130$'
+exec cat out
+stdout '^==> core: setup \.\.\. interrupted$'
+stdout '^\(signal SIGKILL\)$'
+stdout '^│ core    │ interrupted │ -     │$'
+stdout '^total: '
+! exists core/survived
+
+# SIGTERM after Ctrl-C also forces the kill; the exit code still reflects the first signal.
+rm core/started
+exec sh -c 'stew build > out 2>&1 & pid=$!; i=0; while [ ! -f core/started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; sleep 0.3; kill -TERM $pid; wait $pid; echo "exit=$?"'
+stdout '^exit=130$'
+exec cat out
+stdout '^\(signal SIGKILL\)$'
+! exists core/survived
+
+-- .stew/projects.toml --
+projects = ["core"]
+-- core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = "trap '' INT TERM; touch started; i=0; while [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; touch survived"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""

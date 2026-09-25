@@ -259,7 +259,9 @@ Stew never invokes `sh -c ""`.
   - stdout to the phase's `.stdout` log file, stderr to its `.stderr` log file;
   - both, in write order, to one in-memory buffer per phase, which is replayed on failure.
 - stdin is `/dev/null`. Output is hidden while a command runs, so an interactive prompt would hang unseen.
-- Each command runs in its own process group, so stew can signal the command and everything it started.
+- Each command runs in its own session and process group, with no controlling terminal.
+  Stew can signal the command and everything it started, and a command that opens `/dev/tty` fails at once
+  instead of stopping in the background.
 
 ### Failure Handling
 
@@ -273,9 +275,12 @@ Stew never invokes `sh -c ""`.
 ### Interrupt
 
 - On Ctrl-C stew catches SIGINT and forwards it to the running command's process group.
-- Stew does not exit immediately. It waits for the command to exit and starts nothing new.
+  Stew does not exit immediately. It waits for the command to exit and starts nothing new.
+- On SIGTERM or SIGHUP (CI cancel, `timeout`, closed terminal) stew forwards that signal to the group,
+  then sends SIGKILL after 5 s if the command is still running. It starts nothing new.
+- A second stop signal (Ctrl-C, SIGTERM, or SIGHUP) while stew waits sends SIGKILL to the command's group at once.
 - The phase in progress reports `interrupted`, followed by its content area (see Output).
-- Stew then prints the summary and exits 130.
+- Stew then prints the summary and exits 128 + the first signal's number: 130 (SIGINT), 143 (SIGTERM), 129 (SIGHUP).
 
 ## Output
 
@@ -381,7 +386,7 @@ logs: .stew/runs/20260925T043601Z-3f9a
 | 0    | Success.                                                                                  |
 | 1    | A phase failed or was blocked; `init`/`add`/`git install` rejected; a git command failed. |
 | 2    | Invalid CLI usage or invalid workspace configuration.                                     |
-| 130  | Interrupted.                                                                              |
+| 130  | Interrupted by Ctrl-C (SIGINT). SIGTERM exits 143 and SIGHUP exits 129.                     |
 
 ## `stew git install pre-commit`
 
