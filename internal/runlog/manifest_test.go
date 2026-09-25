@@ -156,3 +156,31 @@ func TestManifestSaveErrors(t *testing.T) {
 		t.Errorf("next save did not keep the already-fail record's cause: %+v", m.Phases[1])
 	}
 }
+
+func TestManifestResult(t *testing.T) {
+	total := int64(1)
+	phases := func(statuses ...runner.Status) []PhaseRecord {
+		var recs []PhaseRecord
+		for _, s := range statuses {
+			recs = append(recs, PhaseRecord{Status: string(s)})
+		}
+		return recs
+	}
+	tests := []struct {
+		name string
+		m    Manifest
+		want string
+	}{
+		{"no phases", Manifest{TotalMS: &total}, "ok"},
+		{"done skip pass", Manifest{Phases: phases(runner.Done, runner.Skip, runner.Pass), TotalMS: &total}, "ok"},
+		{"fail", Manifest{Phases: phases(runner.Done, runner.Fail), TotalMS: &total}, "fail"},
+		{"blocked", Manifest{Phases: phases(runner.Pass, runner.Blocked), TotalMS: &total}, "fail"},
+		{"interrupted beats fail", Manifest{Phases: phases(runner.Fail, runner.Interrupted), TotalMS: &total}, "interrupted"},
+		{"no total", Manifest{Phases: phases(runner.Fail, runner.Interrupted)}, "unfinished"},
+	}
+	for _, tt := range tests {
+		if got := tt.m.Result(); got != tt.want {
+			t.Errorf("%s: Result = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}

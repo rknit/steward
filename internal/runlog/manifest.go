@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/rknit/steward/internal/runner"
@@ -100,4 +101,22 @@ func (r *Run) save() error {
 		return err
 	}
 	return os.Rename(tmp.Name(), filepath.Join(r.Dir, ManifestName))
+}
+
+// Result is the run's outcome for stew runs list: "unfinished" without a total, then "interrupted",
+// "fail" for a failed or blocked phase, and "ok" otherwise.
+func (m Manifest) Result() string {
+	if m.TotalMS == nil {
+		return "unfinished"
+	}
+	has := func(statuses ...runner.Status) bool {
+		return slices.ContainsFunc(m.Phases, func(p PhaseRecord) bool { return slices.Contains(statuses, runner.Status(p.Status)) })
+	}
+	switch {
+	case has(runner.Interrupted):
+		return "interrupted"
+	case has(runner.Fail, runner.Blocked):
+		return "fail"
+	}
+	return "ok"
 }

@@ -142,10 +142,26 @@ func TestShellQuote(t *testing.T) {
 		"$HOME":         "'$HOME'",
 		"a*":            "'a*'",
 		"ünïcode":       "'ünïcode'",
+		"a\tb":          `$'a\tb'`,
+		"it's\n":        `$'it\'s\n'`,
+		"a\\b\r":        `$'a\\b\r'`,
+		"\x1b[0m ü":     `$'\x1b[0m ü'`,
+		"\u0085":        `$'\xc2\x85'`,
+		"\xff\x00":      `$'\xff\x00'`,
+		"\uFFFD":        "'\uFFFD'",
 	}
 	for in, want := range tests {
 		if got := shellQuote(in); got != want {
 			t.Errorf("shellQuote(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestCommand(t *testing.T) {
+	if got, want := Command([]string{"ci", "--level", "pre-commit", "my app"}), "stew ci --level pre-commit 'my app'"; got != want {
+		t.Errorf("Command = %q, want %q", got, want)
+	}
+	if got := Command(nil); got != "stew" {
+		t.Errorf("Command(nil) = %q, want %q", got, "stew")
 	}
 }

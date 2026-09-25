@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	_ "time/tzdata"
 
 	"github.com/rogpeppe/go-internal/testscript"
 )

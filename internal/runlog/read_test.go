@@ -120,6 +120,35 @@ func TestLatest(t *testing.T) {
 	}
 }
 
+func TestIDs(t *testing.T) {
+	stewDir := t.TempDir()
+	if ids, err := IDs(stewDir); err != nil || ids != nil {
+		t.Errorf("no runs dir: IDs = %q, %v", ids, err)
+	}
+	writeRun(t, stewDir, "20260925T000001Z-0000", "")
+	writeRun(t, stewDir, "20260925T000000Z-ffff", "")
+	writeRun(t, stewDir, "tmp", "")
+	if err := os.WriteFile(filepath.Join(stewDir, "runs", "20260925T000002Z-0000"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"20260925T000000Z-ffff", "20260925T000001Z-0000"}
+	if ids, err := IDs(stewDir); err != nil || !slices.Equal(ids, want) {
+		t.Errorf("IDs = %q, %v; want %q", ids, err, want)
+	}
+}
+
+func TestStartTime(t *testing.T) {
+	got, err := StartTime("20260925T043601Z-3f9a")
+	if want := time.Date(2026, 9, 25, 4, 36, 1, 0, time.UTC); err != nil || !got.Equal(want) {
+		t.Errorf("StartTime = %v, %v; want %v", got, err, want)
+	}
+	for _, id := range []string{"20261325T043601Z-3f9a", "latest", ""} {
+		if _, err := StartTime(id); err == nil {
+			t.Errorf("StartTime(%q): want an error", id)
+		}
+	}
+}
+
 func TestParseKey(t *testing.T) {
 	tests := []struct {
 		key  string

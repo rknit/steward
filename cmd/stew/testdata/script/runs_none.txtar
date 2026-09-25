@@ -3,6 +3,12 @@ exec sh -c 'stew runs show latest; echo "exit=$?"'
 stdout '^exit=2$'
 stderr '^stew: unknown run "latest"$'
 
+# runs list with no runs: a message, or nothing with --porcelain.
+exec stew runs list
+stdout '^no runs$'
+exec stew runs list --porcelain
+! stdout .
+
 # An unknown subcommand of a command group is a usage error; bare "runs" prints help and exits 0.
 exec sh -c 'stew runs shw latest; echo "exit=$?"'
 stdout '^exit=2$'

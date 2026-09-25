@@ -24,6 +24,7 @@ stew build [name...]
 stew ci [name...] [-l/--level full|quick|pre-commit]
 stew git install pre-commit
 stew runs show <run-id> [<project-phase-regex>...] [--porcelain] [--no-pager]
+stew runs list [--porcelain] [--no-pager]
 ```
 
 - Projects are referenced only by `name`. Only `stew add` takes a path.
@@ -486,7 +487,7 @@ logs: .stew/runs/20260925T043601Z-3f9a
 | Code | Meaning                                                                                              |
 | ---- | ---------------------------------------------------------------------------------------------------- |
 | 0    | Success.                                                                                             |
-| 1    | A phase failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no match or an unreadable run. |
+| 1    | A phase failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no match or an unreadable run; `runs list` could not read `.stew/runs/`. |
 | 2    | Invalid CLI usage or invalid workspace configuration.                                                |
 | 130  | Interrupted by Ctrl-C (SIGINT). SIGTERM exits 143 and SIGHUP exits 129.                              |
 
@@ -554,6 +555,7 @@ logs: .stew/runs/20260925T043601Z-3f9a
 ```
 
 - **Header.** `run <id>: stew <argv>`, with each argument shell-quoted when needed.
+  An argument with a control character or invalid UTF-8 uses `$'…'` quoting with `\t`, `\n`, `\r`, and `\xHH` escapes.
 - **Order.** Matched phases in execution order, from `run.json`.
 - **Phase line.** Identical to the live line, including `<requested> -> <used>` and `blocked by <names>`.
 - **Body.** Every phase that ran a command prints its whole `.log` verbatim, markers included.
@@ -597,6 +599,55 @@ One line per matched phase, in execution order, and nothing else:
 - While the pager runs, stew catches and drops SIGINT, so Ctrl-C reaches only the pager.
 - Quitting the pager early is not an error: stew ignores the broken pipe, waits for the pager, and exits 0.
 
+## `stew runs list [--porcelain] [--no-pager]`
+
+Lists every run, newest first.
+
+- Root discovery only, as in `stew runs show`.
+- Runs: every directory in `.stew/runs/` whose name is a run ID. Other entries are ignored.
+
+```
+┌─────────────────────┬───────────────────────┬────────────┬───────┬────────────────────────────┐
+│ started             │ run                   │ result     │ total │ command                    │
+├─────────────────────┼───────────────────────┼────────────┼───────┼────────────────────────────┤
+│ 2026-09-25 12:12:00 │ 20260925T051200Z-a1c2 │ unfinished │ -     │ stew build                 │
+│ 2026-09-25 11:36:01 │ 20260925T043601Z-3f9a │ fail       │ 1m15s │ stew ci --level pre-commit │
+│ 2026-09-25 11:10:10 │ 20260925T041010Z-77e0 │ ok         │ 8.4s  │ stew ci core               │
+│ 2026-09-25 05:00:01 │ 20260924T220001Z-0b3d │ unreadable │ -     │ -                          │
+└─────────────────────┴───────────────────────┴────────────┴───────┴────────────────────────────┘
+```
+
+- **Started.** The run ID's UTC time in local time (`$TZ`, else the system zone), as `YYYY-MM-DD hh:mm:ss`.
+  `-` when the ID's time is not a valid date.
+- **Result.** From `run.json`, first match wins:
+
+  | Result        | When                                                             |
+  | ------------- | ---------------------------------------------------------------- |
+  | `unreadable`  | `run.json` is missing, invalid, or cannot be read                |
+  | `unfinished`  | no `total_ms`: the run is still going or stew was killed         |
+  | `interrupted` | a phase is `interrupted`                                         |
+  | `fail`        | a phase is `fail` or `blocked`                                   |
+  | `ok`          | otherwise                                                        |
+
+- **Total.** `total_ms` in the phase duration format, or `-`.
+- **Command.** `stew <argv>`, quoted as in the `stew runs show` header, or `-` for an unreadable run.
+- An unreadable run still gets a row and exits 0. `stew runs show <id>` names the error.
+- No runs prints `no runs`.
+- `.stew/runs/` cannot be read: `read runs: <error>`, exit 1.
+- Paged as in `stew runs show` (see Paging).
+
+### `--porcelain`
+
+One line per run, in the same order, and nothing else. No runs prints nothing. Never paged.
+
+```
+<started>\t<run-id>\t<result>\t<total-ms>\t<command>
+```
+
+- `<started>` is RFC 3339 local time with offset, e.g. `2026-09-25T11:36:01+07:00`, or `-`.
+- `<total-ms>` is `-` when there is no total.
+- `<command>` is last. Quoting keeps it on one line with no tabs.
+
 ## `stew git install pre-commit`
 
 1. Find the root. The workspace is not validated.
@@ -622,7 +673,7 @@ One line per matched phase, in execution order, and nothing else:
 
 ```
 cmd/stew/            main: cobra commands, error → exit code mapping
-  runs.go            `runs show`: run lookup, regex selection, porcelain lines
+  runs.go            `runs show` and `runs list`: run lookup, regex selection, result, porcelain lines
   pager.go           pager choice, LESS default, direct-output fallback, broken-pipe handling
 internal/workspace/
   root.go            Find(cwd) → root

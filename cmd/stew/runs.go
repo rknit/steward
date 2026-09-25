@@ -41,8 +41,107 @@ func newRunsCmd(stdout io.Writer) *cobra.Command {
 	}
 	show.Flags().BoolVar(&porcelain, "porcelain", false, "print tab-separated project, phase, status, duration in ms, and log path")
 	show.Flags().BoolVar(&noPager, "no-pager", false, "print directly instead of through a pager")
-	runs.AddCommand(show)
+	var listPorcelain, listNoPager bool
+	list := &cobra.Command{
+		Use:   "list",
+		Short: "List runs, newest first",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return listRuns(stdout, cmd.ErrOrStderr(), listPorcelain, listNoPager)
+		},
+	}
+	list.Flags().BoolVar(&listPorcelain, "porcelain", false, "print tab-separated start time, run ID, result, total in ms, and command")
+	list.Flags().BoolVar(&listNoPager, "no-pager", false, "print directly instead of through a pager")
+	runs.AddCommand(show, list)
 	return runs
+}
+
+// findStewDir returns the .stew directory of the workspace above cwd without loading the workspace.
+func findStewDir() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", rejected(err)
+	}
+	root, err := workspace.FindRoot(cwd)
+	if err != nil {
+		return "", invalid(err)
+	}
+	return filepath.Join(root, workspace.DirName), nil
+}
+
+// listedRun is one row of stew runs list. started is zero and text fields are "-" when unknown.
+type listedRun struct {
+	started time.Time
+	id      string
+	result  string
+	totalMS string
+	total   string
+	command string
+}
+
+func listRuns(stdout, stderr io.Writer, porcelain, noPager bool) error {
+	stewDir, err := findStewDir()
+	if err != nil {
+		return err
+	}
+	ids, err := runlog.IDs(stewDir)
+	if err != nil {
+		return rejected(fmt.Errorf("read runs: %w", err))
+	}
+	var rows []listedRun
+	for _, id := range slices.Backward(ids) {
+		rows = append(rows, listRun(stewDir, id))
+	}
+
+	if porcelain {
+		var b strings.Builder
+		for _, r := range rows {
+			fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\n", startedText(r.started, time.RFC3339), r.id, r.result, r.totalMS, r.command)
+		}
+		io.WriteString(stdout, b.String())
+		return nil
+	}
+	var b bytes.Buffer
+	if len(rows) == 0 {
+		b.WriteString("no runs\n")
+	} else {
+		table := [][]string{{"started", "run", "result", "total", "command"}}
+		for _, r := range rows {
+			table = append(table, []string{startedText(r.started, time.DateTime), r.id, r.result, r.total, r.command})
+		}
+		report.Table(&b, table)
+	}
+	if err := page(stdout, stderr, b.Bytes(), !noPager && isTerminal(stdout)); err != nil {
+		return rejected(err)
+	}
+	return nil
+}
+
+// listRun reads one run for stew runs list. A run whose run.json cannot be loaded is "unreadable".
+func listRun(stewDir, id string) listedRun {
+	r := listedRun{id: id, result: "unreadable", totalMS: "-", total: "-", command: "-"}
+	if started, err := runlog.StartTime(id); err == nil {
+		r.started = started
+	}
+	run, err := runlog.Load(stewDir, id)
+	if err != nil {
+		return r
+	}
+	r.result = run.Manifest.Result()
+	r.command = report.Command(run.Manifest.Argv)
+	if run.Manifest.TotalMS != nil {
+		r.totalMS = strconv.FormatInt(*run.Manifest.TotalMS, 10)
+		r.total = report.FormatDuration(time.Duration(*run.Manifest.TotalMS) * time.Millisecond)
+	}
+	return r
+}
+
+// startedText formats a run's start time in local time, or "-" when the run ID has no valid time.
+func startedText(t time.Time, layout string) string {
+	if t.IsZero() {
+		return "-"
+	}
+	return t.Local().Format(layout)
 }
 
 func showRun(stdout, stderr io.Writer, id string, patterns []string, porcelain, noPager bool) error {
@@ -50,15 +149,10 @@ func showRun(stdout, stderr io.Writer, id string, patterns []string, porcelain, 
 	if err != nil {
 		return invalid(err)
 	}
-	cwd, err := os.Getwd()
+	stewDir, err := findStewDir()
 	if err != nil {
-		return rejected(err)
+		return err
 	}
-	root, err := workspace.FindRoot(cwd)
-	if err != nil {
-		return invalid(err)
-	}
-	stewDir := filepath.Join(root, workspace.DirName)
 
 	requested := id
 	if id == "latest" {

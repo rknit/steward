@@ -14,6 +14,9 @@ import (
 	"time"
 )
 
+// idTimeLayout is the UTC time at the start of a run ID.
+const idTimeLayout = "20060102T150405Z"
+
 // maxAttempts bounds retries when a generated run directory already exists.
 const maxAttempts = 16
 
@@ -30,7 +33,7 @@ func Create(stewDir string, now time.Time, rand io.Reader) (*Run, error) {
 	if err := os.MkdirAll(runs, 0o755); err != nil {
 		return nil, err
 	}
-	stamp := now.UTC().Format("20060102T150405Z")
+	stamp := now.UTC().Format(idTimeLayout)
 	for range maxAttempts {
 		var suffix [2]byte
 		if _, err := io.ReadFull(rand, suffix[:]); err != nil {

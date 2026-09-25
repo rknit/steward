@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/rknit/steward/internal/runner"
 )
@@ -30,25 +31,43 @@ var phaseNames = []string{"setup", "build", "ci.full", "ci.quick", "ci.pre-commi
 
 var statuses = []runner.Status{runner.Done, runner.Pass, runner.Skip, runner.Fail, runner.Blocked, runner.Interrupted}
 
-// Latest returns the run ID that sorts last in <stewDir>/runs.
-func Latest(stewDir string) (string, error) {
+// IDs returns the run IDs in <stewDir>/runs, oldest first. A missing runs directory has none.
+func IDs(stewDir string) ([]string, error) {
 	entries, err := os.ReadDir(filepath.Join(stewDir, "runs"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", ErrUnknownRun
+		return nil, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, e := range entries {
+		if e.IsDir() && idPattern.MatchString(e.Name()) {
+			ids = append(ids, e.Name())
+		}
+	}
+	slices.Sort(ids)
+	return ids, nil
+}
+
+// Latest returns the run ID that sorts last in <stewDir>/runs.
+func Latest(stewDir string) (string, error) {
+	ids, err := IDs(stewDir)
 	if err != nil {
 		return "", err
 	}
-	latest := ""
-	for _, e := range entries {
-		if e.IsDir() && idPattern.MatchString(e.Name()) {
-			latest = max(latest, e.Name())
-		}
-	}
-	if latest == "" {
+	if len(ids) == 0 {
 		return "", ErrUnknownRun
 	}
-	return latest, nil
+	return ids[len(ids)-1], nil
+}
+
+// StartTime returns the UTC start time encoded in a run ID.
+func StartTime(id string) (time.Time, error) {
+	if !idPattern.MatchString(id) {
+		return time.Time{}, fmt.Errorf("invalid run ID %q", id)
+	}
+	return time.Parse(idTimeLayout, id[:len(idTimeLayout)])
 }
 
 // Load reads and validates the run.json of run id.
