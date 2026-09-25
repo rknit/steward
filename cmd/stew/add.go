@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -18,13 +19,13 @@ func newAddCmd(stdout io.Writer) *cobra.Command {
 	var alias string
 	cmd := &cobra.Command{
 		Use:   "add <path>",
-		Short: "Create <path>/stew.toml and register <path> as a project",
+		Short: "Register <path> as a project, creating <path>/stew.toml if missing",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return add(stdout, args[0], alias)
 		},
 	}
-	cmd.Flags().StringVarP(&alias, "alias", "a", "", "project name (default: the directory's name)")
+	cmd.Flags().StringVarP(&alias, "alias", "a", "", "project name for a new stew.toml (default: the directory's name)")
 	return cmd
 }
 
@@ -60,15 +61,6 @@ func add(stdout io.Writer, arg, alias string) error {
 	}
 	rel = filepath.ToSlash(rel)
 
-	name := alias
-	if name == "" {
-		name = filepath.Base(realDir)
-	}
-
-	manifest := filepath.Join(realDir, workspace.ManifestFile)
-	if _, err := os.Lstat(manifest); err == nil {
-		return rejected(fmt.Errorf("%s already exists", manifest))
-	}
 	paths := make([]string, 0, len(ws.Projects)+1)
 	for _, p := range ws.Projects {
 		if p.Path == rel {
@@ -76,29 +68,73 @@ func add(stdout io.Writer, arg, alias string) error {
 		}
 		paths = append(paths, p.Path)
 	}
-	if !workspace.ValidName(name) {
-		return rejected(fmt.Errorf("invalid project name %q (want [a-z0-9][a-z0-9._-]*); pick one with -a", name))
+
+	manifest := filepath.Join(realDir, workspace.ManifestFile)
+	manifestRel := path.Join(rel, workspace.ManifestFile)
+	_, err = os.Lstat(manifest)
+	existing := err == nil
+
+	var name string
+	if existing {
+		p, err := workspace.LoadProject(realRoot, rel)
+		if err != nil {
+			return rejected(err)
+		}
+		if alias != "" && alias != p.Name {
+			return rejected(fmt.Errorf("-a %s does not match name %q in %s", alias, p.Name, manifestRel))
+		}
+		for _, dep := range p.Dependencies {
+			if dep == p.Name {
+				return rejected(fmt.Errorf("%s: project %q depends on itself", manifestRel, p.Name))
+			}
+			if _, ok := ws.Project(dep); !ok {
+				return rejected(fmt.Errorf("%s: depends on unregistered project %q; add it first", manifestRel, dep))
+			}
+		}
+		name = p.Name
+	} else {
+		name = alias
+		if name == "" {
+			name = filepath.Base(realDir)
+		}
+		if !workspace.ValidName(name) {
+			return rejected(fmt.Errorf("invalid project name %q (want [a-z0-9][a-z0-9._-]*); pick one with -a", name))
+		}
 	}
 	if p, ok := ws.Project(name); ok {
 		return rejected(fmt.Errorf("project name %q is already used by %s", name, p.Path))
 	}
 
+	if !existing {
+		if err := writeTemplate(manifest, name); err != nil {
+			return rejected(err)
+		}
+	}
+	if err := workspace.SaveRegistry(root, append(paths, rel)); err != nil {
+		if !existing {
+			os.Remove(manifest)
+		}
+		return rejected(fmt.Errorf("register %s: %w", rel, err))
+	}
+	if existing {
+		fmt.Fprintf(stdout, "using existing %s\n", manifestRel)
+	}
+	fmt.Fprintf(stdout, "added %s (%s)\n", name, rel)
+	return nil
+}
+
+func writeTemplate(manifest, name string) error {
 	f, err := os.OpenFile(manifest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if errors.Is(err, fs.ErrExist) {
-		return rejected(fmt.Errorf("%s already exists", manifest))
+		return fmt.Errorf("%s already exists", manifest)
 	}
 	if err != nil {
-		return rejected(err)
+		return err
 	}
 	_, werr := f.Write(workspace.Template(name))
 	if err := errors.Join(werr, f.Close()); err != nil {
 		os.Remove(manifest)
-		return rejected(err)
+		return err
 	}
-	if err := workspace.SaveRegistry(root, append(paths, rel)); err != nil {
-		os.Remove(manifest)
-		return rejected(fmt.Errorf("register %s: %w", rel, err))
-	}
-	fmt.Fprintf(stdout, "added %s (%s)\n", name, rel)
 	return nil
 }

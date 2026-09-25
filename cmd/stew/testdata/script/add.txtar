@@ -22,7 +22,7 @@ cmp .stew/projects.toml want/projects-2.toml
 # Rejections exit 1 and change nothing.
 exec sh -c 'stew add libs/core; echo "exit=$?"'
 stdout '^exit=1$'
-stderr 'stew.toml already exists'
+stderr 'libs/core is already registered as "core"'
 
 exec stew add -a web2 apps/Web2
 

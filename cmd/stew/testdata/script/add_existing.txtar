@@ -1,0 +1,148 @@
+# add registers a pre-existing stew.toml without changing it. The name comes from the file.
+exec stew init
+exec stew add libs/core
+cmp stdout want/core.txt
+! stderr .
+cmp libs/core/stew.toml want/core.toml
+exec stew add 'apps/My App'
+stdout '^added my-app \(apps/My App\)$'
+exec stew add apps/alias -a alias-name
+stdout '^added alias-name \(apps/alias\)$'
+cmp .stew/projects.toml want/projects-1.toml
+
+# Rejections exit 1, register nothing, and leave the file as it was.
+exec sh -c 'stew add bad; echo "exit=$?"'
+stdout '^exit=1$'
+stderr 'bad/stew.toml: missing key "setup.verify"'
+
+exec sh -c 'stew add apps/other -a nope; echo "exit=$?"'
+stdout '^exit=1$'
+stderr '^stew: -a nope does not match name "other" in apps/other/stew.toml$'
+
+exec sh -c 'stew add apps/web; echo "exit=$?"'
+stdout '^exit=1$'
+stderr '^stew: apps/web/stew.toml: depends on unregistered project "api"; add it first$'
+
+exec sh -c 'stew add apps/self; echo "exit=$?"'
+stdout '^exit=1$'
+stderr '^stew: apps/self/stew.toml: project "self" depends on itself$'
+
+exec sh -c 'stew add apps/dup; echo "exit=$?"'
+stdout '^exit=1$'
+stderr '^stew: project name "core" is already used by libs/core$'
+
+cmp .stew/projects.toml want/projects-1.toml
+grep '^name = "web"$' apps/web/stew.toml
+
+# Projects removed without --clean can be added back, dependencies first.
+exec stew remove my-app core
+exec sh -c 'stew add "apps/My App"; echo "exit=$?"'
+stdout '^exit=1$'
+stderr 'depends on unregistered project "core"'
+exec stew add libs/core
+exec stew add 'apps/My App'
+cmp .stew/projects.toml want/projects-1.toml
+
+-- want/core.txt --
+using existing libs/core/stew.toml
+added core (libs/core)
+-- want/projects-1.toml --
+projects = ["apps/My App", "apps/alias", "libs/core"]
+-- bad/stew.toml --
+name = "bad"
+dependencies = []
+[setup]
+run = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- want/core.toml --
+name = "core"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- libs/core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- apps/My App/stew.toml --
+name = "my-app"
+dependencies = ["core"]
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- apps/alias/stew.toml --
+name = "alias-name"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- apps/other/stew.toml --
+name = "other"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- apps/web/stew.toml --
+name = "web"
+dependencies = ["api"]
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- apps/self/stew.toml --
+name = "self"
+dependencies = ["self"]
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- apps/dup/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""

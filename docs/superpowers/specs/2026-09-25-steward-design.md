@@ -143,7 +143,7 @@ run = "npm run lint -- --cache"
 
 ### `stew add` Template
 
-`stew add` writes this exact file, with `<name>` substituted:
+For a new project, `stew add` writes this exact file, with `<name>` substituted:
 
 ```toml
 name = "<name>"
@@ -193,16 +193,21 @@ Checks:
 
 1. Find the root and load the workspace. An invalid workspace is an error.
 2. Resolve `<path>` against cwd. It must be an existing directory inside the root.
-3. Name is `--alias` if given, otherwise the directory's basename.
-   For the root itself (`"."`), the basename of the root directory.
-4. Reject if:
-   - `<path>/stew.toml` already exists;
-   - the root-relative path is already registered;
-   - the name is invalid (the error suggests `-a`);
-   - the name is already used by another project.
-5. Write `<path>/stew.toml` from the template.
-6. Add the path to `.stew/projects.toml` (sorted, atomic write).
-   If this fails, remove the `stew.toml` written in step 5.
+3. Reject if the root-relative path is already registered.
+4. If `<path>/stew.toml` already exists, use it unchanged:
+   - It must parse and validate like any `stew.toml`.
+   - The name is its `name`. Reject if `--alias` is given and differs.
+   - Reject if a dependency is the project itself or is not registered (`add it first`).
+     Projects are therefore added in dependency order, and no cycle can form.
+5. Otherwise, the name is `--alias` if given, otherwise the directory's basename.
+   For the root itself (`"."`), the basename of the root directory. Reject an invalid name (the error suggests `-a`).
+6. Reject if the name is already used by another project.
+7. If `<path>/stew.toml` did not exist, write it from the template.
+8. Add the path to `.stew/projects.toml` (sorted, atomic write).
+   If this fails, remove the `stew.toml` written in step 7. A pre-existing `stew.toml` is never removed.
+9. Print `using existing <path>/stew.toml` when step 4 applied, then `added <name> (<path>)`.
+
+- Rejections exit 1 and change nothing.
 
 ### `stew list [--porcelain]`
 
@@ -553,6 +558,9 @@ internal/githook/    hooks-dir lookup via git, hook install
 - In a git repo, `git status` does not show `.stew/runs/`.
 - Read-only `.stew/runs/`: `stew build` exits 1 and no project command runs (checked via a marker file).
 - `add`: writes the exact template; each rejection case; rollback when the registry write fails.
+- `add` with an existing `stew.toml`: registers it unchanged, named by its `name`; invalid file, `-a` mismatch,
+  self or unregistered dependency, and name clash are rejected; re-adding after `remove`; a failed registry write
+  keeps the file.
 - `list`: table and `--porcelain` output, sorted by name; empty workspace; invalid workspace.
 - `remove`: unregisters; dependents and unknown-name rejections change nothing; a dependency chain and the root
   project removed together; `--clean`; registry write failure; `stew.toml` delete failure.
