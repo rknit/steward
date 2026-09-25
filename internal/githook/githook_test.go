@@ -9,6 +9,23 @@ import (
 	"testing"
 )
 
+func TestMain(m *testing.M) {
+	unsetInheritedRepoEnv()
+	os.Exit(m.Run())
+}
+
+// unsetInheritedRepoEnv drops GIT_DIR, GIT_INDEX_FILE, and similar variables that git exports to hooks,
+// so tests running inside a hook act on their temp repos instead of the repo being committed to.
+func unsetInheritedRepoEnv() {
+	out, err := exec.Command("git", "rev-parse", "--local-env-vars").Output()
+	if err != nil {
+		return
+	}
+	for name := range strings.FieldsSeq(string(out)) {
+		os.Unsetenv(name)
+	}
+}
+
 func gitInit(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
