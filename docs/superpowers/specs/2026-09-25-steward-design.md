@@ -17,6 +17,8 @@ It runs setup, build, and CI for explicitly registered subprojects.
 ```
 stew init
 stew add <path> [-a/--alias <name>]
+stew remove <name>... [--clean]
+stew list [--porcelain]
 stew setup [name...]
 stew build [name...]
 stew ci [name...] [-l/--level full|quick|pre-commit]
@@ -202,6 +204,45 @@ Checks:
 6. Add the path to `.stew/projects.toml` (sorted, atomic write).
    If this fails, remove the `stew.toml` written in step 5.
 
+### `stew list [--porcelain]`
+
+Prints every registered project, sorted by name, in a bordered table like the Summary.
+Dependencies are sorted and comma-separated, or `-` when there are none.
+
+```
+┌─────────┬──────────────┬──────────────┐
+│ project │ path         │ dependencies │
+├─────────┼──────────────┼──────────────┤
+│ api     │ services/api │ core         │
+│ core    │ libs/core    │ -            │
+│ web     │ apps/web     │ api, core    │
+└─────────┴──────────────┴──────────────┘
+```
+
+- An empty workspace prints `no projects (add one with: stew add <path>)`.
+- `--porcelain` prints one line per project for scripts: `<name>\t<path>\t<dep>,<dep>`.
+  No header, no borders. An empty workspace prints nothing.
+
+### `stew remove <name>... [--clean]`
+
+1. Find the root and load the workspace. An invalid workspace is an error (exit 2).
+2. Reject before changing anything if:
+   - a name is unknown: `unknown project "<name>"` (exit 2);
+   - a project that is not removed depends on a removed one (exit 1). One line per blocked project:
+     `stew: cannot remove core: needed by api, web`.
+     Removing a project together with all its dependents is allowed.
+3. Remove the paths from `.stew/projects.toml` (sorted, atomic write).
+   If this fails: `unregister <paths>: <error>` (exit 1), and nothing is changed.
+4. Print `removed <name> (<path>)` per project, sorted by name.
+5. With `--clean`, delete each project's `stew.toml` and print `deleted <path>/stew.toml`.
+   The registry is written first, so a registered path never loses its manifest.
+   A failed delete prints `stew: delete <path>/stew.toml: <error>` to stderr and exits 1.
+   The project stays unregistered.
+
+- Repeated names are removed once.
+- A project whose `stew.toml` is missing cannot be removed by name, because the workspace does not load.
+  Edit `.stew/projects.toml` by hand.
+
 ### `stew setup | build | ci`
 
 Phases are cumulative.
@@ -381,12 +422,12 @@ logs: .stew/runs/20260925T043601Z-3f9a
 
 ## Exit Codes
 
-| Code | Meaning                                                                                   |
-| ---- | ----------------------------------------------------------------------------------------- |
-| 0    | Success.                                                                                  |
-| 1    | A phase failed or was blocked; `init`/`add`/`git install` rejected; a git command failed. |
-| 2    | Invalid CLI usage or invalid workspace configuration.                                     |
-| 130  | Interrupted by Ctrl-C (SIGINT). SIGTERM exits 143 and SIGHUP exits 129.                     |
+| Code | Meaning                                                                                              |
+| ---- | ---------------------------------------------------------------------------------------------------- |
+| 0    | Success.                                                                                             |
+| 1    | A phase failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed.   |
+| 2    | Invalid CLI usage or invalid workspace configuration.                                                |
+| 130  | Interrupted by Ctrl-C (SIGINT). SIGTERM exits 143 and SIGHUP exits 129.                              |
 
 ## `stew git install pre-commit`
 
@@ -512,6 +553,9 @@ internal/githook/    hooks-dir lookup via git, hook install
 - In a git repo, `git status` does not show `.stew/runs/`.
 - Read-only `.stew/runs/`: `stew build` exits 1 and no project command runs (checked via a marker file).
 - `add`: writes the exact template; each rejection case; rollback when the registry write fails.
+- `list`: table and `--porcelain` output, sorted by name; empty workspace; invalid workspace.
+- `remove`: unregisters; dependents and unknown-name rejections change nothing; a dependency chain and the root
+  project removed together; `--clean`; registry write failure; `stew.toml` delete failure.
 - Walk-up discovery from a nested directory; the not-a-workspace error.
 - `build` creates a file via `run`; a second `build` reports `skip` via `verify`.
 - Commands run with cwd set to the project directory.
@@ -535,7 +579,7 @@ internal/githook/    hooks-dir lookup via git, hook install
 
 ## Out of Scope (v1)
 
-- `stew remove`, `stew list`, `stew prune`
+- `stew prune`
 - Parallel execution
 - Changed-only selection (`--staged`, `--since`)
 - Windows

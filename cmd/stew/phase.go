@@ -47,17 +47,9 @@ func runPhases(stdout io.Writer, command string, names []string, levelFlag strin
 		}
 		level = l
 	}
-	cwd, err := os.Getwd()
+	_, ws, err := loadWorkspace()
 	if err != nil {
-		return rejected(err)
-	}
-	root, err := workspace.FindRoot(cwd)
-	if err != nil {
-		return invalid(err)
-	}
-	ws, err := workspace.Load(root)
-	if err != nil {
-		return invalid(err)
+		return err
 	}
 	plan, err := buildPlan(ws, command, names, level)
 	if err != nil {
@@ -87,7 +79,7 @@ func runPhases(stdout io.Writer, command string, names []string, levelFlag strin
 		}
 	}()
 
-	logs, err := runlog.Create(filepath.Join(root, workspace.DirName), time.Now(), rand.Reader)
+	logs, err := runlog.Create(filepath.Join(ws.Root, workspace.DirName), time.Now(), rand.Reader)
 	if err != nil {
 		return rejected(fmt.Errorf("cannot create run log directory: %w", err))
 	}

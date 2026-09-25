@@ -1,0 +1,77 @@
+# list prints every project as a table sorted by name, with sorted dependencies.
+exec stew list
+cmp stdout want/table.txt
+! stderr .
+
+# --porcelain prints name, path, and comma-separated dependencies, tab-separated.
+exec stew list --porcelain
+cmp stdout want/porcelain.txt
+
+# An empty workspace prints a hint; --porcelain prints nothing.
+cd empty
+exec stew list
+stdout '^no projects \(add one with: stew add <path>\)$'
+exec stew list --porcelain
+! stdout .
+cd $WORK
+
+# Outside a workspace or with an invalid workspace, list exits 2.
+cd /
+exec sh -c 'stew list; echo "exit=$?"'
+stdout '^exit=2$'
+stderr '^stew: not a stew workspace$'
+cd $WORK
+rm libs/core/stew.toml
+exec sh -c 'stew list; echo "exit=$?"'
+stdout '^exit=2$'
+stderr '^stew: project "libs/core": missing stew.toml$'
+
+-- want/table.txt --
+┌─────────┬──────────────┬──────────────┐
+│ project │ path         │ dependencies │
+├─────────┼──────────────┼──────────────┤
+│ api     │ services/api │ core         │
+│ core    │ libs/core    │ -            │
+│ web     │ apps/web     │ api, core    │
+└─────────┴──────────────┴──────────────┘
+-- want/porcelain.txt --
+api	services/api	core
+core	libs/core	
+web	apps/web	api,core
+-- .stew/projects.toml --
+projects = ["apps/web", "libs/core", "services/api"]
+-- empty/.stew/projects.toml --
+projects = []
+-- libs/core/stew.toml --
+name = "core"
+dependencies = []
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- services/api/stew.toml --
+name = "api"
+dependencies = ["core"]
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- apps/web/stew.toml --
+name = "web"
+dependencies = ["core", "api"]
+[setup]
+run = ""
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""

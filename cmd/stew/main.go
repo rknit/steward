@@ -8,6 +8,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+
+	"github.com/rknit/steward/internal/workspace"
 )
 
 func main() {
@@ -65,10 +67,29 @@ func newRootCmd(stdout io.Writer) *cobra.Command {
 	root.AddCommand(
 		newInitCmd(stdout),
 		newAddCmd(stdout),
+		newRemoveCmd(stdout),
+		newListCmd(stdout),
 		newPhaseCmd(stdout, "setup", "Set up projects and their dependencies"),
 		newPhaseCmd(stdout, "build", "Set up and build projects and their dependencies"),
 		newPhaseCmd(stdout, "ci", "Set up and build dependencies, then run CI for projects"),
 		newGitCmd(stdout),
 	)
 	return root
+}
+
+// loadWorkspace finds the workspace root above cwd and loads it.
+func loadWorkspace() (cwd string, ws *workspace.Workspace, err error) {
+	cwd, err = os.Getwd()
+	if err != nil {
+		return "", nil, rejected(err)
+	}
+	root, err := workspace.FindRoot(cwd)
+	if err != nil {
+		return "", nil, invalid(err)
+	}
+	ws, err = workspace.Load(root)
+	if err != nil {
+		return "", nil, invalid(err)
+	}
+	return cwd, ws, nil
 }

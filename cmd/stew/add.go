@@ -29,18 +29,11 @@ func newAddCmd(stdout io.Writer) *cobra.Command {
 }
 
 func add(stdout io.Writer, arg, alias string) error {
-	cwd, err := os.Getwd()
+	cwd, ws, err := loadWorkspace()
 	if err != nil {
-		return rejected(err)
+		return err
 	}
-	root, err := workspace.FindRoot(cwd)
-	if err != nil {
-		return invalid(err)
-	}
-	ws, err := workspace.Load(root)
-	if err != nil {
-		return invalid(err)
-	}
+	root := ws.Root
 
 	dir := arg
 	if !filepath.IsAbs(dir) {

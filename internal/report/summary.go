@@ -20,8 +20,17 @@ func Summary(w io.Writer, res *runner.Results, total time.Duration, logs string)
 		table = append(table, line)
 	}
 
-	widths := make([]int, len(table[0]))
-	for _, line := range table {
+	var b strings.Builder
+	Table(&b, table)
+	b.WriteString("total: " + FormatDuration(total) + "\n")
+	b.WriteString("logs: " + logs + "\n")
+	io.WriteString(w, b.String())
+}
+
+// Table writes rows as a bordered table. The first row is the header.
+func Table(w io.Writer, rows [][]string) {
+	widths := make([]int, len(rows[0]))
+	for _, line := range rows {
 		for i, cell := range line {
 			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
 		}
@@ -46,14 +55,12 @@ func Summary(w io.Writer, res *runner.Results, total time.Duration, logs string)
 	}
 
 	border("┌", "┬", "┐")
-	row(table[0])
+	row(rows[0])
 	border("├", "┼", "┤")
-	for _, line := range table[1:] {
+	for _, line := range rows[1:] {
 		row(line)
 	}
 	border("└", "┴", "┘")
-	b.WriteString("total: " + FormatDuration(total) + "\n")
-	b.WriteString("logs: " + logs + "\n")
 	io.WriteString(w, b.String())
 }
 
