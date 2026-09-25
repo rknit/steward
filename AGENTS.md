@@ -29,7 +29,7 @@ Rules:
 
 Rules:
 
-- Commit freely within the worktree.
+- Commit freely within the worktree. These commits need not be standalone.
 - No pushes without explicit instruction.
 - No commit in main without explicit instruction.
 - Commit and push approval must be explicitly granted every time.
@@ -40,11 +40,22 @@ Workflow:
 1. Enter a worktree.
 2. Set up everything required by the task.
 3. Do the work there.
-4. Squash the commits into standalone commits: dropping them one at a time from
-   latest to oldest leaves the tree green at every step. The coding agent
-   decides the grouping.
+4. Squash the commits into standalone commits (see Standalone Commits).
+   Dropping them one at a time from latest to oldest must leave every step
+   standalone. The coding agent decides the grouping.
 5. Leave the worktree so git can reach main.
 6. Cherry-pick the commits onto main.
+
+## Planning Horizon
+
+Make decisions that hold up long term, not ones that only unblock the current
+task.
+
+- Choose data models, interfaces, and file layouts that will not need rework
+  when the next likely features land.
+- Do not build features, options, or abstractions for needs nobody has stated.
+- If you are unsure how far ahead to plan, ask the operator before settling on
+  a design.
 
 ## Git Commit Convention
 
@@ -70,6 +81,21 @@ Rules:
 - No period at the end.
 - One line only.
 - No body.
+
+## Standalone Commits
+
+Commits on a branch or in a worktree may be of any kind: work in progress,
+partial, or broken.
+
+Every commit that lands on main must be standalone:
+
+- The tree builds and all tests pass at that commit.
+- Each feature it touches is fully implemented and usable.
+- No stubs, placeholder branches, unused scaffolding, or code that only a later
+  commit makes reachable or correct.
+
+If a feature is too large for one commit, split it into smaller features that
+each work end to end on their own. Do not split it into layers or steps.
 
 ## Code Comments
 
