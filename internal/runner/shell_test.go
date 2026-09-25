@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -220,5 +221,65 @@ func TestShellForceSkipsKillDelay(t *testing.T) {
 	}
 	if took := time.Since(start); took >= 2*time.Second {
 		t.Errorf("took %v; want the force kill well before KillDelay (%v)", took, slowKillDelay)
+	}
+}
+
+// gone reports whether the process whose pid is in dir/pid has exited, waiting up to 2 s for it to be reaped.
+func gone(t *testing.T, dir string) bool {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "pid"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 200 {
+		if syscall.Kill(pid, 0) != nil {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	syscall.Kill(pid, syscall.SIGKILL)
+	return false
+}
+
+func TestShellStopsLeftoverProcesses(t *testing.T) {
+	dir := t.TempDir()
+	res, _, _ := runShell(t, context.Background(), slowKillDelay, dir, "sleep 30 > /dev/null 2>&1 & echo $! > pid")
+	if !res.OK() {
+		t.Errorf("result = %+v", res)
+	}
+	if !gone(t, dir) {
+		t.Error("background process outlived the step")
+	}
+}
+
+func TestShellKillsLeftoverThatIgnoresSIGTERM(t *testing.T) {
+	dir := t.TempDir()
+	start := time.Now()
+	res, _, _ := runShell(t, context.Background(), fastKillDelay, dir,
+		`sh -c 'trap "" TERM; echo $$ > pid; exec sleep 30' > /dev/null 2>&1 & `+
+			`i=0; while [ ! -s pid ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`)
+	if !res.OK() {
+		t.Errorf("result = %+v", res)
+	}
+	if !gone(t, dir) {
+		t.Error("background process that ignores SIGTERM outlived the step")
+	}
+	if took := time.Since(start); took < fastKillDelay || took >= 2*time.Second {
+		t.Errorf("took %v; want SIGKILL once KillDelay (%v) passes", took, fastKillDelay)
+	}
+}
+
+func TestShellNoLeftoversNoDelay(t *testing.T) {
+	start := time.Now()
+	res, _, _ := runShell(t, context.Background(), slowKillDelay, t.TempDir(), "true")
+	if !res.OK() {
+		t.Errorf("result = %+v", res)
+	}
+	if took := time.Since(start); took >= time.Second {
+		t.Errorf("took %v; want no wait when the step left nothing running", took)
 	}
 }

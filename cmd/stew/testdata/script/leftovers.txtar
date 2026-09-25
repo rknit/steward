@@ -1,0 +1,24 @@
+# When a step ends, stew stops what it left running in its process group.
+# The SIGKILL fallback for a process that ignores SIGTERM is covered by the runner's unit tests,
+# which use a short kill delay instead of stew's 5 s.
+exec stew build
+stdout '^==> lib: setup \.\.\. done'
+exec sh -c 'i=0; while kill -0 "$(cat lib/bg.pid)" 2>/dev/null && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -0 "$(cat lib/bg.pid)" 2>/dev/null && echo alive || echo gone'
+stdout '^gone$'
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+-- .stew/projects.toml --
+projects = ["lib"]
+-- lib/stew.toml --
+name = "lib"
+dependencies = []
+project_wrapper = ""
+[setup]
+run = 'sleep 30 > /dev/null 2>&1 & echo $! > bg.pid'
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""

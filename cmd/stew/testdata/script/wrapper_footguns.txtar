@@ -76,7 +76,7 @@ exists lib/ran
 rm lib/ran
 
 # A wrapper that backgrounds the command exits before it finishes, and the phase fails.
-# The command waits for lib/release, so it finishes only after stew has exited.
+# The command waits for lib/release, but stew stops it when the step ends, so it never finishes.
 cp cfg/background.toml .stew/config.toml
 cp lib/background.toml lib/stew.toml
 ! exec stew build
@@ -85,7 +85,7 @@ stdout '^\(wrapper exited before the command finished \(exit 0\)\)$'
 ! exists lib/finished
 exec touch lib/release
 exec wait-finished
-stdout '^finished$'
+stdout '^unfinished$'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
@@ -178,7 +178,7 @@ run = ""
 -- bin/wait-finished --
 #!/bin/sh
 i=0
-while [ ! -f lib/finished ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done
+while [ ! -f lib/finished ] && [ $i -lt 20 ]; do sleep 0.05; i=$((i+1)); done
 if [ -f lib/finished ]; then echo finished; else echo unfinished; fi
 -- bin/failing-tool --
 #!/bin/sh

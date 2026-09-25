@@ -174,7 +174,7 @@ func TestStepResultIsTheCommandsStatus(t *testing.T) {
 	}
 }
 
-func TestBackgroundedCommandIsUnfinished(t *testing.T) {
+func TestBackgroundedCommandIsUnfinishedAndStopped(t *testing.T) {
 	d := testStepDir(t)
 	dir := t.TempDir()
 	wrapper := `{{STEW_STEP}} >/dev/null 2>&1 & i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`
@@ -184,14 +184,10 @@ func TestBackgroundedCommandIsUnfinished(t *testing.T) {
 		t.Errorf("c=%+v res=%+v", c, res)
 	}
 	os.WriteFile(filepath.Join(dir, "release"), nil, 0o600)
-	status := filepath.Join(d.Dir, "p-build.status")
-	for i := 0; i < 200; i++ {
-		if _, err := os.Stat(status); err == nil {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(d.Dir, "p-build.status")); err == nil {
+		t.Error("the backgrounded command outlived the step and finished")
 	}
-	t.Error("the released command did not finish")
 }
 
 func TestCollectRemovesStepFiles(t *testing.T) {

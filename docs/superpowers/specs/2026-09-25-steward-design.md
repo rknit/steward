@@ -422,6 +422,13 @@ Stew never invokes `sh -c ""`.
 - Each command runs in its own session and process group, with no controlling terminal.
   Stew can signal the command and everything it started, and a command that opens `/dev/tty` fails at once
   instead of stopping in the background.
+- When a command exits, stew stops what it left running in its process group: SIGTERM, then SIGKILL after 5 s.
+  A step must not leave background processes behind. Stop a test server inside the step that started it.
+- A process that leaves the group (its own session via `setsid`, a daemon, or its own group via `setpgid`)
+  is not stopped. It must leave before the command exits; otherwise the SIGTERM can reach it first.
+- On Linux stew is the child subreaper of its commands, so it reaps the leftovers it stopped itself.
+  A step's end never waits on a PID 1 that does not reap, as in some containers.
+  Elsewhere the system's PID 1 reaps them. A process that left the group has stew as its parent until stew exits.
 
 #### Wrapper Contract
 
@@ -557,6 +564,7 @@ None of the guards change what the wrapper does. They only check the input or th
 
 - On Ctrl-C stew catches SIGINT and forwards it to the running command's process group.
   Stew does not exit immediately. It waits for the command to exit and starts nothing new.
+  It then stops the command's leftovers as after any command, for up to 5 s. Only a second stop signal cuts that short.
 - On SIGTERM or SIGHUP (CI cancel, `timeout`, closed terminal) stew forwards that signal to the group,
   then sends SIGKILL after 5 s if the command is still running. It starts nothing new.
 - A second stop signal (Ctrl-C, SIGTERM, or SIGHUP) while stew waits sends SIGKILL to the command's group at once.
@@ -904,6 +912,7 @@ internal/workspace/
   graph.go           name index, dependency validation, cycle detection, Select(names) → plan
 internal/runner/     plan execution: phase algorithm, level resolution, blocked propagation, results
   steps.go           {{STEW_STEP}}, the step directory, step scripts, reach counts and statuses
+  orphans_*.go       Linux child subreaper; a no-op elsewhere
 internal/report/     phase lines, progress animation, failure replay, summary table, `runs show` page
 internal/runlog/     run ID, run directory and its lock, per-phase log files and step markers, run.json save/load
 internal/githook/    hooks-dir lookup via git, hook install
@@ -1014,7 +1023,7 @@ internal/githook/    hooks-dir lookup via git, hook install
     them, including values with spaces, quotes, newlines, and backslashes; a placeholder inside a string that
     `sh -c` parses again works; a loop runs the command twice and is caught; `{{STEW_STEP}} || true` and
     `{{STEW_STEP}}; echo post` record the failing status; `{{STEW_STEP}}; false` records 0; a backgrounded
-    command has no status when the wrapper exits; a command killed by SIGTERM records 143;
+    command has no status when the wrapper exits, and it is stopped; a command killed by SIGTERM records 143;
   - reach count 0 or 2, or no status → `fail` with the matching cause, for `run`, pre-run `verify`, and
     `verify after run`; a command that ran once and fails has a plain `exit N` cause, whatever the wrapper exits;
   - reach problem plus an interrupt → `interrupted`; reach problem plus a log error → `log error`;
@@ -1086,6 +1095,10 @@ internal/githook/    hooks-dir lookup via git, hook install
 - A passing command's output does not appear; a failing command's output does.
 - stdin is `/dev/null`: a command that reads stdin gets EOF and does not hang.
 - Commands get the exact `STEW_*` values, replacing inherited ones.
+- A command's background processes are stopped when it exits. A process that left the group first keeps running
+  and does not hold the run's lock.
+- Runner unit tests: a leftover that ignores SIGTERM gets SIGKILL after the kill delay; a step with no leftovers
+  adds no wait; on Linux, a stopped leftover adopted by stew is reaped at once instead of stalling the step.
 - Output under testscript is not a TTY, so it matches the plain format with no escape codes.
 - Cumulative phases and dependency selection with real `sh`.
 - Exit codes 0, 1, 2.
@@ -1101,7 +1114,7 @@ internal/githook/    hooks-dir lookup via git, hook install
 - `runs prune`:
   - both rules as a union, oldest first; nothing to prune prints nothing; non-run entries untouched;
   - no rule, bad `--keep-since`, too-long duration, negative `--keep-last-n`, and an extra argument exit 2;
-  - a run in progress is `kept`; a command's background process does not keep the lock after stew exits;
+  - a run in progress is `kept`; a process that left the command's group does not keep the lock after stew exits;
   - stew killed with SIGKILL mid-run leaves an `unfinished` run that prune deletes;
   - a failed delete continues with the other runs and exits 1;
   - works while `projects.toml` is invalid, and with no `.stew/runs/`.
@@ -1130,7 +1143,7 @@ internal/githook/    hooks-dir lookup via git, hook install
   - The command's status wins: `{{STEW_STEP}} || true` with `exit 7` fails `(exit 7)`; `{{STEW_STEP}}; echo post`
     with `exit 3` fails `(exit 3)`; `{{STEW_STEP}}; false` with a passing command passes.
   - A wrapper that backgrounds the command and exits first fails with
-    `wrapper exited before the command finished (exit 0)`.
+    `wrapper exited before the command finished (exit 0)`, and the backgrounded command is stopped.
   - `run.json` `workspace_wrapper`, and the `runs show` `wrapper:` line; neither shows a wrapper when it is `""`.
 - Project wrapper, with fake wrapper scripts on `PATH`:
   - `add` writes the template with `project_wrapper = ""`.

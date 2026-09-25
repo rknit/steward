@@ -5,14 +5,6 @@ stdout '^kept \d{8}T\d{6}Z-[0-9a-f]{4}: running$'
 ! stdout pruned
 stdout '^exit=0$'
 
-# A command that leaves a background process still running does not pass the lock on:
-# once stew exits, both runs are pruned while that process lives.
-exec stew build bg
-exec stew runs prune --keep-last-n 0
-stdout -count=2 '^pruned \d{8}T\d{6}Z-[0-9a-f]{4}$'
-! stdout kept
-exec touch bg/release
-
 # stew killed mid-run with SIGKILL runs no cleanup. The kernel still drops the lock:
 # the run stays unfinished, its orphaned command keeps running, and prune deletes the run.
 rm core/started
@@ -25,6 +17,17 @@ exec stew runs prune --keep-last-n 0
 stdout '^pruned \d{8}T\d{6}Z-[0-9a-f]{4}$'
 ! stdout kept
 exec touch core/release
+
+# A process that left the step's process group before the step ended outlives the step,
+# and it does not pass the lock on: once stew exits, the run is pruned while that process lives.
+[!exec:setsid] stop 'setsid not installed'
+exec stew build bg
+exec sh -c 'test -s bg/pid && kill -0 "$(cat bg/pid)" && echo alive'
+stdout '^alive$'
+exec stew runs prune --keep-last-n 0
+stdout '^pruned \d{8}T\d{6}Z-[0-9a-f]{4}$'
+! stdout kept
+exec touch bg/release
 
 -- .stew/config.toml --
 workspace_wrapper = ""
@@ -47,7 +50,7 @@ name = "bg"
 dependencies = []
 project_wrapper = ""
 [setup]
-run = "(i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done) > /dev/null 2>&1 &"
+run = "setsid sh -c 'echo $$ > pid; i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done' > /dev/null 2>&1 & i=0; while [ ! -s pid ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
 verify = ""
 [build]
 run = ""

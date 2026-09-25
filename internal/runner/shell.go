@@ -76,7 +76,48 @@ func (s Shell) Run(ctx context.Context, dir string, env []string, argv []string,
 			err = <-done
 		}
 	}
+	s.stopLeftovers(c.Process.Pid)
 	return resultOf(c.ProcessState, err)
+}
+
+// stopLeftovers ends whatever the command left running in its process group: SIGTERM, then SIGKILL once KillDelay
+// passes or Force fires. A process that moved to its own session or group is not reached.
+// The group id is the reaped leader's pid; the kernel does not reuse a pid while a group still carries it as its id.
+func (s Shell) stopLeftovers(pgid int) {
+	if syscall.Kill(-pgid, syscall.SIGTERM) != nil {
+		return
+	}
+	if s.awaitEmpty(pgid) {
+		return
+	}
+	syscall.Kill(-pgid, syscall.SIGKILL)
+	s.awaitEmpty(pgid)
+}
+
+// awaitEmpty reaps the group until it has no members, for at most KillDelay or until Force fires.
+// It reports whether the group emptied.
+func (s Shell) awaitEmpty(pgid int) bool {
+	deadline := time.After(s.KillDelay)
+	for reapGroup(pgid); syscall.Kill(-pgid, 0) == nil; reapGroup(pgid) {
+		select {
+		case <-time.After(10 * time.Millisecond):
+		case <-deadline:
+			return false
+		case <-s.Force:
+			return false
+		}
+	}
+	return true
+}
+
+// reapGroup reaps the group's exited members that stew adopted (see AdoptOrphans). A dead member stays in the group
+// until someone reaps it, so without this the group would look alive until KillDelay.
+func reapGroup(pgid int) {
+	for {
+		if pid, err := syscall.Wait4(-pgid, nil, syscall.WNOHANG, nil); pid <= 0 || err != nil {
+			return
+		}
+	}
 }
 
 func resultOf(state *os.ProcessState, err error) Result {

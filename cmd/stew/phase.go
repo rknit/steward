@@ -80,6 +80,9 @@ func runPhases(stdout io.Writer, argv []string, command string, names []string, 
 		}
 	}()
 
+	if err := runner.AdoptOrphans(); err != nil {
+		return rejected(fmt.Errorf("cannot adopt orphaned processes: %w", err))
+	}
 	var steps runner.Steps
 	if slices.ContainsFunc(plan.Jobs, func(j runner.Job) bool { return len(j.Wrappers) > 0 }) {
 		d, err := runner.NewStepDir()
