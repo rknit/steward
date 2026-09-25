@@ -1,3 +1,10 @@
+# An unknown subcommand of a command group is a usage error; bare "git" prints help and exits 0.
+exec sh -c 'stew git instal pre-commit; echo "exit=$?"'
+stdout '^exit=2$'
+stderr '^stew: unknown command "instal" for "stew git"$'
+exec stew git
+stdout '^Usage:$'
+
 # The stew root is a subdirectory of the git repo.
 [!exec:git] skip 'git not installed'
 exec git init -q

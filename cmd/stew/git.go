@@ -16,6 +16,8 @@ func newGitCmd(stdout io.Writer) *cobra.Command {
 	git := &cobra.Command{
 		Use:   "git",
 		Short: "Git integration",
+		Args:  cobra.NoArgs,
+		RunE:  func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
 	}
 	git.AddCommand(&cobra.Command{
 		Use:   "install <hook>",
