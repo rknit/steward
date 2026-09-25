@@ -1,0 +1,105 @@
+# The project wrapper nests inside the workspace wrapper; projects without one get only the workspace wrapper.
+exec chmod 755 bin/outer bin/inner
+env PATH=$WORK/bin:$PATH
+exec stew build
+cmp api/seen want/api-seen
+cmp core/seen want/core-seen
+exec sh -c 'cat .stew/runs/*/run.json'
+stdout '"project_wrapper": \{'
+stdout '"api": "inner \{\{STEW_STEP\}\}"'
+! stdout '"core": "'
+exec stew runs show latest
+stdout '^wrapper: outer \{\{STEW_STEP\}\}$'
+stdout '^wrapper api: inner \{\{STEW_STEP\}\}$'
+! stdout '^wrapper core'
+
+# A project wrapper alone works without a workspace wrapper.
+cp want/none.toml .stew/config.toml
+rm api/seen core/seen
+exec stew build
+cmp api/seen want/api-only-seen
+cmp core/seen want/core-bare-seen
+
+# A project wrapper alone still gets the reach check.
+cp want/api-true.toml api/stew.toml
+! exec stew build
+stdout '^\(wrapper did not run the command \(exit 0\)\)$'
+! exists api/ran
+
+# A project wrapper that ignores the command's status does not hide a failure inside the workspace wrapper.
+cp want/outer.toml .stew/config.toml
+cp want/api-or-true.toml api/stew.toml
+! exec stew build
+stdout '^==> api: setup \.\.\. fail'
+stdout '^\(exit 7\)$'
+
+-- .stew/config.toml --
+workspace_wrapper = "outer {{STEW_STEP}}"
+-- .stew/projects.toml --
+projects = ["api", "core"]
+-- api/stew.toml --
+name = "api"
+dependencies = ["core"]
+project_wrapper = "inner {{STEW_STEP}}"
+[setup]
+run = 'echo "$LAYERS $STEW_PROJECT" > seen'
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- core/stew.toml --
+name = "core"
+dependencies = []
+project_wrapper = ""
+[setup]
+run = 'echo "$LAYERS $STEW_PROJECT" > seen'
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- bin/outer --
+#!/bin/sh
+LAYERS="${LAYERS}outer;" exec "$@"
+-- bin/inner --
+#!/bin/sh
+LAYERS="${LAYERS}inner;" STEW_PROJECT=clobbered exec "$@"
+-- want/api-seen --
+outer;inner; api
+-- want/core-seen --
+outer; core
+-- want/api-only-seen --
+inner; api
+-- want/core-bare-seen --
+ core
+-- want/none.toml --
+workspace_wrapper = ""
+-- want/outer.toml --
+workspace_wrapper = "outer {{STEW_STEP}}"
+-- want/api-or-true.toml --
+name = "api"
+dependencies = ["core"]
+project_wrapper = "{{STEW_STEP}} || true"
+[setup]
+run = "exit 7"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- want/api-true.toml --
+name = "api"
+dependencies = ["core"]
+project_wrapper = "true # {{STEW_STEP}}"
+[setup]
+run = "touch ran"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""

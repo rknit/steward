@@ -51,6 +51,7 @@ projects = ["apps/My App", "apps/alias", "libs/core"]
 -- bad/stew.toml --
 name = "bad"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 [build]
@@ -61,6 +62,7 @@ run = ""
 -- want/core.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -72,6 +74,7 @@ run = ""
 -- libs/core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -83,6 +86,7 @@ run = ""
 -- apps/My App/stew.toml --
 name = "my-app"
 dependencies = ["core"]
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -94,6 +98,7 @@ run = ""
 -- apps/alias/stew.toml --
 name = "alias-name"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -105,6 +110,7 @@ run = ""
 -- apps/other/stew.toml --
 name = "other"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -116,6 +122,7 @@ run = ""
 -- apps/web/stew.toml --
 name = "web"
 dependencies = ["api"]
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -127,6 +134,7 @@ run = ""
 -- apps/self/stew.toml --
 name = "self"
 dependencies = ["self"]
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -138,6 +146,7 @@ run = ""
 -- apps/dup/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""

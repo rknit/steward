@@ -15,6 +15,7 @@ projects = ["app", "core"]
 -- core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "chmod 0555 ../.stew/runs/*"
 verify = ""
@@ -26,6 +27,7 @@ run = ""
 -- app/stew.toml --
 name = "app"
 dependencies = ["core"]
+project_wrapper = ""
 [setup]
 run = "echo never"
 verify = ""

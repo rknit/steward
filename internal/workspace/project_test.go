@@ -7,6 +7,7 @@ import (
 
 const validManifest = `name = "api"
 dependencies = ["core"]
+project_wrapper = ""
 
 [setup]
 run = "npm ci"
@@ -42,6 +43,32 @@ func TestParseProjectValid(t *testing.T) {
 	}
 }
 
+func TestParseProjectWrapper(t *testing.T) {
+	data := strings.Replace(validManifest, `project_wrapper = ""`, `project_wrapper = "tool run {{STEW_STEP}}"`, 1)
+	p, err := ParseProject("stew.toml", []byte(data))
+	if err != nil || p.Wrapper != "tool run {{STEW_STEP}}" {
+		t.Errorf("wrapper = %q, err = %v", p.Wrapper, err)
+	}
+}
+
+func TestParseProjectWrapperErrors(t *testing.T) {
+	with := func(line string) string {
+		return strings.Replace(validManifest, `project_wrapper = ""`, line, 1)
+	}
+	for _, tc := range []struct{ name, data, want string }{
+		{"missing", strings.Replace(validManifest, "project_wrapper = \"\"\n", "", 1), `stew.toml: missing key "project_wrapper"`},
+		{"syntax", with(`project_wrapper = 'tool "x {{STEW_STEP}}'`), "stew.toml: project_wrapper: sh: "},
+		{"no placeholder", with(`project_wrapper = "tool run"`),
+			"stew.toml: project_wrapper: must contain {{STEW_STEP}} exactly once (found 0)"},
+		{"type", with(`project_wrapper = ["tool"]`), "stew.toml: "},
+	} {
+		_, err := ParseProject("stew.toml", []byte(tc.data))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", tc.name, err, tc.want)
+		}
+	}
+}
+
 func TestTemplateParses(t *testing.T) {
 	p, err := ParseProject("stew.toml", Template("my-lib.v2"))
 	if err != nil {
@@ -53,11 +80,17 @@ func TestTemplateParses(t *testing.T) {
 	if len(p.CI) != 1 || p.CI[LevelFull] != "" {
 		t.Errorf("ci = %v", p.CI)
 	}
+	if p.Wrapper != "" {
+		t.Errorf("wrapper = %q", p.Wrapper)
+	}
 }
 
 func TestTemplateExact(t *testing.T) {
 	want := `name = "api"
 dependencies = []
+# Wraps every command of this project, inside the workspace wrapper.
+# {{STEW_STEP}} marks where the command goes. "" means none.
+project_wrapper = ""
 
 # Each phase: ` + "`verify` runs first; exit 0 skips `run`." + `
 # Otherwise ` + "`run` runs, then `verify` confirms." + ` Empty strings are no-ops.
@@ -84,6 +117,7 @@ func TestParseProjectErrors(t *testing.T) {
 		lines := []string{
 			`name = "api"`,
 			`dependencies = []`,
+			`project_wrapper = ""`,
 			`[setup]`, `run = ""`, `verify = ""`,
 			`[build]`, `run = "b"`, `verify = "vb"`,
 			`[ci.full]`, `run = ""`,
@@ -105,6 +139,7 @@ func TestParseProjectErrors(t *testing.T) {
 	}{
 		{"missing name", base(`name = "api"`, ""), `missing key "name"`},
 		{"missing dependencies", base(`dependencies = []`, ""), `missing key "dependencies"`},
+		{"missing project_wrapper", base(`project_wrapper = ""`, ""), `missing key "project_wrapper"`},
 		{"missing setup", strings.Replace(base("", ""), "[setup]\nrun = \"\"\nverify = \"\"\n", "", 1),
 			"missing section [setup]"},
 		{"missing setup.run", base(`run = ""`, ""), `missing key "setup.run"`},

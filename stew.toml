@@ -1,5 +1,8 @@
 name = "steward"
 dependencies = []
+# Wraps every command of this project, inside the workspace wrapper.
+# {{STEW_STEP}} marks where the command goes. "" means none.
+project_wrapper = ""
 
 # Each phase: `verify` runs first; exit 0 skips `run`.
 # Otherwise `run` runs, then `verify` confirms. Empty strings are no-ops.

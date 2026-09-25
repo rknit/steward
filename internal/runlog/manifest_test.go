@@ -43,7 +43,8 @@ func TestManifestSaves(t *testing.T) {
 	build := runner.Phase{Name: "build", Used: "build"}
 	ciFB := runner.Phase{Name: "ci.pre-commit", Used: "ci.quick", CI: true}
 
-	if err := run.Start([]string{"ci", "--level", "pre-commit"}, "tool exec .", []string{"setup", "build", "ci.pre-commit"}, []string{"core", "api", "web"}); err != nil {
+	if err := run.Start([]string{"ci", "--level", "pre-commit"}, "tool exec .", map[string]string{"api": "other run {{STEW_STEP}}"},
+		[]string{"setup", "build", "ci.pre-commit"}, []string{"core", "api", "web"}); err != nil {
 		t.Fatal(err)
 	}
 	m, raw := readManifest(t, run)
@@ -52,6 +53,9 @@ func TestManifestSaves(t *testing.T) {
 	}
 	if !strings.Contains(raw, `"workspace_wrapper": "tool exec ."`) || m.WorkspaceWrapper != "tool exec ." {
 		t.Errorf("after Start: workspace_wrapper missing or wrong: %s", raw)
+	}
+	if !strings.Contains(raw, "\"project_wrapper\": {\n    \"api\": \"other run {{STEW_STEP}}\"\n  }") {
+		t.Errorf("after Start: project_wrapper missing or wrong: %s", raw)
 	}
 
 	steps := []error{
@@ -72,6 +76,7 @@ func TestManifestSaves(t *testing.T) {
 	want := Manifest{
 		Argv:             []string{"ci", "--level", "pre-commit"},
 		WorkspaceWrapper: "tool exec .",
+		ProjectWrapper:   map[string]string{"api": "other run {{STEW_STEP}}"},
 		Columns:          []string{"setup", "build", "ci.pre-commit"},
 		Projects:         []string{"core", "api", "web"},
 		Phases: []PhaseRecord{
@@ -105,11 +110,14 @@ func TestManifestSaveErrors(t *testing.T) {
 	}
 	run := newRun(t)
 	setup := runner.Phase{Name: "setup", Used: "setup"}
-	if err := run.Start([]string{"build"}, "", []string{"setup", "build"}, []string{"core", "api", "lib"}); err != nil {
+	if err := run.Start([]string{"build"}, "", nil, []string{"setup", "build"}, []string{"core", "api", "lib"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, raw := readManifest(t, run); !strings.Contains(raw, `"workspace_wrapper": ""`) {
 		t.Errorf("empty wrapper omitted from run.json: %s", raw)
+	}
+	if _, raw := readManifest(t, run); strings.Contains(raw, "project_wrapper") {
+		t.Errorf("nil project_wrapper saved to run.json: %s", raw)
 	}
 	if err := os.Chmod(run.Dir, 0o555); err != nil {
 		t.Fatal(err)

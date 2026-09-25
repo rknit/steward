@@ -33,6 +33,7 @@ projects = ["bg", "core"]
 -- core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "touch started; i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
 verify = ""
@@ -44,6 +45,7 @@ run = ""
 -- bg/stew.toml --
 name = "bg"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "(i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done) > /dev/null 2>&1 &"
 verify = ""

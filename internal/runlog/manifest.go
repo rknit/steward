@@ -15,12 +15,13 @@ const ManifestName = "run.json"
 
 // Manifest is run.json: what a run did, for stew runs show.
 type Manifest struct {
-	Argv             []string      `json:"argv"`
-	WorkspaceWrapper string        `json:"workspace_wrapper"`
-	Columns          []string      `json:"columns"`
-	Projects         []string      `json:"projects"`
-	Phases           []PhaseRecord `json:"phases"`
-	TotalMS          *int64        `json:"total_ms,omitempty"`
+	Argv             []string          `json:"argv"`
+	WorkspaceWrapper string            `json:"workspace_wrapper"`
+	ProjectWrapper   map[string]string `json:"project_wrapper,omitempty"`
+	Columns          []string          `json:"columns"`
+	Projects         []string          `json:"projects"`
+	Phases           []PhaseRecord     `json:"phases"`
+	TotalMS          *int64            `json:"total_ms,omitempty"`
 }
 
 // PhaseRecord is one phase that ended or was blocked.
@@ -34,9 +35,10 @@ type PhaseRecord struct {
 	BlockedBy  []string `json:"blocked_by,omitempty"`
 }
 
-// Start records the command line, the workspace wrapper, and the plan, then saves run.json.
-func (r *Run) Start(argv []string, workspaceWrapper string, columns, projects []string) error {
-	r.Manifest = Manifest{Argv: argv, WorkspaceWrapper: workspaceWrapper, Columns: columns, Projects: projects, Phases: []PhaseRecord{}}
+// Start records the command line, the wrappers, and the plan, then saves run.json.
+func (r *Run) Start(argv []string, workspaceWrapper string, projectWrapper map[string]string, columns, projects []string) error {
+	r.Manifest = Manifest{Argv: argv, WorkspaceWrapper: workspaceWrapper, ProjectWrapper: projectWrapper,
+		Columns: columns, Projects: projects, Phases: []PhaseRecord{}}
 	return r.save()
 }
 

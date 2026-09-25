@@ -200,8 +200,14 @@ func showRun(stdout, stderr io.Writer, id string, patterns []string, porcelain, 
 			sum.Total = time.Duration(*run.Manifest.TotalMS) * time.Millisecond
 		}
 	}
+	var projectWrappers []report.ProjectWrapper
+	for _, p := range run.Manifest.Projects {
+		if w := run.Manifest.ProjectWrapper[p]; w != "" {
+			projectWrappers = append(projectWrappers, report.ProjectWrapper{Project: p, Wrapper: w})
+		}
+	}
 	var b bytes.Buffer
-	report.Show(&b, id, run.Manifest.Argv, run.Manifest.WorkspaceWrapper, phases, sum)
+	report.Show(&b, id, run.Manifest.Argv, run.Manifest.WorkspaceWrapper, projectWrappers, phases, sum)
 	if err := page(stdout, stderr, b.Bytes(), !noPager && isTerminal(stdout)); err != nil {
 		return rejected(err)
 	}

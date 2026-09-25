@@ -51,6 +51,7 @@ runs/
 -- mono/core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -64,6 +65,7 @@ run = "echo quick-ok"
 -- want/failing.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""

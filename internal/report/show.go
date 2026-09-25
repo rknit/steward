@@ -33,12 +33,22 @@ type ShownSummary struct {
 	Logs     string
 }
 
+// ProjectWrapper is one project's wrapper for the stew runs show header.
+type ProjectWrapper struct {
+	Project string
+	Wrapper string
+}
+
 // Show writes the stew runs show page: a header, each phase line with its whole log, then the summary if sum is set.
-func Show(w io.Writer, id string, argv []string, workspaceWrapper string, phases []ShownPhase, sum *ShownSummary) {
+func Show(w io.Writer, id string, argv []string, workspaceWrapper string, projectWrappers []ProjectWrapper,
+	phases []ShownPhase, sum *ShownSummary) {
 	var b bytes.Buffer
 	b.WriteString("run " + id + ": " + Command(argv) + "\n")
 	if workspaceWrapper != "" {
 		b.WriteString("wrapper: " + displayWrapper(workspaceWrapper) + "\n")
+	}
+	for _, pw := range projectWrappers {
+		b.WriteString("wrapper " + pw.Project + ": " + displayWrapper(pw.Wrapper) + "\n")
 	}
 
 	for _, p := range phases {

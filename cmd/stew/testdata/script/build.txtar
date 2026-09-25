@@ -69,6 +69,7 @@ runs/
 -- core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 
 [setup]
 run = "echo core-setup-out; pwd > where; touch .setup-done"
@@ -83,6 +84,7 @@ run = ""
 -- api/stew.toml --
 name = "api"
 dependencies = ["core"]
+project_wrapper = ""
 
 [setup]
 run = ""

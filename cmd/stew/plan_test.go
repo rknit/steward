@@ -11,8 +11,8 @@ import (
 )
 
 // testWorkspace writes a workspace with core <- api (api depends on core) and loads it.
-// wrapper, if non-empty, becomes the workspace's workspace_wrapper.
-func testWorkspace(t *testing.T, wrapper string) *workspace.Workspace {
+// wrapper, if non-empty, becomes the workspace's workspace_wrapper; apiWrapper becomes api's project_wrapper.
+func testWorkspace(t *testing.T, wrapper, apiWrapper string) *workspace.Workspace {
 	t.Helper()
 	root := t.TempDir()
 	write := func(rel, content string) {
@@ -29,6 +29,7 @@ func testWorkspace(t *testing.T, wrapper string) *workspace.Workspace {
 	}
 	write("core/stew.toml", `name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "cs"
 verify = "cv"
@@ -42,6 +43,7 @@ run = "core-quick"
 `)
 	write("api/stew.toml", `name = "api"
 dependencies = ["core"]
+project_wrapper = "`+apiWrapper+`"
 [setup]
 run = ""
 verify = ""
@@ -67,7 +69,7 @@ func phaseNames(job runner.Job) []string {
 }
 
 func TestBuildPlan(t *testing.T) {
-	ws := testWorkspace(t, "")
+	ws := testWorkspace(t, "", "")
 	tests := []struct {
 		command string
 		names   []string
@@ -131,14 +133,25 @@ func TestBuildPlan(t *testing.T) {
 }
 
 func TestBuildPlanWrapper(t *testing.T) {
-	ws := testWorkspace(t, "tool exec . {{STEW_STEP}}")
-	plan, err := buildPlan(ws, "build", []string{"api"}, workspace.LevelFull)
-	if err != nil {
-		t.Fatal(err)
+	const outer, inner = "tool exec . {{STEW_STEP}}", "other run {{STEW_STEP}}"
+	tests := []struct {
+		workspace, api string
+		want           map[string][]string
+	}{
+		{outer, "", map[string][]string{"core": {outer}, "api": {outer}}},
+		{outer, inner, map[string][]string{"core": {outer}, "api": {outer, inner}}},
+		{"", inner, map[string][]string{"core": nil, "api": {inner}}},
 	}
-	for _, job := range plan.Jobs {
-		if !slices.Equal(job.Wrappers, []string{"tool exec . {{STEW_STEP}}"}) {
-			t.Errorf("%s wrappers = %v, want [tool exec . {{STEW_STEP}}]", job.Project, job.Wrappers)
+	for _, tt := range tests {
+		ws := testWorkspace(t, tt.workspace, tt.api)
+		plan, err := buildPlan(ws, "build", []string{"api"}, workspace.LevelFull)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, job := range plan.Jobs {
+			if want := tt.want[job.Project]; !slices.Equal(job.Wrappers, want) {
+				t.Errorf("%q/%q: %s wrappers = %v, want %v", tt.workspace, tt.api, job.Project, job.Wrappers, want)
+			}
 		}
 	}
 }

@@ -43,6 +43,7 @@ projects = ["api", "core", "lib"]
 -- core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -56,6 +57,7 @@ run = "echo core-quick"
 -- api/stew.toml --
 name = "api"
 dependencies = ["core"]
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -69,6 +71,7 @@ run = "echo api-pre"
 -- lib/stew.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -80,6 +83,7 @@ run = ""
 -- want/api-failing.toml --
 name = "api"
 dependencies = ["core"]
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""

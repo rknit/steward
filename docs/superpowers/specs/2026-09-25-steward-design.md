@@ -149,6 +149,7 @@ Every `setup`, `build`, or `ci` invocation is one run. Each run captures all com
 {
   "argv": ["ci", "--level", "pre-commit"],
   "workspace_wrapper": "tool exec . {{STEW_STEP}}",
+  "project_wrapper": {"api": "other-tool run {{STEW_STEP}}"},
   "columns": ["setup", "build", "ci.pre-commit"],
   "projects": ["core", "api", "web"],
   "phases": [
@@ -167,6 +168,7 @@ Every `setup`, `build`, or `ci` invocation is one run. Each run captures all com
 | ------------------- | ------------------------------------------------------------------------------ |
 | `argv`              | Arguments after `stew`, for the `stew runs show` header.                       |
 | `workspace_wrapper` | Workspace wrapper as written; `""` when none. An absent field loads as `""`.   |
+| `project_wrapper`   | Non-empty project wrappers as written, by project name. Absent when none.      |
 | `columns`           | Summary columns, as in the live summary.                                       |
 | `projects`          | Selected projects in execution order: the summary rows.                        |
 | `phases`            | Phases that ended or were blocked, in execution order.                         |
@@ -196,6 +198,7 @@ Every `setup`, `build`, or `ci` invocation is one run. Each run captures all com
 ```toml
 name = "api"
 dependencies = ["core"]
+project_wrapper = ""
 
 [setup]
 run = "npm ci"
@@ -219,6 +222,7 @@ run = "npm run lint -- --cache"
 | ----------------- | -------- | --------------------------------------------------------------- |
 | `name`            | yes      | Unique across the workspace. Must match `[a-z0-9][a-z0-9._-]*`. |
 | `dependencies`    | yes      | List of other projects' `name`s. `[]` for none.                 |
+| `project_wrapper` | yes      | String. `""` means no wrapper. Nested inside the workspace one. |
 | `[setup]`         | yes      | Keys `run` and `verify`, both required.                         |
 | `[build]`         | yes      | Keys `run` and `verify`, both required.                         |
 | `[ci.full]`       | yes      | Key `run` required.                                             |
@@ -229,6 +233,8 @@ run = "npm run lint -- --cache"
 - Sections are forced so that an empty command is always a deliberate choice.
 - `[ci.*]` sections accept only `run`. A `verify` key there is an unknown key.
 - Any unknown key, unknown section, or unknown CI level is rejected.
+- `project_wrapper` gets the same wrapper checks as `workspace_wrapper` (see `.stew/config.toml`).
+  The error names the project's `stew.toml` and `project_wrapper`.
 
 ### `stew add` Template
 
@@ -237,6 +243,9 @@ For a new project, `stew add` writes this exact file, with `<name>` substituted:
 ```toml
 name = "<name>"
 dependencies = []
+# Wraps every command of this project, inside the workspace wrapper.
+# {{STEW_STEP}} marks where the command goes. "" means none.
+project_wrapper = ""
 
 # Each phase: `verify` runs first; exit 0 skips `run`.
 # Otherwise `run` runs, then `verify` confirms. Empty strings are no-ops.
@@ -265,7 +274,8 @@ Checks:
 - `.stew/projects.toml` parses; paths are valid and unique.
 - `.stew/config.toml` parses; `workspace_wrapper` passes the wrapper checks (placeholder count and `sh -n`).
 - Every registered path contains a `stew.toml`.
-- Every `stew.toml` parses with no unknown keys and has all required sections and keys.
+- Every `stew.toml` parses with no unknown keys and has all required sections and keys;
+  `project_wrapper` passes the wrapper checks.
 - Every `name` is valid and unique.
 - Every dependency names an existing project and is not the project itself.
 - The dependency graph has no cycle. The error prints the cycle, e.g. `cycle: a -> b -> c -> a`.
@@ -391,7 +401,8 @@ Stew never invokes `sh -c ""`.
 ### Command Execution
 
 - Each command runs with cwd set to the project directory.
-  With `workspace_wrapper = ""` it runs as `sh -c <cmd>`. Otherwise it runs through the wrapper (see Wrapper Contract).
+  With `workspace_wrapper` and `project_wrapper` both `""`, it runs as `sh -c <cmd>`.
+  Otherwise it runs through the wrappers (see Wrapper Contract).
 - The environment is inherited, plus the variables below. They replace inherited values of the same name,
   such as those of an outer stew run whose command runs stew.
 
@@ -415,8 +426,11 @@ Stew never invokes `sh -c ""`.
 #### Wrapper Contract
 
 A wrapper is shell code. `{{STEW_STEP}}` marks where the command goes.
-stew replaces it with the path of an executable that runs the step's command, then runs `sh -c <W>`.
+stew replaces it with the path of an executable that runs the step's command, through any inner wrapper.
 That is the whole contract.
+
+There are two levels. `workspace_wrapper` wraps every command. A project's `project_wrapper` wraps that
+project's commands, inside the workspace wrapper. A level whose wrapper is `""` is dropped.
 
 - A wrapper provides the toolchain. It is not a build step.
 - stew knows no environment tool and special-cases none.
@@ -445,14 +459,18 @@ Examples of the shape (not a supported-tools list):
 
 #### Wrapped Execution
 
-With a workspace wrapper, stew writes a step script for each step into the step directory:
+With at least one wrapper, stew writes executables for each step into the step directory.
+For a project with both wrappers:
 
 | File                     | Content                                                                                  |
 | ------------------------ | ---------------------------------------------------------------------------------------- |
+| `<project>-<phase>.1`    | `#!/bin/sh`, then `project_wrapper` with `{{STEW_STEP}}` replaced by the `.step` path    |
 | `<project>-<phase>.step` | `#!/bin/sh`, then: count one reach, export every `STEW_*`, run `sh -c <cmd>`,            |
 |                          | write its exit status to `<project>-<phase>.status`, and exit with that status           |
 
-Then it runs `sh -c <workspace_wrapper with {{STEW_STEP}} replaced by the .step path>`.
+Then it runs `sh -c <workspace_wrapper with {{STEW_STEP}} replaced by the .1 path>`.
+With one wrapper, there is no `.1` file. stew runs `sh -c <that wrapper>`, with `{{STEW_STEP}}` replaced by
+the `.step` path.
 
 - `<project>-<phase>` is the phase's key, as in the log file names.
 - `STEW_*` are in the environment of the whole chain, so a wrapper can read them.
@@ -461,17 +479,17 @@ Then it runs `sh -c <workspace_wrapper with {{STEW_STEP}} replaced by the .step 
 - The command runs as `sh -c <cmd>`, the same as without a wrapper.
 - If the step script cannot count the reach, it exits 125 without running the command.
   If it cannot write the status, it exits 125.
-- The script is mode `0700`. stdin `/dev/null`, the process group, and no controlling terminal apply as above.
-  The kill ladder applies as in Interrupt. Signals reach the wrapper and everything it starts in the same process
-  group.
+- The scripts are mode `0700`. stdin `/dev/null`, the process group, and no controlling terminal apply as above.
+  The kill ladder applies as in Interrupt. Signals reach the wrappers and everything they start in the same
+  process group.
 - A wrapped command killed by a signal shows as `exit 128+N`, e.g. `exit 143` for SIGTERM, because the step
   script's `sh` reports it that way.
-- The wrapper string is substituted and run as it is. stew adds nothing to it.
+- The wrapper strings are substituted and run as they are. stew adds nothing to them.
 
 #### Step Directory
 
-- Created at run start, before the run directory, only when a project in the run has a workspace wrapper:
-  a new `stew-*` directory in `$TMPDIR` (made absolute), or in `/tmp` when `TMPDIR` is unset.
+- Created at run start, before the run directory, only when a project in the run has a workspace or project
+  wrapper. It is a new `stew-*` directory in `$TMPDIR` (made absolute), or in `/tmp` when `TMPDIR` is unset.
 - Its full path must match `[A-Za-z0-9/._-]+`, so no file in it ever needs quoting, however many times a tool
   parses it. Otherwise the run exits 1 before any phase:
   `cannot create step directory: <path> needs shell quoting; set TMPDIR to a path of letters, digits, and /._-`.
@@ -488,7 +506,7 @@ When the command finishes, the step script writes the command's exit status to `
 
 - stew removes the step's `.reach` and `.status` files before every step, and all the step's files after it.
 - After a wrapped step exits, stew counts the lines and reads the status.
-  In a cause, `<exit N / signal S / cannot start: …>` is the wrapper's own result.
+  In a cause, `<exit N / signal S / cannot start: …>` is the outermost wrapper's own result.
 
   | Reaches | Status | Step result                                                                              |
   | ------- | ------ | ---------------------------------------------------------------------------------------- |
@@ -676,12 +694,13 @@ Shows a past or running run from its logs.
 
 ### Default Output
 
-The live plain format, without animation, plus a header line and, when the run had a wrapper, a `wrapper:` line.
+The live plain format, without animation, plus a header line and one `wrapper` line per wrapper the run had.
 Example: `stew runs show latest` for the run in Run Manifest, where `api` depends on `core` and `web` on `api`.
 
 ```
 run 20260925T043601Z-3f9a: stew ci --level pre-commit
 wrapper: tool exec . {{STEW_STEP}}
+wrapper api: other-tool run {{STEW_STEP}}
 ==> core: setup ... skip (0.1s)
 --- stew: verify: test -d node_modules
 ==> core: build ... skip (0.0s)
@@ -717,9 +736,11 @@ logs: .stew/runs/20260925T043601Z-3f9a
 
 - **Header.** `run <id>: stew <argv>`, with each argument shell-quoted when needed.
   An argument with a control character or invalid UTF-8 uses `$'…'` quoting with `\t`, `\n`, `\r`, and `\xHH` escapes.
-- **Wrapper.** `wrapper: <workspace_wrapper>` right after the header, only when `workspace_wrapper` is not `""`.
-  e.g. `wrapper: tool exec . {{STEW_STEP}}`. The wrapper prints verbatim, unless it has a control character
-  (e.g. a newline) or invalid UTF-8. Then it uses the header's `$'…'` quoting, so it stays on one line.
+- **Wrappers.** Right after the header, one line per non-empty wrapper, as in the example above:
+  - `wrapper: <workspace_wrapper>` first, only when `workspace_wrapper` is not `""`.
+  - Then `wrapper <project>: <project_wrapper>` for each project in `project_wrapper`, in `projects` order.
+  - A wrapper prints verbatim, unless it has a control character (e.g. a newline) or invalid UTF-8.
+    Then it uses the header's `$'…'` quoting, so each wrapper stays on one line.
 - **Order.** Matched phases in execution order, from `run.json`.
 - **Phase line.** Identical to the live line, including `<requested> -> <used>` and `blocked by <names>`.
 - **Body.** Every phase that ran a command prints its whole `.log` verbatim, markers included.
@@ -879,7 +900,7 @@ internal/workspace/
   registry.go        load/save .stew/projects.toml
   config.go          load .stew/config.toml: strict parse, workspace_wrapper
   wrapper.go         wrapper checks: placeholder count, `sh -n` syntax check
-  project.go         stew.toml schema, strict parse, required-key checks, add template
+  project.go         stew.toml schema, strict parse, required-key checks, project_wrapper, add template
   graph.go           name index, dependency validation, cycle detection, Select(names) → plan
 internal/runner/     plan execution: phase algorithm, level resolution, blocked propagation, results
   steps.go           {{STEW_STEP}}, the step directory, step scripts, reach counts and statuses
@@ -895,15 +916,16 @@ internal/githook/    hooks-dir lookup via git, hook install
 - `runner` measures durations with an injected clock (real: `time.Now`, monotonic), so tests control them.
   `report` formats them.
 - `runner` runs commands through an `Executor` interface: `Run(ctx, dir, env, argv []string, stdout, stderr) Result`.
-  `runner` builds the argv: `sh -c <cmd>`, or `sh -c <wrapper>` from its `Steps`. `Result` holds the exit code,
-  the signal, or the start error, and for a wrapped step the reach count and whether the command finished.
-  After a single finished reach, the exit code is the command's. The real implementation runs argv with
-  `os/exec` and stdin `/dev/null`. Tests use a fake that records calls and writes scripted output.
+  `runner` builds the argv: `sh -c <cmd>`, or `sh -c <outermost wrapper>` from its `Steps`.
+  `Result` holds the exit code, the signal, or the start error, and for a wrapped step the reach count and whether
+  the command finished. After a single finished reach, the exit code is the command's.
+  The real implementation runs argv with `os/exec` and stdin `/dev/null`.
+  Tests use a fake that records calls and writes scripted output.
 - `runner` prepares and checks wrapped steps through a `Steps` interface: `Prepare(key, wrappers, env, cmd)` writes
   the step's files and returns the argv, and `Collect(key)` returns the reach count and, when the command
   finished, its exit status, then removes the files.
   `runner.StepDir` implements it. `cmd/stew` creates one per run only when a project in the run has a workspace
-  wrapper, and removes it when the run ends.
+  or project wrapper, and removes it when the run ends.
 - `runner` builds each writer as a tee: log file plus the phase's combined replay buffer.
   The combined buffer is guarded by a mutex, because `os/exec` copies stdout and stderr on separate goroutines.
 - `runlog` gives `runner` a writer pair per phase. `runner` does not know log file paths.
@@ -951,6 +973,12 @@ internal/githook/    hooks-dir lookup via git, hook install
 - Syntax check: an unbalanced quote and a dangling `if` are rejected with file and key.
 - Accepted: `tool exec . {{STEW_STEP}}`, `. ./env.sh && {{STEW_STEP}}`, `tool --run '{{STEW_STEP}}'`,
   a multi-line wrapper, and one ending in a newline.
+- `project_wrapper`: missing; wrong type; no placeholder; syntax error; each rejected with `stew.toml` and the key.
+  `""` and `tool run {{STEW_STEP}}` are accepted. The template parses with `project_wrapper = ""`.
+
+### Unit: plan
+
+- A project gets the workspace wrapper, then its own. Empty ones are dropped.
 
 ### Unit: `runner`
 
@@ -979,8 +1007,9 @@ internal/githook/    hooks-dir lookup via git, hook install
   - a `PhaseEnd` error never overrides `fail` or `interrupted`.
 - Wrappers:
   - no wrapper: the argv is exactly `sh -c <cmd>`, and no step file is written;
-  - with a wrapper: the argv is `sh -c <wrapper with the placeholder replaced>`; the wrapper text is otherwise
-    unchanged, and the step script is mode `0700`;
+  - with wrappers: `Prepare` gets the job's wrappers in order, outermost first;
+  - with two wrappers: the argv is `sh -c <outer wrapper with the .1 path>`, and the `.1` script is the inner wrapper
+    with the `.step` path; the wrapper text is otherwise unchanged, and both scripts are mode `0700`;
   - with the real `sh`: the command runs and its exit status is recorded; `STEW_*` survive a wrapper that overwrites
     them, including values with spaces, quotes, newlines, and backslashes; a placeholder inside a string that
     `sh -c` parses again works; a loop runs the command twice and is caught; `{{STEW_STEP}} || true` and
@@ -1003,7 +1032,8 @@ internal/githook/    hooks-dir lookup via git, hook install
 - Creation and write errors are returned to the caller, never swallowed.
 - `.log`: markers once per step; both streams in write order; created with the pair or not at all.
 - `run.json`: round trip; atomic save leaves no temp file; `total_ms` only after the run-end save;
-  a file without `workspace_wrapper` loads it as `""`.
+  a file without `workspace_wrapper` loads it as `""`; `project_wrapper` saved as a map, and absent when nil;
+  a `project_wrapper` name not in `projects` is invalid.
 - `Latest` over several IDs; unknown ID; missing `run.json`; invalid JSON.
 - Unfinished phase: a `.log` without an entry is found; none when all logs have entries.
 - A created run is locked until `Close`; a second lock on its directory fails with `ErrRunning`.
@@ -1025,7 +1055,8 @@ internal/githook/    hooks-dir lookup via git, hook install
   fallback cells.
 - `runs show` page: exact bytes for the Default Output example; body without a trailing newline;
   argv shell quoting; unfinished phase, `unfinished` cell, and `total: unfinished`; no summary when regexes are given;
-  the `wrapper:` line, verbatim or `$'…'`-quoted, and absent when the wrapper is `""`.
+  the `wrapper:` line, verbatim or `$'…'`-quoted, and absent when the wrapper is `""`;
+  `wrapper <project>:` lines after it, in the given order, verbatim or `$'…'`-quoted.
 
 ### Unit: pager
 
@@ -1101,6 +1132,20 @@ internal/githook/    hooks-dir lookup via git, hook install
   - A wrapper that backgrounds the command and exits first fails with
     `wrapper exited before the command finished (exit 0)`.
   - `run.json` `workspace_wrapper`, and the `runs show` `wrapper:` line; neither shows a wrapper when it is `""`.
+- Project wrapper, with fake wrapper scripts on `PATH`:
+  - `add` writes the template with `project_wrapper = ""`.
+  - Nesting order: the workspace wrapper runs outside the project wrapper.
+    A project without one gets only the workspace wrapper.
+  - `STEW_*` values are exact inside the command even when the project wrapper overwrites them.
+  - A project wrapper alone works without a workspace wrapper.
+    A project wrapper that never runs the command (`true # {{STEW_STEP}}`) fails the phase;
+    the command does not run.
+  - A project wrapper `{{STEW_STEP}} || true` inside the workspace wrapper does not hide a failing command:
+    `(exit 7)`.
+  - In the workspace whose path has a space and a `'`, both levels take a command string: the command runs,
+    and no step file is left.
+  - `run.json` `project_wrapper` holds only projects with a wrapper; `runs show` prints a `wrapper <project>:` line
+    for each.
 
 ### Integration: git hook
 

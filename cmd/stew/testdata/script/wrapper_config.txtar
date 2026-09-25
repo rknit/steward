@@ -45,6 +45,7 @@ projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "touch ran"
 verify = ""

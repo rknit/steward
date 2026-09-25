@@ -19,6 +19,7 @@ projects = ["a", "b"]
 -- a/stew.toml --
 name = "a"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "cd ../.stew/runs/* && rm -f run.json && mkdir run.json"
 verify = ""
@@ -30,6 +31,7 @@ run = ""
 -- b/stew.toml --
 name = "b"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "cd ../.stew/runs/* && rmdir run.json"
 verify = ""

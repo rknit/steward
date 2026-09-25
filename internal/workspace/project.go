@@ -48,6 +48,7 @@ type Project struct {
 	Name         string
 	Path         string // root-relative, slash-separated, as registered
 	Dependencies []string
+	Wrapper      string // project wrapper, nested inside the workspace wrapper; "" means none
 	Setup        Phase
 	Build        Phase
 	CI           map[Level]string // run command per defined level; LevelFull is always present
@@ -83,6 +84,7 @@ type rawCI struct {
 type rawProject struct {
 	Name         string           `toml:"name"`
 	Dependencies []string         `toml:"dependencies"`
+	Wrapper      string           `toml:"project_wrapper"`
 	Setup        rawPhase         `toml:"setup"`
 	Build        rawPhase         `toml:"build"`
 	CI           map[string]rawCI `toml:"ci"`
@@ -104,7 +106,7 @@ func ParseProject(file string, data []byte) (*Project, error) {
 	}
 
 	required := [][]string{
-		{"name"}, {"dependencies"},
+		{"name"}, {"dependencies"}, {"project_wrapper"},
 		{"setup"}, {"setup", "run"}, {"setup", "verify"},
 		{"build"}, {"build", "run"}, {"build", "verify"},
 		{"ci", "full"},
@@ -137,10 +139,14 @@ func ParseProject(file string, data []byte) (*Project, error) {
 		}
 		seen[dep] = true
 	}
+	if err := CheckWrapper(raw.Wrapper); err != nil {
+		return nil, errf("project_wrapper: %v", err)
+	}
 
 	return &Project{
 		Name:         raw.Name,
 		Dependencies: raw.Dependencies,
+		Wrapper:      raw.Wrapper,
 		Setup:        Phase(raw.Setup),
 		Build:        Phase(raw.Build),
 		CI:           ci,
@@ -178,6 +184,9 @@ func LoadProject(root, rel string) (*Project, error) {
 var templateLines = []string{
 	`name = "%s"`,
 	`dependencies = []`,
+	`# Wraps every command of this project, inside the workspace wrapper.`,
+	`# {{STEW_STEP}} marks where the command goes. "" means none.`,
+	`project_wrapper = ""`,
 	``,
 	"# Each phase: `verify` runs first; exit 0 skips `run`.",
 	"# Otherwise `run` runs, then `verify` confirms. Empty strings are no-ops.",

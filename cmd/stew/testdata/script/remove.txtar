@@ -58,6 +58,7 @@ projects = [".", "apps/web", "libs/core", "services/api", "tools/x"]
 -- stew.toml --
 name = "steward"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -69,6 +70,7 @@ run = ""
 -- libs/core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -80,6 +82,7 @@ run = ""
 -- services/api/stew.toml --
 name = "api"
 dependencies = ["core"]
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -91,6 +94,7 @@ run = ""
 -- apps/web/stew.toml --
 name = "web"
 dependencies = ["api"]
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -102,6 +106,7 @@ run = ""
 -- tools/x/stew.toml --
 name = "tool"
 dependencies = ["core", "steward"]
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""

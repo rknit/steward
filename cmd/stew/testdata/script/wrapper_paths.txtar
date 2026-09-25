@@ -12,6 +12,17 @@ cd $WORK
 exec sh -c 'ls -A tmp | wc -l'
 stdout '^0$'
 
+# The same holds when the project wrapper parses its argument again too, inside the workspace wrapper.
+cd 'my proj''s'
+rm lib/ran
+cp lib/wrapped.toml lib/stew.toml
+exec stew build
+stdout '^==> lib: setup \.\.\. done'
+exists lib/ran
+cd $WORK
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
 # A TMPDIR that needs quoting stops the run with exit 1 before any run directory exists.
 mkdir 'bad tmp'
 env TMPDIR=$WORK/bad' tmp'
@@ -21,7 +32,7 @@ stdout '^exit=1$'
 stderr 'cannot create step directory: .*/bad tmp needs shell quoting; set TMPDIR to a path of letters, digits, and /\._-$'
 cd $WORK
 exec sh -c 'ls my*/.stew/runs | wc -l'
-stdout '^1$'
+stdout '^2$'
 exec sh -c 'ls -A "bad tmp" | wc -l'
 stdout '^0$'
 
@@ -32,6 +43,19 @@ projects = ["lib"]
 -- my proj's/lib/stew.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
+[setup]
+run = "touch ran"
+verify = ""
+[build]
+run = ""
+verify = ""
+[ci.full]
+run = ""
+-- my proj's/lib/wrapped.toml --
+name = "lib"
+dependencies = []
+project_wrapper = "runstr {{STEW_STEP}}"
 [setup]
 run = "touch ran"
 verify = ""

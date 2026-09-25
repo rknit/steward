@@ -97,10 +97,21 @@ func runPhases(stdout io.Writer, argv []string, command string, names []string, 
 	defer logs.Close()
 	start := time.Now()
 	projects := make([]string, len(plan.Jobs))
+	projectWrapper := map[string]string{}
 	for i, job := range plan.Jobs {
 		projects[i] = job.Project
+		p, ok := ws.Project(job.Project)
+		if !ok {
+			panic("stew: plan job for unregistered project " + job.Project)
+		}
+		if p.Wrapper != "" {
+			projectWrapper[p.Name] = p.Wrapper
+		}
 	}
-	if err := logs.Start(argv, ws.Wrapper, plan.Columns, projects); err != nil {
+	if len(projectWrapper) == 0 {
+		projectWrapper = nil
+	}
+	if err := logs.Start(argv, ws.Wrapper, projectWrapper, plan.Columns, projects); err != nil {
 		return rejected(fmt.Errorf("log error: %w", err))
 	}
 

@@ -1,7 +1,8 @@
-# Each wrapper below ends without running the command: the phase fails with the wrapper cause and ran never exists.
+# Wrappers that skip, repeat, or chain the command: each case checks the phase result and its cause.
 exec chmod 755 bin/failing-tool bin/wait-finished
 env PATH=$WORK/bin:$PATH
 
+# Each wrapper below ends without running the command: the phase fails with the wrapper cause and ran never exists.
 cp cfg/comment.toml .stew/config.toml
 ! exec stew build
 stdout '^\(wrapper did not run the command \(exit 2\)\)$'
@@ -93,6 +94,7 @@ projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -104,6 +106,7 @@ run = ""
 -- lib/plain.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -115,6 +118,7 @@ run = ""
 -- lib/count.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -126,6 +130,7 @@ run = ""
 -- lib/verify.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -137,6 +142,7 @@ run = ""
 -- lib/failing.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -148,6 +154,7 @@ run = ""
 -- lib/exit7.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -159,6 +166,7 @@ run = ""
 -- lib/background.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""

@@ -15,6 +15,7 @@ projects = ["core"]
 -- core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "touch ran"
 verify = ""

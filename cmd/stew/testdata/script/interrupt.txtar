@@ -16,6 +16,7 @@ projects = ["core", "lib"]
 -- core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "trap 'echo got-int; exit 1' INT; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
 verify = ""
@@ -27,6 +28,7 @@ run = ""
 -- lib/stew.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "touch ran"
 verify = ""

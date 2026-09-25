@@ -107,6 +107,11 @@ func (m Manifest) validate() error {
 			return fmt.Errorf("projects %d: invalid project %q", i, p)
 		}
 	}
+	for p := range m.ProjectWrapper {
+		if !slices.Contains(m.Projects, p) {
+			return fmt.Errorf("project_wrapper: project %q is not in projects", p)
+		}
+	}
 	if m.TotalMS != nil && *m.TotalMS < 0 {
 		return fmt.Errorf("negative total_ms")
 	}

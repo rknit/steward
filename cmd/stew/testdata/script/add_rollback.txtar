@@ -20,6 +20,7 @@ projects = []
 -- libs/pre/stew.toml --
 name = "pre"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -31,6 +32,7 @@ run = ""
 -- want/pre.toml --
 name = "pre"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""

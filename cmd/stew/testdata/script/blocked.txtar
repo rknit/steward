@@ -16,6 +16,7 @@ projects = ["api", "app", "backend", "core", "lib"]
 -- core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "echo broken; exit 2"
 verify = ""
@@ -27,6 +28,7 @@ run = ""
 -- api/stew.toml --
 name = "api"
 dependencies = ["core"]
+project_wrapper = ""
 [setup]
 run = "echo never"
 verify = ""
@@ -38,6 +40,7 @@ run = ""
 -- backend/stew.toml --
 name = "backend"
 dependencies = ["core"]
+project_wrapper = ""
 [setup]
 run = "echo never"
 verify = ""
@@ -49,6 +52,7 @@ run = ""
 -- app/stew.toml --
 name = "app"
 dependencies = ["backend", "api"]
+project_wrapper = ""
 [setup]
 run = "echo never"
 verify = ""
@@ -60,6 +64,7 @@ run = ""
 -- lib/stew.toml --
 name = "lib"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""

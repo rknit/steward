@@ -11,6 +11,7 @@ exec sh -c 'ls .stew/runs/*/my-app-build.stdout'
 -- want/stew.toml --
 name = "my-app"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""

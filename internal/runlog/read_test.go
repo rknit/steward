@@ -15,7 +15,7 @@ import (
 
 func TestLoadRoundTrip(t *testing.T) {
 	run := newRun(t)
-	if err := run.Start([]string{"build"}, "", []string{"setup", "build"}, []string{"core"}); err != nil {
+	if err := run.Start([]string{"build"}, "", nil, []string{"setup", "build"}, []string{"core"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := run.PhaseEnd("core", runner.Phase{Name: "setup", Used: "setup"}, runner.Outcome{Status: runner.Done, Duration: time.Second}); err != nil {
@@ -99,6 +99,21 @@ func TestLoadRejectsInconsistentManifest(t *testing.T) {
 	}
 }
 
+func TestLoadProjectWrapper(t *testing.T) {
+	stewDir := t.TempDir()
+	writeRun(t, stewDir, "20260101T000000Z-0000",
+		`{"argv":["ci"],"columns":["setup"],"projects":["core"],"project_wrapper":{"core":"x"},"phases":[]}`)
+	writeRun(t, stewDir, "20260101T000000Z-0001",
+		`{"argv":["ci"],"columns":["setup"],"projects":["core"],"project_wrapper":{"ghost":"x"},"phases":[]}`)
+	if run, err := Load(stewDir, "20260101T000000Z-0000"); err != nil || run.Manifest.ProjectWrapper["core"] != "x" {
+		t.Errorf("valid project_wrapper: run = %+v, err = %v", run, err)
+	}
+	want := `invalid run.json: project_wrapper: project "ghost" is not in projects`
+	if _, err := Load(stewDir, "20260101T000000Z-0001"); err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("unknown project_wrapper project: err = %v, want %q", err, want)
+	}
+}
+
 func TestLatest(t *testing.T) {
 	stewDir := t.TempDir()
 	if _, err := Latest(stewDir); !errors.Is(err, ErrUnknownRun) {
@@ -178,7 +193,7 @@ func TestParseKey(t *testing.T) {
 
 func TestUnfinishedAndReadLog(t *testing.T) {
 	run := newRun(t)
-	if err := run.Start([]string{"build"}, "", []string{"setup", "build"}, []string{"core", "x-build", "api"}); err != nil {
+	if err := run.Start([]string{"build"}, "", nil, []string{"setup", "build"}, []string{"core", "x-build", "api"}); err != nil {
 		t.Fatal(err)
 	}
 	setup := runner.Phase{Name: "setup", Used: "setup"}

@@ -40,7 +40,7 @@ func buildPlan(ws *workspace.Workspace, command string, names []string, level wo
 			Dir:      filepath.Join(ws.Root, filepath.FromSlash(p.Path)),
 			Deps:     p.Dependencies,
 			Phases:   phases,
-			Wrappers: wrappers(ws.Wrapper),
+			Wrappers: wrappers(ws.Wrapper, p.Wrapper),
 		})
 	}
 	return plan, nil

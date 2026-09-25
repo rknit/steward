@@ -82,6 +82,7 @@ projects = ["api", "app", "core", "webapi"]
 -- core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = "echo core-setup-out"
 verify = ""
@@ -93,6 +94,7 @@ run = ""
 -- api/stew.toml --
 name = "api"
 dependencies = ["core"]
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
@@ -104,6 +106,7 @@ run = ""
 -- app/stew.toml --
 name = "app"
 dependencies = ["api"]
+project_wrapper = ""
 [setup]
 run = "echo never"
 verify = ""
@@ -115,6 +118,7 @@ run = ""
 -- webapi/stew.toml --
 name = "webapi"
 dependencies = ["core"]
+project_wrapper = ""
 [setup]
 run = "echo webapi-setup-out"
 verify = ""

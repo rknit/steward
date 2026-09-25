@@ -31,6 +31,7 @@ projects = ["libs/core"]
 -- libs/core/stew.toml --
 name = "core"
 dependencies = []
+project_wrapper = ""
 [setup]
 run = ""
 verify = ""
