@@ -1,5 +1,5 @@
 # Wrappers that skip, repeat, or chain the command: each case checks the section result and its cause.
-exec chmod 755 bin/failing-tool bin/wait-finished
+exec chmod 755 bin/failing-tool
 env PATH=$WORK/bin:$PATH
 
 # Each wrapper below ends without running the command: the section fails with the wrapper cause and ran never exists.
@@ -76,16 +76,15 @@ exists lib/ran
 rm lib/ran
 
 # A wrapper that backgrounds the command exits before it finishes, and the section fails.
-# The command waits for lib/release, but stew stops it when the step ends, so it never finishes.
+# stew stops the command when the step ends, so it is gone once stew returns and never finishes.
 cp cfg/background.toml .stew/config.toml
 cp lib/background.toml lib/stew.toml
 ! stew build
 stdout '^==> lib: build \.\.\. fail'
 stdout '^\(wrapper exited before the command finished \(exit 0\)\)$'
+exec sh -c 'kill -0 "$(cat lib/pid)" 2>/dev/null && echo alive || echo gone'
+stdout '^gone$'
 ! exists lib/finished
-exec touch lib/release
-exec wait-finished
-stdout '^unfinished$'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
@@ -165,16 +164,11 @@ project_wrapper = ""
 [setup]
 run = ""
 [build]
-run = "touch started; i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; touch finished; exit 3"
+run = "echo $$ > pid; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; touch finished; exit 3"
 requires = ["lib:setup"]
 [ci.full]
 run = ""
 requires = ["lib:build"]
--- bin/wait-finished --
-#!/bin/sh
-i=0
-while [ ! -f lib/finished ] && [ $i -lt 20 ]; do sleep 0.05; i=$((i+1)); done
-if [ -f lib/finished ]; then echo finished; else echo unfinished; fi
 -- bin/failing-tool --
 #!/bin/sh
 echo "failing-tool: broken on purpose" >&2

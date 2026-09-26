@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -167,6 +168,46 @@ func (s *shellSession) expect(pattern string) []string {
 	}
 }
 
+// pid reads the process ID in the file name.
+func (s *shellSession) pid(name string) int {
+	s.t.Helper()
+	data, err := os.ReadFile(filepath.Join(s.dir, name))
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	return pid
+}
+
+// waitForFile waits for the file name to exist, calling poll between checks.
+func (s *shellSession) waitForFile(name string, poll func()) {
+	s.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(s.dir, name)); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			s.t.Fatalf("no %s after 10 s", name)
+		}
+		poll()
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// exited reports whether pid has exited, as a zombie or already reaped.
+func exited(pid int) bool {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return true
+	}
+	_, fields, _ := strings.Cut(string(data), ") ")
+	return strings.HasPrefix(fields, "Z") || strings.HasPrefix(fields, "X")
+}
+
 func (s *shellSession) lines(name string) int {
 	s.t.Helper()
 	data, err := os.ReadFile(filepath.Join(s.dir, name))
@@ -248,11 +289,16 @@ func TestExecTerminalTermSparesPipeline(t *testing.T) {
 
 // A hangup reaches the command, and no more often under stew than when bash runs it directly. Two SIGHUPs that
 // arrive together merge into one, so the count under stew may be lower.
+//
+// bash passes the hangup on to its job before it exits. After that only stew may still pass a SIGHUP on, so a
+// SIGTERM passed through stew reaches hupcount after every SIGHUP, and the count is final once hupcount records the
+// SIGTERM. When stew exits instead, because a forking wrapper died of the hangup, nothing passes signals any more
+// and hupcount gets the SIGTERM directly.
 func TestExecTerminalHangup(t *testing.T) {
 	commands := map[string]string{
 		"direct":  `hupcount hups`,
-		"plain":   `stew exec 'hupcount hups'`,
-		"wrapped": `stew exec lib 'hupcount hups'`,
+		"plain":   `stew exec "hupcount hups"`,
+		"wrapped": `stew exec lib "hupcount hups"`,
 	}
 	var mu sync.Mutex
 	hups := map[string]int{}
@@ -261,10 +307,17 @@ func TestExecTerminalHangup(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				t.Parallel()
 				s := newShellSession(t)
-				s.send(command + "\n")
+				s.send(`sh -c 'echo $$ > last-passer; exec ` + command + `'` + "\n")
 				s.expect(`hupcount ready`)
 				s.master.Close()
-				time.Sleep(1500 * time.Millisecond)
+				s.bash.Wait()
+				passer := s.pid("last-passer")
+				syscall.Kill(passer, syscall.SIGTERM)
+				s.waitForFile("hups.done", func() {
+					if exited(passer) {
+						syscall.Kill(s.pid("hups.pid"), syscall.SIGTERM)
+					}
+				})
 				n := s.lines("hups")
 				mu.Lock()
 				hups[name] = n

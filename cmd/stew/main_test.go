@@ -24,24 +24,33 @@ func TestMain(m *testing.M) {
 	testscript.Main(m, map[string]func(){"hupcount": hupcount})
 }
 
-// hupcount appends a line to the file $1 for each SIGHUP it gets, for 3 seconds. It prints "hupcount ready" once it
-// counts.
+// hupcount appends a line to the file $1 for each SIGHUP it gets. It writes its pid to $1.pid and prints
+// "hupcount ready" once it counts. On SIGTERM it creates $1.done and exits; it gives up after 10 seconds.
 func hupcount() {
-	hups := make(chan os.Signal, 16)
-	signal.Notify(hups, syscall.SIGHUP)
+	sigs := make(chan os.Signal, 16)
+	signal.Notify(sigs, syscall.SIGHUP, syscall.SIGTERM)
 	f, err := os.OpenFile(os.Args[1], os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err == nil {
+		err = os.WriteFile(os.Args[1]+".pid", []byte(strconv.Itoa(os.Getpid())), 0o644)
+	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	fmt.Println("hupcount ready")
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(10 * time.Second)
 	for {
 		select {
-		case <-hups:
+		case sig := <-sigs:
+			if sig == syscall.SIGTERM {
+				if err := os.WriteFile(os.Args[1]+".done", nil, 0o644); err != nil {
+					os.Exit(1)
+				}
+				os.Exit(0)
+			}
 			fmt.Fprintln(f, "hup")
 		case <-deadline:
-			os.Exit(0)
+			os.Exit(1)
 		}
 	}
 }

@@ -3,7 +3,7 @@
 # which use a short kill delay instead of stew's 5 s.
 stew build
 stdout '^==> lib: setup \.\.\. done'
-exec sh -c 'i=0; while kill -0 "$(cat lib/bg.pid)" 2>/dev/null && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -0 "$(cat lib/bg.pid)" 2>/dev/null && echo alive || echo gone'
+exec sh -c 'kill -0 "$(cat lib/bg.pid)" 2>/dev/null && echo alive || echo gone'
 stdout '^gone$'
 
 -- .stew/config.toml --

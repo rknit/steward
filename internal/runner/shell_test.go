@@ -222,7 +222,8 @@ func TestShellForceSkipsKillDelay(t *testing.T) {
 	}
 }
 
-// gone reports whether the process whose pid is in dir/pid has exited, waiting up to 2 s for it to be reaped.
+// gone reports whether the process whose pid is in dir/pid has exited and been reaped. A process that has not is
+// killed.
 func gone(t *testing.T, dir string) bool {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join(dir, "pid"))
@@ -233,11 +234,8 @@ func gone(t *testing.T, dir string) bool {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range 200 {
-		if syscall.Kill(pid, 0) != nil {
-			return true
-		}
-		time.Sleep(10 * time.Millisecond)
+	if syscall.Kill(pid, 0) != nil {
+		return true
 	}
 	syscall.Kill(pid, syscall.SIGKILL)
 	return false

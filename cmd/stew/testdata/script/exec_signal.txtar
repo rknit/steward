@@ -6,16 +6,19 @@ env PATH=$WORK/bin:$PATH
 env TMPDIR=$WORK/tmp
 mkdir tmp
 
-# SIGINT to stew reaches the command once. stew keeps waiting and exits with the command's status.
-exec sh -c 'stew exec "$(cat trap-int)" & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; wait $pid; echo "exit=$?"'
-stdout '^exit=5$'
+# SIGINT to stew reaches the command once, and stew keeps waiting. stew passes signals on in order, so a second
+# SIGINT would reach the command before the SIGTERM that ends it; that SIGTERM also ends the forking wrapper (143).
+exec sh -c 'stew exec "$(cat trap-int)" & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; i=0; while [ ! -f ints ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -TERM $pid; wait $pid; echo "exit=$?"; i=0; while [ ! -f done ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done'
+stdout '^exit=143$'
+exists done
 exec sh -c 'wc -l < ints'
 stdout '^1$'
 
 # So does SIGINT to stew's whole group, as a shell's kill %1 sends it.
-rm started ints
-exec sh -c 'setsid stew exec "$(cat trap-int)" & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT -$pid; wait $pid; echo "exit=$?"'
-stdout '^exit=5$'
+rm started ints done
+exec sh -c 'setsid stew exec "$(cat trap-int)" & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT -$pid; i=0; while [ ! -f ints ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -TERM $pid; wait $pid; echo "exit=$?"; i=0; while [ ! -f done ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done'
+stdout '^exit=143$'
+exists done
 exec sh -c 'wc -l < ints'
 stdout '^1$'
 
@@ -47,7 +50,7 @@ workspace_wrapper = "wrap-fork {{STEW_STEP}}"
 -- .stew/projects.toml --
 projects = []
 -- trap-int --
-trap 'echo got-int >> ints' INT; touch started; i=0; while [ ! -f ints ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; sleep 0.3; exit 5
+trap 'echo got-int >> ints' INT; trap 'touch done; exit 5' TERM; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done
 -- running.sh --
 # A killed command whose parent died stays a zombie until a subreaper, such as a stew run above this test, reaps it.
 running() { case "$(ps -o stat= -p "$(cat pid)" 2>/dev/null)" in ""|Z*) return 1 ;; esac; }

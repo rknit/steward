@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 	"testing"
-	"time"
 )
 
 // collected is what Collect returned for a step.
@@ -176,15 +175,13 @@ func TestBackgroundedCommandIsUnfinishedAndStopped(t *testing.T) {
 	d := testStepDir(t)
 	dir := t.TempDir()
 	wrapper := `{{STEW_STEP}} >/dev/null 2>&1 & i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`
-	cmd := `touch started; i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; exit 3`
+	cmd := `echo $$ > pid; touch started; ` + boundedLoop + `; exit 3`
 	res, _, c := runStep(t, d, dir, []string{wrapper}, nil, cmd)
 	if c != (collected{1, 0, false}) || res != (Result{}) {
 		t.Errorf("c=%+v res=%+v", c, res)
 	}
-	os.WriteFile(filepath.Join(dir, "release"), nil, 0o600)
-	time.Sleep(500 * time.Millisecond)
-	if _, err := os.Stat(filepath.Join(d.Dir, "p-build.status")); err == nil {
-		t.Error("the backgrounded command outlived the step and finished")
+	if !gone(t, dir) {
+		t.Error("the backgrounded command outlived the step")
 	}
 }
 

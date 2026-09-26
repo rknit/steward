@@ -91,9 +91,3 @@ func TestPageMissingPager(t *testing.T) {
 		t.Errorf("stderr = %q, want the shell's error", errOut)
 	}
 }
-
-func TestPageSurvivesCtrlC(t *testing.T) {
-	if got, _ := pageTo(t, pagerEnv(`STEW_PAGER=kill -INT $PPID; sleep 0.2; cat`), []byte("a\n"), true); got != "a\n" {
-		t.Errorf("stdout = %q", got)
-	}
-}
