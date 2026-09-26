@@ -89,6 +89,7 @@ a trust command needs `--trusted` after the same consent.
 | Register or unregister a project | `stew add <path> [-a <name>]`, `stew remove <name>... [--clean]` |
 | Set up a new worktree or clone | `stew setup-worktree` |
 | Install a git hook | `stew git install pre-commit\|pre-push\|post-checkout` |
+| Update this skill after upgrading `stew` | `stew skills install [<dir>]` (default `.agents/skills` in the root) |
 
 ## Common Mistakes
 

@@ -1,0 +1,56 @@
+# skills install writes the skill to .agents/skills in the root, from anywhere in the workspace, without loading
+# the workspace.
+cd ws
+stew init
+cp $WORK/broken.toml .stew/projects.toml
+mkdir sub
+cd sub
+stew skills install
+stdout '^installed .*/ws/\.agents/skills/use-steward$'
+grep '^name: use-steward$' $WORK/ws/.agents/skills/use-steward/SKILL.md
+exists $WORK/ws/.agents/skills/use-steward/references/commands.md
+! exists .agents
+
+# A second install replaces the earlier copy.
+cp $WORK/broken.toml $WORK/ws/.agents/skills/use-steward/stale.md
+stew skills install
+! exists $WORK/ws/.agents/skills/use-steward/stale.md
+exists $WORK/ws/.agents/skills/use-steward/SKILL.md
+
+# A named directory is resolved against the working directory.
+stew skills install agent/skills
+stdout '^installed .*/ws/sub/agent/skills/use-steward$'
+exists agent/skills/use-steward/SKILL.md
+
+# uninstall removes only the skill directory.
+stew skills uninstall agent/skills
+stdout '^removed .*/ws/sub/agent/skills/use-steward$'
+! exists agent/skills/use-steward
+exists agent/skills
+stew skills uninstall
+stdout '^removed .*/ws/\.agents/skills/use-steward$'
+! exists $WORK/ws/.agents/skills/use-steward
+
+# Uninstalling a skill that is not there is rejected with exit 1.
+! stew skills uninstall
+status 1
+stderr '^stew: .*/ws/\.agents/skills/use-steward: not installed$'
+
+# Outside a workspace, a named directory works and the default is a usage error.
+cd $WORK/outside
+stew skills install skills
+exists skills/use-steward/SKILL.md
+! stew skills install
+status 2
+stderr '^stew: not a stew workspace$'
+! stew skills uninstall
+status 2
+stderr '^stew: not a stew workspace$'
+! stew skills install a b
+status 2
+stderr '^stew: accepts at most 1 arg\(s\), received 2$'
+
+-- broken.toml --
+projects = [
+-- ws/.keep --
+-- outside/.keep --

@@ -12,6 +12,7 @@
 - `stew trust`
 - `stew runs show`, `list`, `prune`
 - `stew git install`
+- `stew skills install`, `uninstall`
 - Exit codes
 
 ## Conventions
@@ -140,12 +141,26 @@ Deletes runs that no keep rule keeps. See `runs.md`.
 
 Installs `pre-commit`, `pre-push`, or `post-checkout`. See `git.md`.
 
+## `stew skills install [<dir>]` and `stew skills uninstall [<dir>]`
+
+Manage this skill, `use-steward`, which each `stew` binary carries for its own version.
+
+- `<dir>` is a skills directory. The skill lives in `<dir>/use-steward/`.
+- Without `<dir>`, it is `.agents/skills` in the workspace root, from anywhere in the workspace. Outside a
+  workspace, name a directory; otherwise `not a stew workspace`, exit 2.
+- A named `<dir>` is resolved against the current directory and need not be inside a workspace.
+- Neither command loads the workspace, so both work while the configuration is broken.
+- `install` creates `<dir>` if needed and replaces an earlier `use-steward/`, including files an older version had.
+  Prints `installed <path>`. Run it after upgrading `stew`.
+- `uninstall` removes `<dir>/use-steward/` and nothing else. Prints `removed <path>`. Without the skill:
+  `stew: <path>: not installed`, exit 1.
+
 ## Exit Codes
 
 | Code | Meaning |
 | --- | --- |
 | 0 | Success. |
-| 1 | A section failed or was blocked; `init`, `add`, `remove`, or `git install` rejected; `runs show` found no matching section or an unreadable run; `runs list` or `runs prune` could not read or delete runs; trust declined, untrusted without a terminal, or a trust command failed. |
+| 1 | A section failed or was blocked; `init`, `add`, `remove`, `git install`, or `skills` rejected; `runs show` found no matching section or an unreadable run; `runs list` or `runs prune` could not read or delete runs; trust declined, untrusted without a terminal, or a trust command failed. |
 | 2 | Invalid usage, an invalid or unmatched pattern, an unknown project or run ID, or invalid workspace configuration. |
 | any | `stew exec` exits with its command's status. |
 | 130 | Interrupted by SIGINT. SIGTERM exits 143, SIGHUP exits 129. |

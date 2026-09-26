@@ -36,6 +36,8 @@ stew git install pre-commit|pre-push|post-checkout
 stew runs show <run-id> [<project:section-regex>...] [--porcelain] [--no-pager]
 stew runs list [--porcelain] [--no-pager]
 stew runs prune [--keep-since <time>] [--keep-last-n <n>]
+stew skills install [<dir>]
+stew skills uninstall [<dir>]
 ```
 
 - Projects are referenced only by `name`. Only `stew add` takes a path.
@@ -311,7 +313,8 @@ The template defines no section. It is valid on creation and does nothing until 
 
 ## Validation
 
-Every command except `init` and `git install` loads and validates the whole workspace before running anything.
+Every command except `init`, `git install`, and `skills *` loads and validates the whole workspace before running
+anything.
 Any error stops the command with exit code 2 and a message naming the file and problem.
 
 Checks:
@@ -347,7 +350,7 @@ Checks:
 | `stew trust`                                 | every entry, pending or not    |
 
 - The check happens after validation, and before the step directory, the run directory, and any command.
-- `--dry-run`, `list`, `remove`, `runs *`, `init`, and `git install` never check or run trust.
+- `--dry-run`, `list`, `remove`, `runs *`, `init`, `git install`, and `skills *` never check or run trust.
 - With no entry to run, nothing is printed and the command goes on.
 
 ### Consent
@@ -919,7 +922,7 @@ logs: .stew/runs/ID
 | Code | Meaning                                                                                              |
 | ---- | ---------------------------------------------------------------------------------------------------- |
 | 0    | Success.                                                                                             |
-| 1    | A section failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no matching section or an unreadable run; `runs list` could not read `.stew/runs/`; `runs prune` could not read `.stew/runs/` or delete a run; trust declined, untrusted without a terminal, a failed trust entry or trust.json save. |
+| 1    | A section failed or was blocked; `init`/`add`/`remove`/`git install`/`skills` rejected; a git command failed; `runs show` found no matching section or an unreadable run; `runs list` could not read `.stew/runs/`; `runs prune` could not read `.stew/runs/` or delete a run; trust declined, untrusted without a terminal, a failed trust entry or trust.json save. |
 | 2    | Invalid CLI usage, an invalid or unmatched pattern, or invalid workspace configuration.               |
 | any  | `stew exec` exits with the command's status (see `stew exec`).                                        |
 | 130  | Interrupted by Ctrl-C (SIGINT). SIGTERM exits 143 and SIGHUP exits 129.                              |
@@ -1182,6 +1185,40 @@ No hook runs in a fresh clone. The first wrapped command asks for trust on a ter
 `stew setup-worktree` to set it up as the hook would. CI runs `stew trust --yes` before its first wrapped
 command.
 
+## `stew skills install|uninstall [<dir>]`
+
+Manages `use-steward`, an agent skill that teaches AI agents the `stew` CLI and how steward works. The binary
+embeds the skill from `skills/use-steward/`, so each `stew` installs the skill for its own version.
+
+- `<dir>` is a skills directory. The skill lives in `<dir>/use-steward/`.
+- Without `<dir>`: `.agents/skills` in the workspace root, found by root discovery from cwd. The workspace is not
+  loaded or validated. No workspace: `not a stew workspace`, exit 2.
+- A named `<dir>` is resolved against cwd and needs no workspace.
+- More than one argument is exit 2.
+
+### `install`
+
+1. Create `<dir>` if missing.
+2. Write the skill into a new temp directory in `<dir>` (`.use-steward-*`).
+3. Remove an existing `<dir>/use-steward`, then rename the temp directory to it. Files an older version had are
+   gone. A failure removes the temp directory.
+4. Print `installed <dir>/use-steward` (absolute). Failures exit 1.
+
+Directories are mode `0755` and files `0644`.
+
+### `uninstall`
+
+- Removes `<dir>/use-steward` and prints `removed <path>`. Other entries in `<dir>`, and `<dir>` itself, stay.
+- No `<dir>/use-steward`: `<path>: not installed`, exit 1.
+
+### Skill Content
+
+- `SKILL.md` holds the working rules and a quick reference. `references/` holds the full user-facing detail by
+  topic: commands, configuration, execution, runs, git.
+- It describes only what a user or agent sees: commands, files, output, errors, and behavior. It names no source
+  file, package, or internal interface.
+- Keep it in step with this spec: a change to user-facing behavior updates the skill in the same commit.
+
 ## Code Layout
 
 ```
@@ -1209,6 +1246,8 @@ internal/report/     section lines, progress animation, failure replay, summary 
 internal/runlog/     run ID, run directory and its lock, per-section log files and step markers, run.json save/load
 internal/githook/    hooks-dir lookup via git, hook install
 internal/job/        runs one command as a foreground job: process group, terminal handoff, signals, stops
+skills/              the embedded use-steward skill, install and uninstall
+  use-steward/       the skill as installed: SKILL.md and references/
 ```
 
 - `workspace` knows nothing about running commands. Its only process is `sh -n` for the wrapper checks.

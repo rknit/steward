@@ -122,6 +122,7 @@ func newRootCmd(proc process, argv []string) *cobra.Command {
 		newRunsCmd(proc),
 		newExecCmd(proc),
 		newTrustCmd(proc),
+		newSkillsCmd(proc),
 	)
 	return root
 }

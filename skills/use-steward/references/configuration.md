@@ -149,8 +149,8 @@ Applies to `workspace_wrapper` and `project_wrapper`.
 
 ## Validation
 
-Every command except `init`, `git install`, and `runs *` loads and validates the whole workspace first. Any error
-stops the command before anything runs, with exit 2 and a message that names the file:
+Every command except `init`, `git install`, `runs *`, and `skills *` loads and validates the whole workspace first.
+Any error stops the command before anything runs, with exit 2 and a message that names the file:
 
 - `projects.toml` parses; paths are valid and unique; every path has a `stew.toml`.
 - `config.toml` parses; both keys present; wrapper checks pass.
