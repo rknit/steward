@@ -108,3 +108,10 @@ Rules:
 - Comment only when the information is genuinely surprising.
 - Prefer fixing the code with better names and smaller units over explaining it.
 - No narrative comments, progress notes, or task/issue references.
+
+## Testing
+
+Follow `docs/testing.md` for every test you write or change. After changing
+tests, have the `test-reviewer` agent review them.
+
+@docs/testing.md
