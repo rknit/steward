@@ -75,6 +75,7 @@ func newRootCmd(stdout io.Writer, argv []string) *cobra.Command {
 		newAliasCmd(stdout, argv, "ci", "Run the ci.<level> section of projects, after the sections it requires"),
 		newGitCmd(stdout),
 		newRunsCmd(stdout),
+		newExecCmd(),
 	)
 	return root
 }

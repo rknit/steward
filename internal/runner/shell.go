@@ -124,10 +124,18 @@ func resultOf(state *os.ProcessState, err error) Result {
 	if state == nil {
 		return Result{Err: err}
 	}
-	if ws, ok := state.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		return Result{Signal: signalName(ws.Signal())}
+	if ws, ok := state.Sys().(syscall.WaitStatus); ok {
+		return WaitResult(ws)
 	}
 	return Result{ExitCode: state.ExitCode()}
+}
+
+// WaitResult is the result of a process that ended with status ws.
+func WaitResult(ws syscall.WaitStatus) Result {
+	if ws.Signaled() {
+		return Result{Signal: signalName(ws.Signal())}
+	}
+	return Result{ExitCode: ws.ExitStatus()}
 }
 
 var signalNames = map[syscall.Signal]string{

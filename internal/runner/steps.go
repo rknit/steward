@@ -62,12 +62,12 @@ func (d *StepDir) Prepare(key string, wrappers, env []string, cmd string) (argv 
 		}
 	}()
 	var b strings.Builder
-	b.WriteString("#!/bin/sh\necho >> " + shellQuote(d.path(key, "reach")) + " || exit 125\n")
+	b.WriteString("#!/bin/sh\necho >> " + ShellQuote(d.path(key, "reach")) + " || exit 125\n")
 	for _, kv := range env {
-		b.WriteString("export " + shellQuote(kv) + "\n")
+		b.WriteString("export " + ShellQuote(kv) + "\n")
 	}
-	b.WriteString("sh -c " + shellQuote(cmd) + "\ncode=$?\n")
-	b.WriteString(`echo "$code" > ` + shellQuote(d.path(key, "status")) + " || exit 125\n")
+	b.WriteString("sh -c " + ShellQuote(cmd) + "\ncode=$?\n")
+	b.WriteString(`echo "$code" > ` + ShellQuote(d.path(key, "status")) + " || exit 125\n")
 	b.WriteString(`exit "$code"` + "\n")
 	next := d.path(key, "step")
 	if err := os.WriteFile(next, []byte(b.String()), 0o700); err != nil {
@@ -133,5 +133,5 @@ func (d *StepDir) clear(key string, exts ...string) error {
 	return nil
 }
 
-// shellQuote quotes s as one sh word.
-func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+// ShellQuote quotes s as one sh word.
+func ShellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }

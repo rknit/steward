@@ -48,7 +48,7 @@ func testStepDir(t *testing.T) *StepDir {
 
 func TestShellQuote(t *testing.T) {
 	for _, s := range []string{"", "a b", "it's", `say "hi"`, "$HOME", "two\nlines", `back\slash\`} {
-		out, err := exec.Command("sh", "-c", "printf %s "+shellQuote(s)).Output()
+		out, err := exec.Command("sh", "-c", "printf %s "+ShellQuote(s)).Output()
 		if err != nil || string(out) != s {
 			t.Errorf("shellQuote(%q) printed %q, %v", s, out, err)
 		}

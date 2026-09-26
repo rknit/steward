@@ -1,0 +1,60 @@
+# Loops are bounded (10s) so a regression fails instead of hanging the suite.
+# The command runs in a process group of its own, and every signal stew gets reaches that group once.
+[!exec:setsid] stop 'setsid not installed'
+exec chmod 755 bin/wrap-fork
+env PATH=$WORK/bin:$PATH
+env TMPDIR=$WORK/tmp
+mkdir tmp
+
+# SIGINT to stew reaches the command once. stew keeps waiting and exits with the command's status.
+exec sh -c 'stew exec "$(cat trap-int)" & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; wait $pid; echo "exit=$?"'
+stdout '^exit=5$'
+exec sh -c 'wc -l < ints'
+stdout '^1$'
+
+# So does SIGINT to stew's whole group, as a shell's kill %1 sends it.
+rm started ints
+exec sh -c 'setsid stew exec "$(cat trap-int)" & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT -$pid; wait $pid; echo "exit=$?"'
+stdout '^exit=5$'
+exec sh -c 'wc -l < ints'
+stdout '^1$'
+
+# A signal that ends the command inside a forking wrapper exits 128+n, with no wrapper error.
+rm started
+exec sh -c 'stew exec "$(cat loop)" > out 2>&1 & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; wait $pid; echo "exit=$?"'
+stdout '^exit=130$'
+exec cat out
+! stdout .
+
+# Ctrl-C while a wrapper starts, before it runs the command, exits 130 with no wrapper error, as without stew.
+rm started
+exec sh -c 'STEW_SLOW=1 stew exec "echo ran" > out 2>&1 & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; wait $pid; echo "exit=$?"'
+stdout '^exit=130$'
+exec cat out
+! stdout .
+
+# SIGTERM to stew ends the command even when the forking wrapper dies first.
+rm started
+exec sh -c '. ./running.sh; stew exec "$(cat loop)" & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -TERM $pid; wait $pid; echo "exit=$?"; i=0; while running && [ $i -lt 20 ]; do sleep 0.05; i=$((i+1)); done; running && echo alive || echo gone'
+stdout '^exit=143$'
+stdout '^gone$'
+
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
+-- .stew/config.toml --
+workspace_wrapper = "wrap-fork {{STEW_STEP}}"
+-- .stew/projects.toml --
+projects = []
+-- trap-int --
+trap 'echo got-int >> ints' INT; touch started; i=0; while [ ! -f ints ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; sleep 0.3; exit 5
+-- running.sh --
+# A killed command whose parent died stays a zombie until a subreaper, such as a stew run above this test, reaps it.
+running() { case "$(ps -o stat= -p "$(cat pid)" 2>/dev/null)" in ""|Z*) return 1 ;; esac; }
+-- loop --
+echo $$ > pid; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done
+-- bin/wrap-fork --
+#!/bin/sh
+if [ -n "$STEW_SLOW" ]; then touch started; sleep 5; fi
+"$@"
+exit $?

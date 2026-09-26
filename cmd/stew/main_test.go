@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"testing"
+	"time"
 	_ "time/tzdata"
 
 	"github.com/rogpeppe/go-internal/testscript"
@@ -11,8 +14,31 @@ import (
 
 func TestMain(m *testing.M) {
 	testscript.Main(m, map[string]func(){
-		"stew": func() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) },
+		"stew":     func() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) },
+		"hupcount": hupcount,
 	})
+}
+
+// hupcount appends a line to the file $1 for each SIGHUP it gets, for 3 seconds. It prints "hupcount ready" once it
+// counts.
+func hupcount() {
+	hups := make(chan os.Signal, 16)
+	signal.Notify(hups, syscall.SIGHUP)
+	f, err := os.OpenFile(os.Args[1], os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Println("hupcount ready")
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case <-hups:
+			fmt.Fprintln(f, "hup")
+		case <-deadline:
+			os.Exit(0)
+		}
+	}
 }
 
 func TestScripts(t *testing.T) {

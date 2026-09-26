@@ -29,6 +29,7 @@ stew run <regex>... [--dry-run]
 stew setup [project...] [--dry-run]
 stew build [project...] [--dry-run]
 stew ci [project...] [-l/--level <name>] [--dry-run]
+stew exec [project] <command>
 stew git install pre-commit|pre-push
 stew runs show <run-id> [<project:section-regex>...] [--porcelain] [--no-pager]
 stew runs list [--porcelain] [--no-pager]
@@ -443,6 +444,48 @@ Prints the execution order and each section's direct `requires`, then exits. Ava
 - Load, validation, and pattern errors are the same as a real run (exit 2). Otherwise exit 0.
 - Same bordered table style as `stew list`. No `--porcelain`.
 
+### `stew exec [project] <command>`
+
+Runs one shell command through the wrappers, for work outside sections: `stew exec api 'go test ./pkg/x'`.
+
+- `<command>` is one argument, run as `sh -c <command>`. Quote it.
+- The command runs in the current directory.
+- Wrappers: the workspace wrapper always. With a project named, its project wrapper nests inside, as in a section.
+  Without one, only the workspace wrapper applies, even when the current directory is inside a project.
+- Wrappers run where a section's would: in the named project's directory, or the workspace root without one.
+  The step script then changes to the current directory and runs the command there. Without wrappers, the command
+  runs in the current directory directly.
+- Env on top of stew's own: `STEW_ROOT`, and `STEW_PROJECT` with a project named. No run ID, section, or tag.
+  Inherited `STEW_RUN_ID`, `STEW_ROOT`, `STEW_PROJECT`, `STEW_SECTION`, and `STEW_TAG`, as inside a section, are
+  removed first.
+- No run directory, log, summary, or orphan adoption. A step directory exists only with a wrapper.
+- Exit status: the command's, or 128+n after signal n.
+- A wrapper that does not run the command exactly once, or exits before it finishes, prints the same cause as a
+  section, e.g. `stew: wrapper did not run the command (exit 0)`, and exits with the wrapper's status, at least 1.
+  When a signal ends the job (status above 128) while a wrapper starts or the command runs, stew exits with that
+  status and no error, as without stew.
+- An unknown project is exit 2: `unknown project "web"`. A missing command is exit 2.
+
+#### Job Control
+
+stew runs the command the way an interactive shell runs a foreground job, so the command behaves as if the shell
+ran it directly.
+
+- The command gets stew's stdin, stdout, and stderr, and leads a new process group: the job.
+- When stew's group is the terminal's foreground group, the job takes the terminal. Ctrl-C, Ctrl-\, Ctrl-Z, and
+  window size changes reach only the job.
+- Every SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGUSR1, SIGUSR2, and SIGTSTP that stew gets goes to the job once.
+  None of these reached the job already, so a `kill` of stew's pid and a `kill %1` both reach the job once, and
+  nothing else in stew's group, such as the rest of a pipeline, gets a signal from stew.
+- On a hangup, bash sends SIGHUP to its jobs and the kernel sends it to the terminal's foreground group. The command
+  gets it from both, as without stew. Two SIGHUPs that arrive together merge into one.
+- When the job stops, stew takes the terminal back and stops its own group with the same kind of stop, so the shell
+  reports the job stopped. When stew continues, it gives the terminal back if its group is in the foreground, and
+  continues the job. The Go runtime's SIGTSTP handler never stops stew, so on Linux stew sets the kernel's default
+  action for the stop and restores the runtime's handler afterwards. Elsewhere stew stops with SIGSTOP.
+- The kernel discards stop signals to an orphaned process group. stew then continues the job after 1 s.
+- When the job exits, stew takes the terminal back if the job holds it.
+
 ## Section Algorithm
 
 Stew never invokes `sh -c ""`.
@@ -753,6 +796,7 @@ logs: .stew/runs/ID
 | 0    | Success.                                                                                             |
 | 1    | A section failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no matching section or an unreadable run; `runs list` could not read `.stew/runs/`; `runs prune` could not read `.stew/runs/` or delete a run. |
 | 2    | Invalid CLI usage, an invalid or unmatched pattern, or invalid workspace configuration.               |
+| any  | `stew exec` exits with the command's status (see `stew exec`).                                        |
 | 130  | Interrupted by Ctrl-C (SIGINT). SIGTERM exits 143 and SIGHUP exits 129.                              |
 
 ## `stew runs show <run-id> [<project:section-regex>...] [--porcelain] [--no-pager]`
@@ -975,6 +1019,7 @@ In a workspace where no project defines `ci.<hook>`, the hook fails with exit 2 
 ```
 cmd/stew/            main: cobra commands, error → exit code mapping
   run.go             `run` and the `setup`/`build`/`ci` aliases: one shared code path
+  exec.go            `exec`: one command inside the wrappers, the round trip to cwd, exit status
   plan.go            builds a runner.Plan from the sections Select(patterns) returns
   runs.go            `runs show` and `runs list`: run lookup, regex selection, result, porcelain lines
   prune.go           `runs prune`: keep flags, --keep-since parsing, output
@@ -993,6 +1038,7 @@ internal/runner/     plan execution: section algorithm, per-section blocked prop
 internal/report/     section lines, progress animation, failure replay, summary table, `runs show` page
 internal/runlog/     run ID, run directory and its lock, per-section log files and step markers, run.json save/load
 internal/githook/    hooks-dir lookup via git, hook install
+internal/job/        runs one command as a foreground job: process group, terminal handoff, signals, stops
 ```
 
 - `workspace` knows nothing about running commands. Its only process is `sh -n` for the wrapper checks.
