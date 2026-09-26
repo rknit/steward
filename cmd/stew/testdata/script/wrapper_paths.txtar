@@ -38,11 +38,13 @@ stdout '^0$'
 
 -- my proj's/.stew/config.toml --
 workspace_wrapper = "runstr {{STEW_STEP}}"
+workspace_trust = ""
 -- my proj's/.stew/projects.toml --
 projects = ["lib"]
 -- my proj's/lib/stew.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "touch ran"
 [build]
@@ -54,6 +56,7 @@ requires = ["lib:build"]
 -- my proj's/lib/wrapped.toml --
 name = "lib"
 project_wrapper = "runstr {{STEW_STEP}}"
+project_trust = ""
 [setup]
 run = "touch ran"
 [build]

@@ -8,6 +8,7 @@ import (
 
 const validManifest = `name = "api"
 project_wrapper = ""
+project_trust = "mise trust"
 
 [setup]
 skip_if = "test -d node_modules"
@@ -31,8 +32,8 @@ func TestParseProjectValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != "api" || p.Wrapper != "" {
-		t.Errorf("name/wrapper = %q %q", p.Name, p.Wrapper)
+	if p.Name != "api" || p.Wrapper != "" || p.Trust != "mise trust" {
+		t.Errorf("name/wrapper/trust = %q %q %q", p.Name, p.Wrapper, p.Trust)
 	}
 	if got := p.SectionNames(); !slices.Equal(got, []string{"build", "ci.full", "ci.pre-commit", "setup"}) {
 		t.Errorf("sections = %q", got)
@@ -52,7 +53,7 @@ func TestParseProjectValid(t *testing.T) {
 }
 
 func TestParseProjectNoSections(t *testing.T) {
-	p, err := ParseProject("stew.toml", []byte("name = \"x\"\nproject_wrapper = \"\"\n[lint]\n"))
+	p, err := ParseProject("stew.toml", []byte("name = \"x\"\nproject_wrapper = \"\"\nproject_trust = \"\"\n[lint]\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,12 +87,14 @@ func TestParseProjectWrapperErrors(t *testing.T) {
 }
 
 func TestParseProjectErrors(t *testing.T) {
-	const head = "name = \"api\"\nproject_wrapper = \"\"\n"
+	const head = "name = \"api\"\nproject_wrapper = \"\"\nproject_trust = \"\"\n"
 	tests := []struct{ name, data, want string }{
-		{"missing name", "project_wrapper = \"\"\n", `stew.toml: missing key "name"`},
+		{"missing name", "project_wrapper = \"\"\nproject_trust = \"\"\n", `stew.toml: missing key "name"`},
 		{"missing wrapper", "name = \"api\"\n", `stew.toml: missing key "project_wrapper"`},
-		{"name type", "name = 1\nproject_wrapper = \"\"\n", "stew.toml: name: want a string"},
-		{"bad name", "name = \"Api\"\nproject_wrapper = \"\"\n", `stew.toml: invalid name "Api" (want [a-z0-9][a-z0-9._-]*)`},
+		{"name type", "name = 1\nproject_wrapper = \"\"\nproject_trust = \"\"\n", "stew.toml: name: want a string"},
+		{"bad name", "name = \"Api\"\nproject_wrapper = \"\"\nproject_trust = \"\"\n", `stew.toml: invalid name "Api" (want [a-z0-9][a-z0-9._-]*)`},
+		{"missing trust", "name = \"api\"\nproject_wrapper = \"\"\n", `stew.toml: missing key "project_trust"`},
+		{"trust type", "name = \"api\"\nproject_wrapper = \"\"\nproject_trust = 1\n", "stew.toml: project_trust: want a string"},
 		{"dependencies", head + "dependencies = []\n", `stew.toml: unknown key "dependencies"`},
 		{"missing run", head + "[build]\nverify = \"v\"\n", `stew.toml: [build]: missing key "run"`},
 		{"unknown key", head + "[build]\nrun = \"\"\nfoo = \"x\"\n", `stew.toml: [build]: unknown key "foo"`},
@@ -133,6 +136,9 @@ func TestTemplateExact(t *testing.T) {
 # Wraps every command of this project, inside the workspace wrapper.
 # {{STEW_STEP}} marks where the command goes. "" means none.
 project_wrapper = ""
+# Makes the project wrapper usable in a new tree, e.g. "mise trust". Runs once per tree, with consent.
+# "" means none.
+project_trust = ""
 
 # Sections: any [name] with a ` + "`run`" + ` key. ` + "`stew run '<regex>'`" + ` runs sections whose
 # <project>:<section> key matches; ` + "`stew build`" + ` is ` + "`stew run '.*:build'`" + `.

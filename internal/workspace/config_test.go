@@ -20,14 +20,19 @@ func writeConfig(t *testing.T, content string) string {
 }
 
 func TestLoadConfig(t *testing.T) {
-	for _, tc := range []struct{ content, want string }{
-		{ConfigTemplate, ""},
-		{`workspace_wrapper = "tool exec . {{STEW_STEP}}"`, "tool exec . {{STEW_STEP}}"},
-		{"workspace_wrapper = '''\nset -x\ntool exec . {{STEW_STEP}}'''", "set -x\ntool exec . {{STEW_STEP}}"},
+	const trust = "\nworkspace_trust = \"\"\n"
+	for _, tc := range []struct {
+		content string
+		want    Config
+	}{
+		{ConfigTemplate, Config{}},
+		{`workspace_wrapper = "tool exec . {{STEW_STEP}}"` + trust, Config{Wrapper: "tool exec . {{STEW_STEP}}"}},
+		{"workspace_wrapper = '''\nset -x\ntool exec . {{STEW_STEP}}'''" + trust, Config{Wrapper: "set -x\ntool exec . {{STEW_STEP}}"}},
+		{"workspace_wrapper = \"\"\nworkspace_trust = \"direnv allow .\"\n", Config{Trust: "direnv allow ."}},
 	} {
 		got, err := LoadConfig(writeConfig(t, tc.content))
 		if err != nil || got != tc.want {
-			t.Errorf("LoadConfig(%q) = %q, %v; want %q", tc.content, got, err, tc.want)
+			t.Errorf("LoadConfig(%q) = %+v, %v; want %+v", tc.content, got, err, tc.want)
 		}
 	}
 }
@@ -35,11 +40,13 @@ func TestLoadConfig(t *testing.T) {
 func TestLoadConfigErrors(t *testing.T) {
 	for _, tc := range []struct{ name, content, want string }{
 		{"missing key", "", `config.toml: missing key "workspace_wrapper"`},
-		{"unknown key", "workspace_wrapper = \"\"\nshell = \"bash\"", `config.toml: unknown key "shell"`},
+		{"unknown key", "workspace_wrapper = \"\"\nworkspace_trust = \"\"\nshell = \"bash\"", `config.toml: unknown key "shell"`},
 		{"wrong type", `workspace_wrapper = ["tool"]`, "config.toml: "},
 		{"bad toml", `workspace_wrapper = "`, "config.toml: "},
-		{"syntax", `workspace_wrapper = 'tool "x {{STEW_STEP}}'`, "config.toml: workspace_wrapper: sh: "},
-		{"no placeholder", `workspace_wrapper = "tool exec ."`, "config.toml: workspace_wrapper: must contain {{STEW_STEP}} exactly once (found 0)"},
+		{"syntax", `workspace_wrapper = 'tool "x {{STEW_STEP}}'` + "\nworkspace_trust = \"\"", "config.toml: workspace_wrapper: sh: "},
+		{"no placeholder", `workspace_wrapper = "tool exec ."` + "\nworkspace_trust = \"\"", "config.toml: workspace_wrapper: must contain {{STEW_STEP}} exactly once (found 0)"},
+		{"missing trust", `workspace_wrapper = ""`, `config.toml: missing key "workspace_trust"`},
+		{"trust type", "workspace_wrapper = \"\"\nworkspace_trust = 1", "config.toml: "},
 	} {
 		_, err := LoadConfig(writeConfig(t, tc.content))
 		if err == nil || !strings.Contains(err.Error(), tc.want) {

@@ -1,0 +1,122 @@
+# Without a terminal, a pending trust entry stops a wrapped command: exit 1, nothing runs, no run directory.
+# The inherited STEW_SECTION must not reach trust commands.
+env STEW_SECTION=leak
+! stew build
+status 1
+stderr '^stew: untrusted: workspace, api, core \(run: stew trust\)$'
+! exists trusted
+! exists .stew/runs
+! exec stew exec 'touch ran'
+stderr '^stew: untrusted: workspace, api, core \(run: stew trust\)$'
+! exists ran
+
+# Commands that run nothing never check trust.
+stew build --dry-run
+stew list
+! exists trusted
+
+# stew trust without a terminal suggests --yes.
+! stew trust
+status 1
+stderr '^stew: untrusted: workspace, api, core \(run: stew trust --yes\)$'
+
+# stew trust --yes runs every entry in order, in its directory. The workspace entry reads stdin and gets end of input.
+stew trust --yes
+cmpenv trusted want/trusted-1
+
+# Recorded entries do not run again; the section runs.
+stew build
+cmpenv trusted want/trusted-1
+exists libs/core/built
+
+# stew trust runs every entry again, and drops the record of an entry whose command became "".
+cp want/core-none.toml libs/core/stew.toml
+stew trust --yes
+cmpenv trusted want/trusted-2
+! grep 'libs/core' .stew/trust.json
+
+# A changed command is pending again.
+cp want/api-changed.toml services/api/stew.toml
+! stew build
+stderr '^stew: untrusted: api \(run: stew trust\)$'
+
+# A failing entry stops the run: earlier entries stay recorded, later ones are pending.
+cp want/api-failing.toml services/api/stew.toml
+cp want/core-trust.toml libs/core/stew.toml
+! stew trust --yes
+status 1
+stderr '^stew: trust api: exit 3$'
+! stew build
+stderr '^stew: untrusted: api, core \(run: stew trust\)$'
+
+# stew trust starts the record empty before running: a failure clears every entry's record, including one that
+# was already recorded, and even when the first entry is the one that fails.
+cp want/api-changed.toml services/api/stew.toml
+stew trust --yes
+cp want/config-failing.toml .stew/config.toml
+! stew trust --yes
+status 1
+stderr '^stew: trust workspace: exit 5$'
+! stew build
+stderr '^stew: untrusted: workspace, api, core \(run: stew trust\)$'
+
+# With no trust command at all, stew trust says so; --yes stays quiet.
+cd $WORK/plain
+stew trust
+stdout '^nothing to trust$'
+stew trust --yes
+! stdout .
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = 'echo "workspace $STEW_ROOT $(pwd) ${STEW_PROJECT-none} ${STEW_SECTION-none}" >> $WORK/trusted && cat'
+-- .stew/projects.toml --
+projects = ["libs/core", "services/api"]
+-- libs/core/stew.toml --
+name = "core"
+project_wrapper = ""
+project_trust = 'echo "core $(pwd) $STEW_PROJECT" >> $WORK/trusted'
+[build]
+run = "touch built"
+-- services/api/stew.toml --
+name = "api"
+project_wrapper = ""
+project_trust = 'echo "api $(pwd) $STEW_PROJECT" >> $WORK/trusted'
+-- want/trusted-1 --
+workspace $WORK $WORK none none
+api $WORK/services/api api
+core $WORK/libs/core core
+-- want/trusted-2 --
+workspace $WORK $WORK none none
+api $WORK/services/api api
+core $WORK/libs/core core
+workspace $WORK $WORK none none
+api $WORK/services/api api
+-- want/core-none.toml --
+name = "core"
+project_wrapper = ""
+project_trust = ""
+[build]
+run = "touch built"
+-- want/core-trust.toml --
+name = "core"
+project_wrapper = ""
+project_trust = "true"
+[build]
+run = "touch built"
+-- want/api-changed.toml --
+name = "api"
+project_wrapper = ""
+project_trust = "true"
+-- want/api-failing.toml --
+name = "api"
+project_wrapper = ""
+project_trust = "exit 3"
+-- want/config-failing.toml --
+workspace_wrapper = ""
+workspace_trust = "exit 5"
+-- plain/.stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = ""
+-- plain/.stew/projects.toml --
+projects = []

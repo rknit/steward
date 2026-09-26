@@ -1,34 +1,39 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/rknit/steward/internal/trust"
 	"github.com/rknit/steward/internal/workspace"
 )
 
 func newAddCmd(proc process) *cobra.Command {
 	var alias string
+	var trusted bool
 	cmd := &cobra.Command{
 		Use:   "add <path>",
 		Short: "Register <path> as a project, creating <path>/stew.toml if missing",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return add(proc, args[0], alias)
+			return add(proc, args[0], alias, trusted)
 		},
 	}
 	cmd.Flags().StringVarP(&alias, "alias", "a", "", "project name for a new stew.toml (default: the directory's name)")
+	cmd.Flags().BoolVar(&trusted, "trusted", false, "run the project's trust command without asking")
 	return cmd
 }
 
-func add(proc process, arg, alias string) error {
+func add(proc process, arg, alias string, trusted bool) error {
 	ws, err := loadWorkspace(proc.dir)
 	if err != nil {
 		return err
@@ -100,6 +105,17 @@ func add(proc process, arg, alias string) error {
 	if loaded != nil {
 		if err := ws.CheckNewProject(loaded); err != nil {
 			return rejected(err)
+		}
+	}
+
+	if loaded != nil && loaded.Trust != "" {
+		entries := []trust.Entry{trust.ProjectEntry(loaded)}
+		registered := append(slices.Clone(paths), rel)
+		err := withStops(func(ctx context.Context, force <-chan struct{}) error {
+			return grantTrust(ctx, force, proc, root, entries, registered, false, trusted, "stew add --trusted")
+		})
+		if err != nil {
+			return err
 		}
 	}
 

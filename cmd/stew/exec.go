@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -37,6 +38,12 @@ func newExecCmd(proc process) *cobra.Command {
 				env = append(env, "STEW_PROJECT="+p.Name)
 				wraps = append(wraps, p.Wrapper)
 				wrapDir = filepath.Join(ws.Root, filepath.FromSlash(p.Path))
+			}
+			err = withStops(func(ctx context.Context, force <-chan struct{}) error {
+				return ensureTrust(ctx, force, proc, ws)
+			})
+			if err != nil {
+				return err
 			}
 			return execJob(proc, wrapDir, wrappers(wraps...), env, args[len(args)-1])
 		},

@@ -20,11 +20,13 @@ stdout '^\(signal SIGKILL\)$'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["core"]
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "trap 'touch got-int' INT; trap '' TERM; touch started; i=0; while [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; touch survived"
 [build]

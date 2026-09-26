@@ -35,11 +35,13 @@ exec touch bg/release
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["bg", "core"]
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "touch started; i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
 [build]
@@ -51,6 +53,7 @@ requires = ["core:build"]
 -- bg/stew.toml --
 name = "bg"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "setsid sh -c 'echo $$ > pid; i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done' > /dev/null 2>&1 & i=0; while [ ! -s pid ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
 [build]

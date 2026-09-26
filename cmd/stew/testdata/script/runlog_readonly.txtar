@@ -9,12 +9,14 @@ stderr 'cannot create run log directory'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["core"]
 -- .stew/runs/.keep --
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "touch ran"
 [build]

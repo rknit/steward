@@ -14,11 +14,13 @@ stdout '^logs: \.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}$'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["core", "lib"]
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "trap 'echo got-term; exit 1' TERM; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; touch survived"
 [build]
@@ -30,6 +32,7 @@ requires = ["core:build"]
 -- lib/stew.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "touch ran"
 [build]

@@ -12,13 +12,14 @@ import (
 type Workspace struct {
 	Root     string
 	Wrapper  string     // workspace wrapper from .stew/config.toml; "" means none
+	Trust    string     // workspace trust command from .stew/config.toml; "" means none
 	Projects []*Project // sorted by name
 	byName   map[string]*Project
 }
 
 // Load reads the config, the registry, and every registered stew.toml, then validates names and requires.
 func Load(root string) (*Workspace, error) {
-	wrapper, err := LoadConfig(root)
+	cfg, err := LoadConfig(root)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +39,7 @@ func Load(root string) (*Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	ws.Wrapper = wrapper
+	ws.Wrapper, ws.Trust = cfg.Wrapper, cfg.Trust
 	return ws, nil
 }
 

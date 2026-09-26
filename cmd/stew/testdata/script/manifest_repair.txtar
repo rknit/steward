@@ -14,11 +14,13 @@ stdout '\(log error: '
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["a", "b"]
 -- a/stew.toml --
 name = "a"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "cd ../.stew/runs/* && rm -f run.json && mkdir run.json"
 [build]
@@ -30,6 +32,7 @@ requires = ["a:build"]
 -- b/stew.toml --
 name = "b"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "cd ../.stew/runs/* && rmdir run.json"
 [build]

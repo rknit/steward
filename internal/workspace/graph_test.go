@@ -182,8 +182,8 @@ func TestLoad(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("libs/core", "name = \"core\"\nproject_wrapper = \"\"\n[build]\nrun = \"b\"\n")
-	write("services/api", "name = \"api\"\nproject_wrapper = \"\"\n[build]\nrun = \"b\"\nrequires = [\"core:build\"]\n")
+	write("libs/core", "name = \"core\"\nproject_wrapper = \"\"\nproject_trust = \"\"\n[build]\nrun = \"b\"\n")
+	write("services/api", "name = \"api\"\nproject_wrapper = \"\"\nproject_trust = \"\"\n[build]\nrun = \"b\"\nrequires = [\"core:build\"]\n")
 	if err := SaveRegistry(root, []string{"services/api", "libs/core"}); err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestLoad(t *testing.T) {
 		t.Errorf("Project(api) = %+v, %v", p, ok)
 	}
 
-	if err := os.WriteFile(ConfigPath(root), []byte(`workspace_wrapper = "tool exec . {{STEW_STEP}}"`), 0o644); err != nil {
+	if err := os.WriteFile(ConfigPath(root), []byte("workspace_wrapper = \"tool exec . {{STEW_STEP}}\"\nworkspace_trust = \"\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if ws, err := Load(root); err != nil {

@@ -22,15 +22,17 @@ It runs setup, build, and CI for explicitly registered subprojects.
 
 ```
 stew init
-stew add <path> [-a/--alias <name>]
+stew add <path> [-a/--alias <name>] [--trusted]
 stew remove <name>... [--clean]
 stew list [--porcelain]
 stew run <regex>... [--dry-run]
 stew setup [project...] [--dry-run]
 stew build [project...] [--dry-run]
 stew ci [project...] [-l/--level <name>] [--dry-run]
+stew setup-worktree [project...] [--dry-run]
 stew exec [project] <command>
-stew git install pre-commit|pre-push
+stew trust [--yes]
+stew git install pre-commit|pre-push|post-checkout
 stew runs show <run-id> [<project:section-regex>...] [--porcelain] [--no-pager]
 stew runs list [--porcelain] [--no-pager]
 stew runs prune [--keep-since <time>] [--keep-last-n <n>]
@@ -53,9 +55,10 @@ stew runs prune [--keep-since <time>] [--keep-last-n <n>]
 ```
 <root>/
   .stew/
-    .gitignore             # committed; contains `runs/`
+    .gitignore             # committed; contains `runs/` and `trust.json`
     config.toml            # committed; the workspace wrapper
     projects.toml          # committed; the registry
+    trust.json             # ignored; trust record
     runs/                  # ignored; per-run command logs
       20260925T043601Z-3f9a/
         run.json
@@ -88,11 +91,14 @@ Committed and hand-edited. `stew init` writes it:
 ```toml
 # Wraps every command stew runs. {{STEW_STEP}} marks where the command goes. "" means none.
 workspace_wrapper = ""
+# Makes the wrapper usable in a new tree, e.g. "direnv allow .". Runs once per tree, with consent. "" means none.
+workspace_trust = ""
 ```
 
 | Key                 | Required | Rule                           |
 | ------------------- | -------- | ------------------------------ |
 | `workspace_wrapper` | yes      | String. `""` means no wrapper. |
+| `workspace_trust`   | yes      | String. `""` means no trust step. |
 
 - A missing file is an error: `.stew/config.toml: missing`.
 - Unknown keys are rejected.
@@ -108,6 +114,7 @@ workspace_wrapper = ""
 
 ```
 runs/
+trust.json
 ```
 
 Written by `stew init`. Stew never rewrites it and does not check it on load.
@@ -208,6 +215,7 @@ Each run captures all command output to disk.
 ```toml
 name = "api"
 project_wrapper = ""
+project_trust = ""
 
 [setup]
 skip_if = "test -d node_modules"
@@ -235,6 +243,7 @@ requires = ["api:ci.quick"]
 | ----------------- | -------- | --------------------------------------------------------------- |
 | `name`            | yes      | Unique across the workspace. Must match `[a-z0-9][a-z0-9._-]*`. |
 | `project_wrapper` | yes      | String. `""` means no wrapper. Nested inside the workspace one. |
+| `project_trust`   | yes      | String. `""` means no trust step.                               |
 | any other table   | no       | A section. A project may have zero sections.                    |
 | `run`             | yes      | String. `""` allowed.                                           |
 | `skip_if`         | no       | String. Absent and `""` both mean none.                         |
@@ -282,6 +291,9 @@ name = "<name>"
 # Wraps every command of this project, inside the workspace wrapper.
 # {{STEW_STEP}} marks where the command goes. "" means none.
 project_wrapper = ""
+# Makes the project wrapper usable in a new tree, e.g. "mise trust". Runs once per tree, with consent.
+# "" means none.
+project_trust = ""
 
 # Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose
 # <project>:<section> key matches; `stew build` is `stew run '.*:build'`.
@@ -305,25 +317,118 @@ Any error stops the command with exit code 2 and a message naming the file and p
 Checks:
 
 - `.stew/projects.toml` parses; paths are valid and unique.
-- `.stew/config.toml` parses; `workspace_wrapper` passes the wrapper checks (placeholder count and `sh -n`).
+- `.stew/config.toml` parses; `workspace_wrapper` passes the wrapper checks (placeholder count and `sh -n`);
+  `workspace_trust` is present and a string.
 - Every registered path contains a `stew.toml`.
 - Every `stew.toml` parses with no unknown keys, valid section names, and no section that is also a namespace;
-  `project_wrapper` passes the wrapper checks.
+  `project_wrapper` passes the wrapper checks; `project_trust` is present and a string.
 - Every `name` is valid and unique.
 - Every `requires` entry passes the `requires` checks above.
 - The section graph, over keys, has no cycle. The error prints the cycle, e.g. `cycle: a:build -> b:build -> a:build`.
+
+## Trust
+
+### Entries
+
+- A trust entry is the workspace, when `workspace_trust` is not `""`, and each project whose `project_trust` is not
+  `""`. The name of an entry is `workspace` or the project name.
+- Order: the workspace first, then projects by name.
+- An entry is pending unless `.stew/trust.json` records the same command for it under the same absolute root.
+  So a new worktree or clone (no state file), a moved or copied tree (another root), and a changed command all make
+  entries pending.
+
+### When Trust Is Needed
+
+| Command                                      | Entries run                    |
+| --------------------------------------------- | ------------------------------- |
+| `stew run`, every alias, without `--dry-run` | pending entries                |
+| `stew exec`                                  | pending entries                |
+| `stew add`                                   | the added project, if pending  |
+| `stew trust`                                 | every entry, pending or not    |
+
+- The check happens after validation, and before the step directory, the run directory, and any command.
+- `--dry-run`, `list`, `remove`, `runs *`, `init`, and `git install` never check or run trust.
+- With no entry to run, nothing is printed and the command goes on.
+
+### Consent
+
+With entries to run, stew prints them and asks, unless consent was given on the command line.
+
+```
+┌───────────┬────────────────┐
+│ trust     │ command        │
+├───────────┼────────────────┤
+│ workspace │ direnv allow . │
+│ core      │ mise trust     │
+└───────────┴────────────────┘
+run these trust commands? [y/N] 
+```
+
+- Same bordered table style as `stew list`. The table and the prompt go to stdout.
+- The answer is one line from stdin. `y` or `yes`, in any case, runs the entries. Anything else, including an empty
+  line or end of input, declines.
+- stew asks only when stdin and stdout are both terminals, as the pager checks stdout. Otherwise it takes the
+  no-terminal row below, so `stew build | tee log` never waits on a prompt nobody sees.
+
+| Case                                        | Result                                                                    |
+| ------------------------------------------- | -------------------------------------------------------------------------- |
+| `stew trust --yes`, `stew add --trusted`    | Runs the entries without asking. The table is not printed.                |
+| Both terminals, answer yes                  | Runs the entries, then goes on with the command.                          |
+| Both terminals, answer no                   | `stew: trust declined`, exit 1. Nothing runs.                             |
+| Not both terminals                          | `stew: untrusted: workspace, core (run: stew trust)`, exit 1. Nothing runs. |
+
+For `stew add`, the last row reads `(run: stew add --trusted)`, and exit 1 leaves the registry unchanged.
+For `stew trust`, it reads `(run: stew trust --yes)`.
+
+- A command with a control character (a multi-line TOML string) shows in the table with the `$'…'` quoting of the
+  `stew runs show` header, so each entry stays on one row.
+
+### Running an Entry
+
+- Runs as `sh -c <cmd>`, with no wrapper, in the root for the workspace and in the project directory for a project.
+- The environment is inherited, plus `STEW_ROOT`, and `STEW_PROJECT` for a project. Inherited `STEW_*` run variables
+  are removed first, as in `stew exec`.
+- stdin is `/dev/null`. stdout and stderr go to stew's stdout and stderr.
+- Entries run one at a time, in entry order. After each success, stew records it in `.stew/trust.json`.
+- A failure prints `stew: trust <name>: exit N` (or `signal <name>`, or `cannot start: <error>`), exits 1, and runs
+  nothing else. Entries that succeeded before it stay recorded.
+- A failed save of `.stew/trust.json` prints `stew: trust: save .stew/trust.json: <error>` and exits 1.
+- A stop signal (Ctrl-C, SIGTERM, SIGHUP), during the prompt or an entry, is handled as in Interrupt: stew forwards
+  it to a running entry's group, runs nothing else, and exits 128 + its number with no error line.
+
+### `.stew/trust.json`
+
+```json
+{"root": "/home/zz/proj/steward", "workspace": "direnv allow .", "projects": {"libs/core": "mise trust"}}
+```
+
+| Field       | Content                                                                     |
+| ----------- | --------------------------------------------------------------------------- |
+| `root`      | Absolute workspace root, symlinks resolved, when the entries were recorded. |
+| `workspace` | The workspace trust command that last succeeded. Absent when none.          |
+| `projects`  | By project path, the project trust command that last succeeded.             |
+
+- Machine-written only, via `encoding/json`, without HTML escapes, as one line. Saved atomically: a temp file in
+  `.stew/`, then rename.
+- Keyed by path, not name: trust belongs to a directory. A save drops paths that are no longer registered.
+- A `root` other than the current root makes every entry pending. The next save starts from an empty record.
+  Both are compared with symlinks resolved, so a tree reached through a symlinked path keeps its record.
+- A missing file records nothing. An unreadable or invalid file also records nothing, and the next save replaces it.
+- stew cannot see a tool's own reasons to re-trust. If a pull changes `.envrc`, direnv blocks and the wrapper fails.
+  Run `stew trust` to run every entry again.
+- `.stew/.gitignore` holds `trust.json`, so each tree keeps its own.
 
 ## Commands
 
 ### `stew init`
 
 - Creates `./.stew/projects.toml` containing `projects = []`.
-- Creates `./.stew/config.toml` with `workspace_wrapper = ""` (see `.stew/config.toml`).
-- Creates `./.stew/.gitignore` containing `runs/`.
+- Creates `./.stew/config.toml` with `workspace_wrapper = ""` and `workspace_trust = ""` (see `.stew/config.toml`).
+- Creates `./.stew/.gitignore` containing `runs/` and `trust.json`.
 - Rejects if `./.stew` already exists.
 - Does not check ancestors. Nested workspaces are allowed, as with git.
 
-### `stew add <path> [-a/--alias <name>]`
+### `stew add <path> [-a/--alias <name>] [--trusted]`
 
 1. Find the root and load the workspace. An invalid workspace is an error.
 2. Resolve `<path>` against cwd. It must be an existing directory inside the root.
@@ -338,10 +443,15 @@ Checks:
 5. Otherwise, the name is `--alias` if given, otherwise the directory's basename.
    For the root itself (`"."`), the basename of the root directory. Reject an invalid name (the error suggests `-a`).
 6. Reject if the name is already used by another project.
-7. If `<path>/stew.toml` did not exist, write it from the template.
-8. Add the path to `.stew/projects.toml` (sorted, atomic write).
-   If this fails, remove the `stew.toml` written in step 7. A pre-existing `stew.toml` is never removed.
-9. Print `using existing <path>/stew.toml` when step 4 applied, then `added <name> (<path>)`.
+7. If the project's `project_trust` is not `""`, run it with consent (see Trust):
+   - With `--trusted`, run without asking.
+   - Without `--trusted` or a terminal, fail with `stew: untrusted: <name> (run: stew add --trusted)` (exit 1).
+   - In a terminal, ask the user. Decline exits 1 without changing anything.
+   - A failed trust command exits 1 with `stew: trust <name>: <cause>`.
+8. If `<path>/stew.toml` did not exist, write it from the template.
+9. Add the path to `.stew/projects.toml` (sorted, atomic write).
+   If this fails, remove the `stew.toml` written in step 8. A pre-existing `stew.toml` is never removed.
+10. Print `using existing <path>/stew.toml` when step 4 applied, then `added <name> (<path>)`.
 
 - Rejections exit 1 and change nothing.
 
@@ -396,11 +506,12 @@ and comma-separated, or `-` when there are none.
 
 ### Aliases
 
-| Alias                                            | Runs                                                        |
-| ------------------------------------------------- | ----------------------------------------------------------- |
-| `stew setup [project...] [--dry-run]`            | `stew run '<project>:setup'...`, or `'.*:setup'` with none. |
-| `stew build [project...] [--dry-run]`            | Same with `build`.                                           |
-| `stew ci [project...] [-l <level>] [--dry-run]`  | Same with `ci.<level>`. `--level` defaults to `full`.        |
+| Alias                                                      | Runs                                                                            |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `stew setup [project...] [--dry-run]`                     | `stew run '<project>:setup'...`, or `'.*:setup'` with none.                    |
+| `stew build [project...] [--dry-run]`                     | Same with `build`.                                                              |
+| `stew ci [project...] [-l <level>] [--dry-run]`           | Same with `ci.<level>`. `--level` defaults to `full`.                           |
+| `stew setup-worktree [project...] [--dry-run]`            | `stew run '<project>:worktree\.setup'...`, or `'.*:worktree\.setup'` with none. |
 
 - Project names and the section name are regex-quoted, so `my.lib` matches only `my.lib`.
 - A named project without the section fails its pattern: `pattern "web:build" matches no section` (exit 2).
@@ -414,6 +525,8 @@ and comma-separated, or `-` when there are none.
 - `run.json` `argv` records the command as typed, e.g. `["ci", "--level", "pre-commit"]`.
 - Git hooks run `stew ci --level pre-commit|pre-push` (see `stew git install`). In a workspace where no project
   defines that section, the hook fails with exit 2.
+- The `setup-worktree` alias name differs from its section name (`worktree.setup`), unlike `setup` and `build`.
+  `stew worktree` would read as a command that manages worktrees.
 
 ### Order and Execution
 
@@ -485,6 +598,18 @@ ran it directly.
   action for the stop and restores the runtime's handler afterwards. Elsewhere stew stops with SIGSTOP.
 - The kernel discards stop signals to an orphaned process group. stew then continues the job after 1 s.
 - When the job exits, stew takes the terminal back if the job holds it.
+- Before the command, after validation, checks trust (see Trust).
+
+### `stew trust [--yes]`
+
+- Loads and validates the workspace.
+- Runs every entry, pending or not, after consent as in Consent. Use it when a tool needs trust again, e.g. after a
+  pull changes `.envrc`.
+- The record starts empty: `.stew/trust.json` ends up holding only the entries this run recorded, under the current
+  root. After a failure, the entries after it are pending again.
+- No entry at all (every trust command is `""`): prints `nothing to trust`, exit 0. With `--yes` it prints nothing,
+  so the hook stays quiet.
+- Exit 0 when every entry ran.
 
 ## Section Algorithm
 
@@ -794,7 +919,7 @@ logs: .stew/runs/ID
 | Code | Meaning                                                                                              |
 | ---- | ---------------------------------------------------------------------------------------------------- |
 | 0    | Success.                                                                                             |
-| 1    | A section failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no matching section or an unreadable run; `runs list` could not read `.stew/runs/`; `runs prune` could not read `.stew/runs/` or delete a run. |
+| 1    | A section failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no matching section or an unreadable run; `runs list` could not read `.stew/runs/`; `runs prune` could not read `.stew/runs/` or delete a run; trust declined, untrusted without a terminal, a failed trust entry or trust.json save. |
 | 2    | Invalid CLI usage, an invalid or unmatched pattern, or invalid workspace configuration.               |
 | any  | `stew exec` exits with the command's status (see `stew exec`).                                        |
 | 130  | Interrupted by Ctrl-C (SIGINT). SIGTERM exits 143 and SIGHUP exits 129.                              |
@@ -992,8 +1117,9 @@ Deletes the runs that no keep rule keeps. A run in progress is never deleted.
 
 ## `stew git install <hook>`
 
-`<hook>` is `pre-commit` or `pre-push`. The hook runs `stew ci --level <hook>`.
-In a workspace where no project defines `ci.<hook>`, the hook fails with exit 2 (see Aliases).
+`<hook>` is `pre-commit`, `pre-push`, or `post-checkout`. `pre-commit` and `pre-push` run
+`stew ci --level <hook>`. In a workspace where no project defines `ci.<hook>`, the hook fails with exit 2
+(see Aliases).
 
 1. Find the root. The workspace is not validated.
 2. Find the hooks directory with `git rev-parse --git-path hooks`, run from the root.
@@ -1010,16 +1136,59 @@ In a workspace where no project defines `ci.<hook>`, the hook fails with exit 2 
 
    `<rel>` is the path from step 3. When it is `.`, the line is `cd "$(git rev-parse --show-toplevel)"`.
 
-- Only `pre-commit` and `pre-push` are supported. Any other hook name is an error listing the supported hooks.
+- Only `pre-commit`, `pre-push`, and `post-checkout` are supported. Any other hook name is an error listing
+  the supported hooks.
 - The hook calls `stew` from `PATH`.
 - The hook checks the working tree, not the staged snapshot. Unstaged edits can affect the result.
+- All worktrees of a repository share one hooks directory, so one install covers every worktree.
+- A repository that already has the hook installed (e.g. git-lfs installs `post-checkout`) is rejected, as for
+  the other hooks.
+
+### `post-checkout`
+
+`post-checkout` trusts and sets up each new worktree, instead of running `ci.post-checkout`:
+
+```sh
+#!/bin/sh
+# installed by stew
+case "$1" in *[!0]*) exit 0 ;; esac
+dir="$(git rev-parse --show-toplevel)/<rel>"
+[ -d "$dir/.stew" ] || { echo "stew: no workspace in $dir, skipping worktree setup" >&2; exit 0; }
+cd "$dir" && stew trust --yes && exec stew setup-worktree
+```
+
+- `<rel>` is the root's path below the git top level, escaped for a double-quoted string, as above. When it is
+  `.`, the line is `dir="$(git rev-parse --show-toplevel)"`.
+- Installing the hook is the consent to trust new worktrees, so it passes `--yes`.
+- The hook runs the checked-out commit's trust commands and `worktree.setup`, so `git worktree add <ref>` runs that
+  ref's commands without asking. Installing the hook is consent to that, as sections were already branch-controlled.
+- git passes the previous HEAD as `$1`. It is all zeros only when there was no previous HEAD: a new worktree,
+  or a clone whose template installs the hook. Any other checkout (`git checkout`, `git switch`, a file
+  checkout) exits 0 at once, and stew does not start.
+- The check matches the null ref of any length: 40 zeros for SHA-1, 64 for SHA-256.
+- A worktree at a commit without the workspace (a branch from before stew) prints the note on stderr and
+  exits 0.
+- `git worktree add` exits with the hook's status, and keeps the worktree either way. A failed trust or
+  section gives exit 1. No project defining `worktree.setup` gives exit 2, as for `ci.<hook>`. A repo that
+  needs only trust defines `worktree.setup` with `run = ""`. Rerun with `stew setup-worktree` after fixing the
+  cause.
+- `git worktree add --no-checkout` runs no hook. Run `stew setup-worktree` after the checkout.
+- git runs the hook with the new worktree as cwd and top level, and without `GIT_DIR` or `GIT_INDEX_FILE`, so
+  section commands act on the new worktree.
+
+### A Fresh Clone
+
+No hook runs in a fresh clone. The first wrapped command asks for trust on a terminal. Run
+`stew setup-worktree` to set it up as the hook would. CI runs `stew trust --yes` before its first wrapped
+command.
 
 ## Code Layout
 
 ```
 cmd/stew/            main: cobra commands, error → exit code mapping
-  run.go             `run` and the `setup`/`build`/`ci` aliases: one shared code path
+  run.go             `run` and the `setup`/`build`/`ci`/`setup-worktree` aliases: one shared code path
   exec.go            `exec`: one command inside the wrappers, the round trip to cwd, exit status
+  trust.go           `trust`: consent table and prompt, the trust check before wrapped commands
   plan.go            builds a runner.Plan from the sections Select(patterns) returns
   runs.go            `runs show` and `runs list`: run lookup, regex selection, result, porcelain lines
   prune.go           `runs prune`: keep flags, --keep-since parsing, output
@@ -1027,11 +1196,12 @@ cmd/stew/            main: cobra commands, error → exit code mapping
 internal/workspace/
   root.go            Find(cwd) → root
   registry.go        load/save .stew/projects.toml
-  config.go          load .stew/config.toml: strict parse, workspace_wrapper
+  config.go          load .stew/config.toml: strict parse, workspace_wrapper, workspace_trust
   wrapper.go         wrapper checks: placeholder count, `sh -n` syntax check
-  project.go         stew.toml schema, section names, strict parse, project_wrapper, add template
+  project.go         stew.toml schema, section names, strict parse, project_wrapper, project_trust, add template
   key.go             Key (`<project>:<section>`), parsing and comparison
   graph.go           the graph over keys: requires validation, cycle detection, Select(patterns) → nodes
+internal/trust/      trust entries, trust.json load and save, running entries
 internal/runner/     plan execution: section algorithm, per-section blocked propagation, results
   steps.go           {{STEW_STEP}}, the step directory, step scripts, reach counts and statuses
   orphans_*.go       Linux child subreaper; a no-op elsewhere
@@ -1105,13 +1275,15 @@ internal/job/        runs one command as a foreground job: process group, termin
 - Registry: round trip, sorting, invalid and duplicate paths.
 - Selection: regex full match, no-match error, transitive `requires`, deterministic topological order with
   project-then-section tie-break, unknown project.
-- `config.toml`: missing file; missing key; unknown key; wrong type; `""` accepted.
+- `config.toml`: missing file; missing key; unknown key; wrong type; `""` accepted; `workspace_trust` missing key and
+  wrong type.
 - Placeholder count: 0 and 2 are rejected with file, key, and count. A placeholder inside quotes counts.
 - Syntax check: an unbalanced quote and a dangling `if` are rejected with file and key.
 - Accepted: `tool exec . {{STEW_STEP}}`, `. ./env.sh && {{STEW_STEP}}`, `tool --run '{{STEW_STEP}}'`,
   a multi-line wrapper, and one ending in a newline.
 - `project_wrapper`: missing; wrong type; no placeholder; syntax error; each rejected with `stew.toml` and the key.
   `""` and `tool run {{STEW_STEP}}` are accepted. The template parses with `project_wrapper = ""`.
+- `project_trust`: missing; wrong type; rejected with `stew.toml` and the key.
 
 ### Unit: plan
 
@@ -1165,6 +1337,15 @@ internal/job/        runs one command as a foreground job: process group, termin
   - step directory: a `TMPDIR` that needs quoting is rejected; the created path matches the plain pattern;
     step keys differ per section.
 
+### Unit: `trust`
+
+- Entries: `""` skipped; workspace first, then projects by name.
+- Pending: no file; same root and command (not pending); changed command; other root (all pending); invalid file.
+- A record saved through a symlinked root is honored through the real root, and the reverse.
+- Running: records after each success; a failure stops and keeps earlier records; the save is atomic.
+- The saved file is one line, keeps only registered paths, and has no HTML escapes.
+- Env: `STEW_ROOT` and `STEW_PROJECT` set; cwd per entry.
+
 ### Unit: `runlog`
 
 - Run ID format and sort order; retry with a new suffix when the directory already exists.
@@ -1206,6 +1387,12 @@ internal/job/        runs one command as a foreground job: process group, termin
 - No pager when stdout is not a TTY, with `--porcelain`, or with `--no-pager`.
 - A pager that cannot start falls back to direct output.
 - A pager that exits early gives exit 0.
+
+### Unit: `githook`
+
+- `Script` bytes for every hook, including `post-checkout` at `rel` `.` and at a nested path with characters that
+  need escaping.
+- An unsupported hook name lists all three supported hooks.
 
 ### Integration: testscript
 
@@ -1305,6 +1492,28 @@ internal/job/        runs one command as a foreground job: process group, termin
     and no step file is left.
   - `run.json` `project_wrapper` holds only projects with a wrapper; `runs show` prints a `wrapper <project>:` line
     for each.
+- Trust, with in-process `stew` where stdin is not a terminal:
+  - `stew build` with a pending entry: `untrusted` message, exit 1, no section runs, no run directory.
+  - `stew trust --yes` runs entries in order, in the right directories, and records them; `stew build` then runs no
+    trust entry.
+  - A second `stew trust --yes` runs every entry again. A stale record (an entry since set to `""`) is gone after it.
+  - `stew trust` with every trust command `""` prints `nothing to trust`; with `--yes` it prints nothing.
+  - A changed trust command becomes pending again. A failing entry: exit 1, the message, earlier entries recorded,
+    later ones pending.
+  - `stew exec` checks trust. `--dry-run` and `list` do not.
+  - `init` writes `workspace_trust` and the `.gitignore` lines; `git status` does not show `.stew/trust.json`.
+  - `stew add` of a project with trust: without `--trusted` exits 1 and leaves the registry unchanged; with it, runs
+    the entry and registers the project. A failing trust command rejects the add.
+- Trust and signals, with `exec stew`: SIGTERM during `stew trust --yes` reaches the running entry; stew exits 143
+  with no error line, and the entry is gone when stew returns.
+- Consent prompt, on a pseudo-terminal (the existing shell session test):
+  - A terminal stdin with a piped stdout takes the no-terminal path.
+  - `y` runs the entries and the command; `N`, an empty line, and end of input decline with exit 1.
+  - The table lists the entries to run, before a wrapped command and for `stew trust`, which runs recorded ones too.
+  - Ctrl-C at the prompt exits 130 with no error line, and nothing runs.
+- `setup-worktree`, with in-process `stew`: it runs `worktree.setup` in every project that defines it, after the
+  sections it requires; a named project; a named project without the section and an unknown project exit 2; no
+  project defining it exits 2; `--dry-run`.
 
 ### Integration: git hook
 
@@ -1316,6 +1525,20 @@ internal/job/        runs one command as a foreground job: process group, termin
 - A workspace where no project defines `ci.pre-commit` (or `ci.pre-push`) fails the hook with exit 2.
 - The hook runs through the workspace wrapper, and the command gets the wrapper's environment.
 
+`post-checkout`, with `exec stew` (git hooks run the `stew` on `PATH`), in its own script:
+
+- Each triggering scenario runs two successful stew processes, about 2 s under `-race`. Fold checks into as
+  few `git worktree add` calls as the scenarios allow. This script is expected to be the slowest under
+  `TestScripts`.
+- `git worktree add` trusts and runs the section in the new worktree: its markers land there, not in the main
+  worktree.
+- `git switch -c` in an existing worktree runs nothing.
+- A failing section: `git worktree add` exits 1, and `git worktree list` still lists the worktree.
+- No project defines `worktree.setup`: `git worktree add` exits 2.
+- A SHA-256 repository triggers the hook.
+- A new worktree at a commit without `.stew/` prints the note and exits 0.
+- A workspace below the git top level: the hook runs stew there.
+
 ### Gates
 
 `gofmt`, `go vet ./...`, and `go test -race ./...` pass.
@@ -1326,5 +1549,5 @@ internal/job/        runs one command as a foreground job: process group, termin
 - Parallel execution
 - Changed-only selection (`--staged`, `--since`)
 - Windows
-- Git hooks other than `pre-commit` and `pre-push`
+- Git hooks other than `pre-commit`, `pre-push`, and `post-checkout`
 - `--force` overwrite for `init`, `add`, or `git install`

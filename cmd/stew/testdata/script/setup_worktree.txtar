@@ -1,0 +1,69 @@
+# setup-worktree runs worktree.setup in every project that defines it, after the sections it requires.
+stew setup-worktree
+stdout '^==> core: setup \.\.\. done'
+stdout '^==> core: worktree\.setup \.\.\. done'
+stdout '^==> api: worktree\.setup \.\.\. done'
+! stdout 'web'
+exists core/wt-done
+exists api/wt-done
+stew runs show latest
+stdout '^run [^ ]+: stew setup-worktree$'
+
+# A named project and --dry-run.
+stew setup-worktree api --dry-run
+stdout 'api:worktree\.setup\*'
+stdout 'core:setup'
+! stdout 'core:worktree'
+
+# A named project without the section, and an unknown project, exit 2.
+! stew setup-worktree web
+status 2
+stderr '^stew: pattern "web:worktree\\\.setup" matches no section$'
+! stew setup-worktree nope
+status 2
+stderr '^stew: unknown project "nope"$'
+
+# No project defines the section: exit 2.
+cd $WORK/none
+! stew setup-worktree
+status 2
+stderr '^stew: pattern "\.\*:worktree\\\.setup" matches no section$'
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = ""
+-- .stew/projects.toml --
+projects = ["api", "core", "web"]
+-- core/stew.toml --
+name = "core"
+project_wrapper = ""
+project_trust = ""
+[setup]
+run = "true"
+[worktree.setup]
+run = "touch wt-done"
+requires = ["core:setup"]
+-- api/stew.toml --
+name = "api"
+project_wrapper = ""
+project_trust = ""
+[worktree.setup]
+run = "touch wt-done"
+requires = ["core:setup"]
+-- web/stew.toml --
+name = "web"
+project_wrapper = ""
+project_trust = ""
+[build]
+run = ""
+-- none/.stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = ""
+-- none/.stew/projects.toml --
+projects = ["web"]
+-- none/web/stew.toml --
+name = "web"
+project_wrapper = ""
+project_trust = ""
+[build]
+run = ""

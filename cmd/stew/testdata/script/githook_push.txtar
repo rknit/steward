@@ -25,6 +25,7 @@ exec git --git-dir=remote.git rev-parse -q --verify refs/heads/main
 
 -- mono/.stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- mono/.stew/projects.toml --
 projects = ["core"]
 -- mono/.stew/.gitignore --
@@ -32,6 +33,7 @@ runs/
 -- mono/core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -53,6 +55,7 @@ cd "$(git rev-parse --show-toplevel)/mono" && exec stew ci --level pre-push
 -- want/push-passing.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]

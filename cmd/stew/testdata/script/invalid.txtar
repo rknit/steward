@@ -28,11 +28,13 @@ stderr 'project "core": missing stew.toml'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["api", "core"]
 -- api/stew.toml --
 name = "api"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["core:build"]
@@ -46,6 +48,7 @@ requires = ["api:build"]
 -- bad/typo.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -55,6 +58,7 @@ requries = ["core:setup"]
 name = "core"
 dependencies = []
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -63,6 +67,7 @@ requires = ["core:setup"]
 -- bad/cycle.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["api:build"]
@@ -72,6 +77,7 @@ requires = ["core:setup"]
 -- bad/missing.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 skip_if = "true"
 [build]

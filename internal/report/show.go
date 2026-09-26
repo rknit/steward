@@ -45,10 +45,10 @@ func Show(w io.Writer, id string, argv []string, workspaceWrapper string, projec
 	var b bytes.Buffer
 	b.WriteString("run " + id + ": " + Command(argv) + "\n")
 	if workspaceWrapper != "" {
-		b.WriteString("wrapper: " + displayWrapper(workspaceWrapper) + "\n")
+		b.WriteString("wrapper: " + OneLine(workspaceWrapper) + "\n")
 	}
 	for _, pw := range projectWrappers {
-		b.WriteString("wrapper " + pw.Project + ": " + displayWrapper(pw.Wrapper) + "\n")
+		b.WriteString("wrapper " + pw.Project + ": " + OneLine(pw.Wrapper) + "\n")
 	}
 
 	for _, s := range sections {
@@ -87,8 +87,8 @@ func Command(argv []string) string {
 	return strings.Join(words, " ")
 }
 
-// displayWrapper keeps a wrapper on one line: verbatim, or shell-quoted if it has control characters or invalid UTF-8.
-func displayWrapper(s string) string {
+// OneLine keeps s on one line: verbatim, or shell-quoted if it has control characters or invalid UTF-8.
+func OneLine(s string) string {
 	if utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl) {
 		return s
 	}

@@ -22,11 +22,13 @@ stdout '^exit=2$'
 
 -- .stew/config.toml --
 workspace_wrapper = 'wrap-ws "$STEW_ROOT" {{STEW_STEP}}'
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
 project_wrapper = "wrap-lib {{STEW_STEP}}"
+project_trust = ""
 [setup]
 run = "true"
 -- bin/wrap-ws --

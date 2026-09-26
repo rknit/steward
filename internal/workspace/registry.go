@@ -87,10 +87,11 @@ func SaveRegistry(root string, paths []string) error {
 	}
 	buf.WriteString("]\n")
 
-	return writeFileAtomic(RegistryPath(root), buf.Bytes())
+	return WriteFileAtomic(RegistryPath(root), buf.Bytes())
 }
 
-func writeFileAtomic(file string, data []byte) error {
+// WriteFileAtomic writes data to a temp file next to file, then renames it over file.
+func WriteFileAtomic(file string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(file), "."+filepath.Base(file)+".tmp*")
 	if err != nil {
 		return err

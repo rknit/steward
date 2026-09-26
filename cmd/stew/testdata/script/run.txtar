@@ -33,11 +33,13 @@ stdout '^==> core: ci.lint \.\.\. done'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["api", "core", "mylib", "myxlib"]
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "true"
 [build]
@@ -48,17 +50,20 @@ run = "true"
 -- api/stew.toml --
 name = "api"
 project_wrapper = ""
+project_trust = ""
 [build]
 run = "true"
 requires = ["core:build"]
 -- mylib/stew.toml --
 name = "my.lib"
 project_wrapper = ""
+project_trust = ""
 [build]
 run = "true"
 -- myxlib/stew.toml --
 name = "myxlib"
 project_wrapper = ""
+project_trust = ""
 [build]
 run = "true"
 -- want/api-build --

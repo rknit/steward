@@ -28,7 +28,7 @@ func newInitCmd(proc process) *cobra.Command {
 			if err := workspace.SaveRegistry(proc.dir, nil); err != nil {
 				return rejected(err)
 			}
-			if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("runs/\n"), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("runs/\ntrust.json\n"), 0o644); err != nil {
 				return rejected(err)
 			}
 			if err := os.WriteFile(workspace.ConfigPath(proc.dir), []byte(workspace.ConfigTemplate), 0o644); err != nil {

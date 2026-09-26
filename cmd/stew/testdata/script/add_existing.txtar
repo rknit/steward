@@ -56,6 +56,7 @@ projects = ["apps/My App", "apps/alias", "libs/core"]
 -- bad/stew.toml --
 name = "bad"
 project_wrapper = ""
+project_trust = ""
 [setup]
 skip_if = ""
 [build]
@@ -67,6 +68,7 @@ requires = ["bad:build"]
 -- want/core.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -78,6 +80,7 @@ requires = ["core:build"]
 -- libs/core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -89,6 +92,7 @@ requires = ["core:build"]
 -- apps/My App/stew.toml --
 name = "my-app"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["core:build"]
@@ -101,6 +105,7 @@ requires = ["my-app:build"]
 -- apps/alias/stew.toml --
 name = "alias-name"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -112,6 +117,7 @@ requires = ["alias-name:build"]
 -- apps/other/stew.toml --
 name = "other"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -123,6 +129,7 @@ requires = ["other:build"]
 -- apps/web/stew.toml --
 name = "web"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["api:build"]
@@ -135,6 +142,7 @@ requires = ["web:build"]
 -- apps/self/stew.toml --
 name = "self"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["self:build"]
@@ -147,6 +155,7 @@ requires = ["self:build"]
 -- apps/dup/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -158,6 +167,7 @@ requires = ["core:build"]
 -- apps/dup-requires/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [build]
 run = ""
 requires = ["core:lint"]

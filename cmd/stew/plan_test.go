@@ -24,10 +24,11 @@ func testWorkspace(t *testing.T, wrapper, apiWrapper string) *workspace.Workspac
 	if wrapper == "" {
 		write(".stew/config.toml", workspace.ConfigTemplate)
 	} else {
-		write(".stew/config.toml", `workspace_wrapper = "`+wrapper+`"`+"\n")
+		write(".stew/config.toml", `workspace_wrapper = "`+wrapper+`"`+"\nworkspace_trust = \"\"\n")
 	}
 	write("core/stew.toml", `name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "cs"
 skip_if = "ck"
@@ -37,6 +38,7 @@ requires = ["core:setup"]
 `)
 	write("api/stew.toml", `name = "api"
 project_wrapper = "`+apiWrapper+`"
+project_trust = ""
 [build]
 run = "ab"
 verify = "av"
@@ -96,8 +98,8 @@ func TestBuildPlanRequiresInExecutionOrder(t *testing.T) {
 	for rel, content := range map[string]string{
 		".stew/projects.toml": `projects = ["a", "b"]` + "\n",
 		".stew/config.toml":   workspace.ConfigTemplate,
-		"a/stew.toml":         "name = \"a\"\nproject_wrapper = \"\"\n[x]\nrun = \"\"\nrequires = [\"b:y\", \"a:y\"]\n[y]\nrun = \"\"\n",
-		"b/stew.toml":         "name = \"b\"\nproject_wrapper = \"\"\n[y]\nrun = \"\"\n",
+		"a/stew.toml":         "name = \"a\"\nproject_wrapper = \"\"\nproject_trust = \"\"\n[x]\nrun = \"\"\nrequires = [\"b:y\", \"a:y\"]\n[y]\nrun = \"\"\n",
+		"b/stew.toml":         "name = \"b\"\nproject_wrapper = \"\"\nproject_trust = \"\"\n[y]\nrun = \"\"\n",
 	} {
 		if err := writeFile(root, rel, content); err != nil {
 			t.Fatal(err)

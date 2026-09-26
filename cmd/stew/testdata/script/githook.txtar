@@ -23,7 +23,7 @@ status 1
 stderr 'hook already exists'
 ! stew git install post-merge
 status 2
-stderr 'supported: pre-commit, pre-push'
+stderr 'supported: pre-commit, pre-push, post-checkout'
 cd $WORK
 
 # A passing pre-commit CI lets the commit through. ci.pre-commit requires ci.quick, so ci.full does not run.
@@ -55,6 +55,7 @@ stdout '^exit=2$'
 
 -- mono/.stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- mono/.stew/projects.toml --
 projects = ["core"]
 -- mono/.stew/.gitignore --
@@ -62,6 +63,7 @@ runs/
 -- mono/core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -79,6 +81,7 @@ requires = ["core:ci.quick"]
 -- want/failing.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -100,6 +103,7 @@ cd "$(git rev-parse --show-toplevel)/mono" && exec stew ci --level pre-commit
 -- want/no-level.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]

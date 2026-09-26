@@ -53,11 +53,13 @@ stderr 'unknown project "nope"'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["api", "core", "lib"]
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -78,6 +80,7 @@ requires = ["core:ci.full"]
 -- api/stew.toml --
 name = "api"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["core:build"]
@@ -96,6 +99,7 @@ requires = ["api:build"]
 -- lib/stew.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -107,6 +111,7 @@ requires = ["lib:build"]
 -- want/api-failing.toml --
 name = "api"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["core:build"]

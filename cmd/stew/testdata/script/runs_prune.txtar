@@ -49,6 +49,7 @@ exists .stew/runs/20000104T000000Z-0005
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 this is not valid toml [
 -- .stew/runs/notes --

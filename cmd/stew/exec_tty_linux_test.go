@@ -41,9 +41,9 @@ func newShellSession(t *testing.T) *shellSession {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		".stew/config.toml":   "workspace_wrapper = \"\"\n",
+		".stew/config.toml":   "workspace_wrapper = \"\"\nworkspace_trust = \"\"\n",
 		".stew/projects.toml": "projects = [\"lib\"]\n",
-		"lib/stew.toml":       "name = \"lib\"\nproject_wrapper = \"wrap-fork {{STEW_STEP}}\"\n[setup]\nrun = \"true\"\n",
+		"lib/stew.toml":       "name = \"lib\"\nproject_wrapper = \"wrap-fork {{STEW_STEP}}\"\nproject_trust = \"\"\n[setup]\nrun = \"true\"\n",
 		"bin/wrap-fork":       "#!/bin/sh\n\"$@\"\nexit $?\n",
 	}
 	for name, content := range files {

@@ -40,11 +40,13 @@ exists lib/ran
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "touch ran"
 [build]
@@ -58,14 +60,19 @@ requires = ["lib:build"]
 exec "$@"
 -- cfg/none.toml --
 workspace_wrapper = "tool exec ."
+workspace_trust = ""
 -- cfg/two.toml --
 workspace_wrapper = "tool {{STEW_STEP}} {{STEW_STEP}}"
+workspace_trust = ""
 -- cfg/syntax.toml --
 workspace_wrapper = 'tool "unbalanced {{STEW_STEP}}'
+workspace_trust = ""
 -- cfg/unknown.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 shell = "bash"
 -- cfg/newline.toml --
 workspace_wrapper = """
 wrap {{STEW_STEP}}
 """
+workspace_trust = ""

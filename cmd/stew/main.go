@@ -20,17 +20,23 @@ func main() {
 		fmt.Fprintf(os.Stderr, "stew: %v\n", err)
 		os.Exit(1)
 	}
-	proc := process{dir: dir, env: os.Environ(), loc: time.Local, stdout: os.Stdout, stderr: os.Stderr}
+	proc := process{
+		dir: dir, env: os.Environ(), loc: time.Local,
+		stdin: os.Stdin, interactive: isTerminal(os.Stdin) && isTerminal(os.Stdout),
+		stdout: os.Stdout, stderr: os.Stderr,
+	}
 	os.Exit(run(proc, os.Args[1:]))
 }
 
-// process is the process state a command reads: its working directory, environment, time zone, and output.
-// main passes stew's own, and tests run commands in-process with a test script's.
+// process is the process state a command reads: its working directory, environment, time zone, input, and output.
+// main passes stew's own, and tests run commands in-process with a test script's, which never ask for input.
 // stew exec and stop signals still use the real process.
 type process struct {
 	dir            string
 	env            []string
 	loc            *time.Location
+	stdin          io.Reader
+	interactive    bool // stdin and stdout are terminals, so stew may ask a question
 	stdout, stderr io.Writer
 }
 
@@ -107,12 +113,15 @@ func newRootCmd(proc process, argv []string) *cobra.Command {
 		newRemoveCmd(proc),
 		newListCmd(proc),
 		newRunCmd(proc, argv),
-		newAliasCmd(proc, argv, "setup", "Run the setup section of projects, after the sections it requires"),
-		newAliasCmd(proc, argv, "build", "Run the build section of projects, after the sections it requires"),
-		newAliasCmd(proc, argv, "ci", "Run the ci.<level> section of projects, after the sections it requires"),
+		newAliasCmd(proc, argv, "setup", "setup", "Run the setup section of projects, after the sections it requires"),
+		newAliasCmd(proc, argv, "build", "build", "Run the build section of projects, after the sections it requires"),
+		newAliasCmd(proc, argv, "ci", "ci", "Run the ci.<level> section of projects, after the sections it requires"),
+		newAliasCmd(proc, argv, "setup-worktree", "worktree.setup",
+			"Run the worktree.setup section of projects, after the sections it requires"),
 		newGitCmd(proc),
 		newRunsCmd(proc),
 		newExecCmd(proc),
+		newTrustCmd(proc),
 	)
 	return root
 }

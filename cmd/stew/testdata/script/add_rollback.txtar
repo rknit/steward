@@ -20,6 +20,7 @@ projects = []
 -- libs/pre/stew.toml --
 name = "pre"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -31,6 +32,7 @@ requires = ["pre:build"]
 -- want/pre.toml --
 name = "pre"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]

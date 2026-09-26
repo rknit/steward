@@ -1,0 +1,19 @@
+# SIGTERM reaches stew, which forwards it to the running trust command and exits 143 with no error line.
+# The command is gone once stew returns: stew stops the command's group before it exits.
+exec sh -c '. ./running.sh; stew trust --yes > out 2>&1 & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -TERM $pid; wait $pid; echo "exit=$?"; running && echo alive || echo gone'
+stdout '^exit=143$'
+stdout '^gone$'
+exists started
+! exists survived
+exec cat out
+! stdout .
+! grep '"workspace"' .stew/trust.json
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = "echo $$ > pid; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; touch survived"
+-- .stew/projects.toml --
+projects = []
+-- running.sh --
+# stew reaps the entry; state Z covers a group member stew adopted but did not wait on.
+running() { case "$(ps -o stat= -p "$(cat pid)" 2>/dev/null)" in ""|Z*) return 1 ;; esac; }

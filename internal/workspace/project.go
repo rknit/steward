@@ -28,6 +28,7 @@ type Project struct {
 	Name     string
 	Path     string // root-relative, slash-separated, as registered
 	Wrapper  string // project wrapper, nested inside the workspace wrapper; "" means none
+	Trust    string // project trust command; "" means none
 	Sections map[string]*Section
 }
 
@@ -72,7 +73,7 @@ func ParseProject(file string, data []byte) (*Project, error) {
 }
 
 func parseProject(raw map[string]any) (*Project, error) {
-	for _, key := range []string{"name", "project_wrapper"} {
+	for _, key := range []string{"name", "project_wrapper", "project_trust"} {
 		if _, ok := raw[key]; !ok {
 			return nil, fmt.Errorf("missing key %q", key)
 		}
@@ -85,6 +86,10 @@ func parseProject(raw map[string]any) (*Project, error) {
 	if !ok {
 		return nil, fmt.Errorf("project_wrapper: want a string")
 	}
+	trust, ok := raw["project_trust"].(string)
+	if !ok {
+		return nil, fmt.Errorf("project_trust: want a string")
+	}
 	if !ValidName(name) {
 		return nil, fmt.Errorf("invalid name %q (want [a-z0-9][a-z0-9._-]*)", name)
 	}
@@ -92,9 +97,9 @@ func parseProject(raw map[string]any) (*Project, error) {
 		return nil, fmt.Errorf("project_wrapper: %v", err)
 	}
 
-	p := &Project{Name: name, Wrapper: wrapper, Sections: make(map[string]*Section)}
+	p := &Project{Name: name, Wrapper: wrapper, Trust: trust, Sections: make(map[string]*Section)}
 	for _, key := range slices.Sorted(maps.Keys(raw)) {
-		if key == "name" || key == "project_wrapper" {
+		if key == "name" || key == "project_wrapper" || key == "project_trust" {
 			continue
 		}
 		if err := p.parseTable([]string{key}, raw[key]); err != nil {
@@ -218,6 +223,9 @@ var templateLines = []string{
 	`# Wraps every command of this project, inside the workspace wrapper.`,
 	`# {{STEW_STEP}} marks where the command goes. "" means none.`,
 	`project_wrapper = ""`,
+	`# Makes the project wrapper usable in a new tree, e.g. "mise trust". Runs once per tree, with consent.`,
+	`# "" means none.`,
+	`project_trust = ""`,
 	``,
 	"# Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose",
 	"# <project>:<section> key matches; `stew build` is `stew run '.*:build'`.",

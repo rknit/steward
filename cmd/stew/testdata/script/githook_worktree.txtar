@@ -1,0 +1,55 @@
+# post-checkout trusts and sets up a new worktree, does nothing on other checkouts, and skips a tree with no
+# workspace.
+# Trust and setup commands append to $HOOKLOG, which the hook inherits through git.
+# git runs the hook before it returns, so a missing log line right after git returns means the hook ran nothing.
+[!exec:git] skip 'git not installed'
+env HOOKLOG=$WORK/hooklog
+exec git init -q -b main
+cd mono
+stew git install post-checkout
+stdout '^installed .*/\.git/hooks/post-checkout$'
+cd $WORK
+exec test -x .git/hooks/post-checkout
+cmp .git/hooks/post-checkout want/hook
+exec git add -A
+exec git commit -q -m first
+
+# A new worktree is trusted and set up, in the workspace below the git top level.
+exec git worktree add -q trees/wt1
+grep -count=1 '^trust .*/trees/wt1/mono$' hooklog
+grep -count=1 '^setup .*/trees/wt1/mono/core$' hooklog
+! exists mono/core/wt-done
+
+# Other checkouts run nothing.
+exec git -C trees/wt1 switch -q -c other
+grep -count=2 '^.' hooklog
+
+# A commit without the workspace: the hook skips with a note.
+exec git switch -q --orphan bare
+exec sh -c 'echo x > f && git add f && git commit -qm bare'
+exec git switch -q main
+exec sh -c 'git worktree add -q trees/wt4 bare; echo "exit=$?"'
+stdout '^exit=0$'
+stderr '^stew: no workspace in .*/trees/wt4/mono, skipping worktree setup$'
+
+-- mono/.stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = 'echo "trust $STEW_ROOT" >> "$HOOKLOG"'
+-- mono/.stew/projects.toml --
+projects = ["core"]
+-- mono/.stew/.gitignore --
+runs/
+trust.json
+-- mono/core/stew.toml --
+name = "core"
+project_wrapper = ""
+project_trust = ""
+[worktree.setup]
+run = 'echo "setup $(pwd)" >> "$HOOKLOG" && touch wt-done'
+-- want/hook --
+#!/bin/sh
+# installed by stew
+case "$1" in *[!0]*) exit 0 ;; esac
+dir="$(git rev-parse --show-toplevel)/mono"
+[ -d "$dir/.stew" ] || { echo "stew: no workspace in $dir, skipping worktree setup" >&2; exit 0; }
+cd "$dir" && stew trust --yes && exec stew setup-worktree

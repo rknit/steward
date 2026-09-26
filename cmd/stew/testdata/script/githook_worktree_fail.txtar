@@ -1,0 +1,60 @@
+# post-checkout stops a new worktree and leaves it: on a failing worktree.setup, and when no project defines one.
+# Trust and setup commands append to $HOOKLOG, which the hook inherits through git.
+[!exec:git] skip 'git not installed'
+env HOOKLOG=$WORK/hooklog
+exec git init -q -b main
+cd mono
+stew git install post-checkout
+cd $WORK
+exec git add -A
+exec git commit -q -m first
+
+# Branches for the failure cases. Switching branches in the main worktree runs the hook, which does nothing.
+exec git switch -q -c failing
+cp want/failing.toml mono/core/stew.toml
+exec git commit -qam failing
+exec git switch -q -
+exec git switch -q -c nosetup
+cp want/nosetup.toml mono/core/stew.toml
+exec git commit -qam nosetup
+exec git switch -q -
+! exists hooklog
+
+# A failing section: git worktree add exits 1 and keeps the worktree.
+exec sh -c 'git worktree add -q trees/wt2 failing; echo "exit=$?"'
+stdout '^exit=1$'
+grep -count=1 '^trust .*/trees/wt2/mono$' hooklog
+exec git worktree list
+stdout 'trees/wt2 '
+
+# No project defines worktree.setup: exit 2.
+exec sh -c 'git worktree add -q trees/wt3 nosetup; echo "exit=$?"'
+stdout '^exit=2$'
+stderr '^stew: pattern "\.\*:worktree\\\.setup" matches no section$'
+
+-- mono/.stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = 'echo "trust $STEW_ROOT" >> "$HOOKLOG"'
+-- mono/.stew/projects.toml --
+projects = ["core"]
+-- mono/.stew/.gitignore --
+runs/
+trust.json
+-- mono/core/stew.toml --
+name = "core"
+project_wrapper = ""
+project_trust = ""
+[worktree.setup]
+run = 'echo "setup $(pwd)" >> "$HOOKLOG" && touch wt-done'
+-- want/failing.toml --
+name = "core"
+project_wrapper = ""
+project_trust = ""
+[worktree.setup]
+run = "exit 1"
+-- want/nosetup.toml --
+name = "core"
+project_wrapper = ""
+project_trust = ""
+[build]
+run = ""

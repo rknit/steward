@@ -18,6 +18,7 @@ status 2
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 this is not valid toml [
 -- .stew/runs/tmp/core:setup.log --

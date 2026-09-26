@@ -52,12 +52,14 @@ projects = [".", "libs/core", "services/api", "tools/x"]
 projects = []
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = [".", "apps/web", "libs/core", "services/api", "tools/x"]
 -- libs/core/.keep --
 -- stew.toml --
 name = "steward"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -69,6 +71,7 @@ requires = ["steward:build"]
 -- libs/core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -80,6 +83,7 @@ requires = ["core:build"]
 -- services/api/stew.toml --
 name = "api"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["core:build"]
@@ -92,6 +96,7 @@ requires = ["api:build"]
 -- apps/web/stew.toml --
 name = "web"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["api:build"]
@@ -104,6 +109,7 @@ requires = ["web:build"]
 -- tools/x/stew.toml --
 name = "tool"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["core:build", "steward:build"]

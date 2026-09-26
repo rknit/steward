@@ -88,11 +88,13 @@ stdout '^gone$'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -104,6 +106,7 @@ requires = ["lib:build"]
 -- lib/plain.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -115,6 +118,7 @@ requires = ["lib:build"]
 -- lib/count.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -126,6 +130,7 @@ requires = ["lib:build"]
 -- lib/skip-if.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -139,6 +144,7 @@ requires = ["lib:build"]
 -- lib/failing.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -150,6 +156,7 @@ requires = ["lib:build"]
 -- lib/exit7.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -161,6 +168,7 @@ requires = ["lib:build"]
 -- lib/background.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -175,25 +183,37 @@ echo "failing-tool: broken on purpose" >&2
 exit 2
 -- cfg/comment.toml --
 workspace_wrapper = "failing-tool # {{STEW_STEP}}"
+workspace_trust = ""
 -- cfg/echo.toml --
 workspace_wrapper = "echo {{STEW_STEP}}"
+workspace_trust = ""
 -- cfg/false-and.toml --
 workspace_wrapper = "false && {{STEW_STEP}}"
+workspace_trust = ""
 -- cfg/missing.toml --
 workspace_wrapper = "no-such-tool-for-stew {{STEW_STEP}}"
+workspace_trust = ""
 -- cfg/loop.toml --
 workspace_wrapper = "for i in 1 2; do {{STEW_STEP}}; done"
+workspace_trust = ""
 -- cfg/failing.toml --
 workspace_wrapper = "failing-tool {{STEW_STEP}}"
+workspace_trust = ""
 -- cfg/semicolon.toml --
 workspace_wrapper = "failing-tool ; {{STEW_STEP}}"
+workspace_trust = ""
 -- cfg/true-and.toml --
 workspace_wrapper = "true && {{STEW_STEP}}"
+workspace_trust = ""
 -- cfg/or-true.toml --
 workspace_wrapper = "{{STEW_STEP}} || true"
+workspace_trust = ""
 -- cfg/echo-post.toml --
 workspace_wrapper = "{{STEW_STEP}}; echo post"
+workspace_trust = ""
 -- cfg/then-false.toml --
 workspace_wrapper = "{{STEW_STEP}}; false"
+workspace_trust = ""
 -- cfg/background.toml --
 workspace_wrapper = "{{STEW_STEP}} >/dev/null 2>&1 & i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
+workspace_trust = ""

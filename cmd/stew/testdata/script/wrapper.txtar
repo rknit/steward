@@ -56,11 +56,13 @@ stdout '^0$'
 
 -- .stew/config.toml --
 workspace_wrapper = 'wrap-exec "$STEW_ROOT" {{STEW_STEP}}'
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "true"
 [build]
@@ -88,7 +90,10 @@ exit $?
 WRAPPED=yes STEW_SECTION=ci.full STEW_PROJECT=lib
 -- want/fork.toml --
 workspace_wrapper = "wrap-fork {{STEW_STEP}}"
+workspace_trust = ""
 -- want/source.toml --
 workspace_wrapper = ". ./env.sh && {{STEW_STEP}}"
+workspace_trust = ""
 -- want/none.toml --
 workspace_wrapper = ""
+workspace_trust = ""

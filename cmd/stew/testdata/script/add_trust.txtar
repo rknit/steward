@@ -1,0 +1,45 @@
+# Without a terminal or --trusted, adding a project with a trust command exits 1 and registers nothing.
+! stew add libs/core
+status 1
+stderr '^stew: untrusted: core \(run: stew add --trusted\)$'
+! exists libs/core/trusted
+cmp .stew/projects.toml want/projects-0.toml
+
+# --trusted runs the entry in the project directory, records it, and registers the project.
+stew add libs/core --trusted
+stdout '^added core \(libs/core\)$'
+exists libs/core/trusted
+cmp .stew/projects.toml want/projects-1.toml
+stew build
+stdout '^==> core: build \.\.\. done'
+
+# A failing trust command rejects the add.
+! stew add apps/bad --trusted
+status 1
+stderr '^stew: trust bad: exit 4$'
+cmp .stew/projects.toml want/projects-1.toml
+
+# A project without a trust command needs no consent, and a new template has none.
+stew add apps/new
+stdout '^added new \(apps/new\)$'
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = ""
+-- .stew/projects.toml --
+projects = []
+-- libs/core/stew.toml --
+name = "core"
+project_wrapper = ""
+project_trust = "touch trusted"
+[build]
+run = "true"
+-- apps/bad/stew.toml --
+name = "bad"
+project_wrapper = ""
+project_trust = "exit 4"
+-- apps/new/.keep --
+-- want/projects-0.toml --
+projects = []
+-- want/projects-1.toml --
+projects = ["libs/core"]

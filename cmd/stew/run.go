@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -43,13 +44,13 @@ func newRunCmd(proc process, argv []string) *cobra.Command {
 	return cmd
 }
 
-// newAliasCmd returns a command that runs one section in the named projects, or in every project that has it.
-// For "ci" the section is ci.<level>.
-func newAliasCmd(proc process, argv []string, section, short string) *cobra.Command {
+// newAliasCmd returns the command use, which runs one section in the named projects, or in every project that has it.
+// For section "ci" the section is ci.<level>.
+func newAliasCmd(proc process, argv []string, use, section, short string) *cobra.Command {
 	var level string
 	var dryRun bool
 	cmd := &cobra.Command{
-		Use:   section + " [project...]",
+		Use:   use + " [project...]",
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := section
@@ -102,29 +103,11 @@ func runSections(proc process, argv []string, ws *workspace.Workspace, patterns 
 		report.DryRun(proc.stdout, plan, matched)
 		return nil
 	}
-
-	// The first stop signal interrupts the run; a second one force-kills the command stew is waiting for.
-	ctx, cancel := context.WithCancelCause(context.Background())
-	defer cancel(nil)
-	finished := make(chan struct{})
-	defer close(finished)
-	force := make(chan struct{})
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
-	defer signal.Stop(sigs)
-	go func() {
-		select {
-		case sig := <-sigs:
-			cancel(runner.Interrupt{Signal: sig.(syscall.Signal)})
-		case <-finished:
-			return
-		}
-		select {
-		case <-sigs:
-			close(force)
-		case <-finished:
-		}
-	}()
+	ctx, force, release := catchStops()
+	defer release()
+	if err := ensureTrust(ctx, force, proc, ws); err != nil {
+		return err
+	}
 
 	if err := runner.AdoptOrphans(); err != nil {
 		return rejected(fmt.Errorf("cannot adopt orphaned processes: %w", err))
@@ -187,6 +170,55 @@ func runSections(proc process, argv []string, ws *workspace.Workspace, patterns 
 	}
 	if code != 0 {
 		return &exitError{code: code}
+	}
+	return nil
+}
+
+// catchStops handles stop signals (Ctrl-C, SIGTERM, SIGHUP) until release. The first one cancels ctx with a
+// runner.Interrupt cause; a second one closes force, which force-kills the command stew is waiting for.
+func catchStops() (ctx context.Context, force <-chan struct{}, release func()) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	finished := make(chan struct{})
+	forced := make(chan struct{})
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		select {
+		case sig := <-sigs:
+			cancel(runner.Interrupt{Signal: sig.(syscall.Signal)})
+		case <-finished:
+			return
+		}
+		select {
+		case <-sigs:
+			close(forced)
+		case <-finished:
+		}
+	}()
+	release = func() {
+		signal.Stop(sigs)
+		close(finished)
+		cancel(nil)
+	}
+	return ctx, forced, release
+}
+
+// withStops runs fn under catchStops. A stop signal makes it exit 128+n, even when fn succeeded.
+func withStops(fn func(ctx context.Context, force <-chan struct{}) error) error {
+	ctx, force, release := catchStops()
+	err := fn(ctx, force)
+	release()
+	if err != nil {
+		return err
+	}
+	return interrupted(ctx)
+}
+
+// interrupted returns exit 128+n, with no message, when stop signal n cancelled ctx, and nil otherwise.
+func interrupted(ctx context.Context) error {
+	var i runner.Interrupt
+	if errors.As(context.Cause(ctx), &i) {
+		return &exitError{code: 128 + int(i.Signal)}
 	}
 	return nil
 }

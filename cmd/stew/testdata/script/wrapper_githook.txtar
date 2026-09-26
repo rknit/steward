@@ -10,6 +10,7 @@ stderr '^==> core: ci\.quick \.\.\. done'
 
 -- .stew/config.toml --
 workspace_wrapper = "wrap-env {{STEW_STEP}}"
+workspace_trust = ""
 -- .stew/.gitignore --
 runs/
 -- .stew/projects.toml --
@@ -17,6 +18,7 @@ projects = ["core"]
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]

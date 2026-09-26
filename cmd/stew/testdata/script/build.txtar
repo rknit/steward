@@ -62,6 +62,7 @@ stdout '^│ project │ setup │$'
 this must not reach the command
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["api", "core"]
 -- .stew/.gitignore --
@@ -69,6 +70,7 @@ runs/
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 
 [setup]
 skip_if = "test -f .setup-done"
@@ -87,6 +89,7 @@ requires = ["core:build"]
 -- api/stew.toml --
 name = "api"
 project_wrapper = ""
+project_trust = ""
 
 [setup]
 run = ""

@@ -2,12 +2,20 @@ name = "steward"
 # Wraps every command of this project, inside the workspace wrapper.
 # {{STEW_STEP}} marks where the command goes. "" means none.
 project_wrapper = ""
+# Makes the project wrapper usable in a new tree, e.g. "mise trust". Runs once per tree, with consent.
+# "" means none.
+project_trust = ""
 
 [setup]
 run = "go mod tidy"
 
 [build]
 run = "go build ./..."
+requires = ["steward:setup"]
+
+# New worktrees run this through the post-checkout hook (stew git install post-checkout).
+[worktree.setup]
+run = ""
 requires = ["steward:setup"]
 
 [ci.full]

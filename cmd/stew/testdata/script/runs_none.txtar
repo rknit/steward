@@ -23,5 +23,6 @@ stdout '^Usage:$'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = []

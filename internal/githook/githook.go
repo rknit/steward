@@ -13,7 +13,7 @@ import (
 )
 
 // Supported lists the hooks stew can install.
-var Supported = []string{"pre-commit", "pre-push"}
+var Supported = []string{"pre-commit", "pre-push", "post-checkout"}
 
 // ErrExists is returned when the hook file already exists.
 var ErrExists = errors.New("hook already exists")
@@ -71,13 +71,21 @@ func Install(root, hook string, env []string) (string, error) {
 }
 
 // Script returns the named hook for a stew root at rel (slash-separated) below the git top level.
-// The hook runs the CI level of the same name.
+// pre-commit and pre-push run the CI level of the same name. post-checkout trusts and sets up a new worktree: git
+// passes an all-zero previous HEAD only when there was none.
 func Script(rel, hook string) string {
 	dir := `"$(git rev-parse --show-toplevel)"`
 	if rel != "." {
 		dir = `"$(git rev-parse --show-toplevel)/` + escapeDoubleQuoted(rel) + `"`
 	}
-	return "#!/bin/sh\n# installed by stew\ncd " + dir + " && exec stew ci --level " + hook + "\n"
+	body := "cd " + dir + " && exec stew ci --level " + hook + "\n"
+	if hook == "post-checkout" {
+		body = `case "$1" in *[!0]*) exit 0 ;; esac` + "\n" +
+			"dir=" + dir + "\n" +
+			`[ -d "$dir/.stew" ] || { echo "stew: no workspace in $dir, skipping worktree setup" >&2; exit 0; }` + "\n" +
+			`cd "$dir" && stew trust --yes && exec stew setup-worktree` + "\n"
+	}
+	return "#!/bin/sh\n# installed by stew\n" + body
 }
 
 // escapeDoubleQuoted escapes the characters that stay special inside a sh double-quoted string.

@@ -1,0 +1,24 @@
+# The null old ref of a SHA-256 repository is 64 zeros; the hook still sets up a new worktree. The root is the top level.
+[!exec:git] skip 'git not installed'
+env HOOKLOG=$WORK/hooklog
+exec git init -q --object-format=sha256
+stew git install post-checkout
+exec git add -A
+exec git commit -q -m first
+exec git worktree add -q trees/wt
+grep -count=1 '^setup .*/trees/wt$' hooklog
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = ""
+-- .stew/projects.toml --
+projects = ["."]
+-- .stew/.gitignore --
+runs/
+trust.json
+-- stew.toml --
+name = "app"
+project_wrapper = ""
+project_trust = ""
+[worktree.setup]
+run = 'echo "setup $(pwd)" >> "$HOOKLOG"'

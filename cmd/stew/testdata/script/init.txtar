@@ -5,6 +5,12 @@ cmp .stew/projects.toml want/projects.toml
 cmp .stew/config.toml want/config.toml
 cmp .stew/.gitignore want/gitignore
 
+# trust.json stays out of git.
+[exec:git] exec git init -q
+[exec:git] cp want/gitignore .stew/trust.json
+[exec:git] exec git status --porcelain --untracked-files=all
+[exec:git] ! stdout 'trust\.json'
+
 # A second init is rejected with exit 1.
 ! stew init
 status 1
@@ -21,5 +27,8 @@ projects = []
 -- want/config.toml --
 # Wraps every command stew runs. {{STEW_STEP}} marks where the command goes. "" means none.
 workspace_wrapper = ""
+# Makes the wrapper usable in a new tree, e.g. "direnv allow .". Runs once per tree, with consent. "" means none.
+workspace_trust = ""
 -- want/gitignore --
 runs/
+trust.json

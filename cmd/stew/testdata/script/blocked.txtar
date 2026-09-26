@@ -30,11 +30,13 @@ cmp stdout want/show-e2e
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["api", "core", "docs", "web"]
 -- api/stew.toml --
 name = "api"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "true"
 [build]
@@ -49,6 +51,7 @@ requires = ["api:build"]
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "true"
 [lint]
@@ -59,12 +62,14 @@ requires = ["core:setup"]
 -- docs/stew.toml --
 name = "docs"
 project_wrapper = ""
+project_trust = ""
 [build]
 run = "true"
 requires = ["core:build"]
 -- web/stew.toml --
 name = "web"
 project_wrapper = ""
+project_trust = ""
 [build]
 run = "true"
 requires = ["api:build", "api:test"]

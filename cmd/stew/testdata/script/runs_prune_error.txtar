@@ -12,6 +12,7 @@ exists .stew/runs/20000101T000000Z-0000/sub
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = []
 -- .stew/runs/20000101T000000Z-0000/core:setup.log --

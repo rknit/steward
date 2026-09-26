@@ -8,11 +8,13 @@ stdout '^gone$'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = 'sleep 30 > /dev/null 2>&1 & echo $! > bg.pid'
 [build]

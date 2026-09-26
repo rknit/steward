@@ -44,6 +44,8 @@ func TestScript(t *testing.T) {
 		{"mono/repo", "pre-commit", `cd "$(git rev-parse --show-toplevel)/mono/repo" && exec stew ci --level pre-commit`},
 		{`we"ird $dir`, "pre-commit", `cd "$(git rev-parse --show-toplevel)/we\"ird \$dir" && exec stew ci --level pre-commit`},
 		{".", "pre-push", `cd "$(git rev-parse --show-toplevel)" && exec stew ci --level pre-push`},
+		{".", "post-checkout", postCheckout(`"$(git rev-parse --show-toplevel)"`)},
+		{`we"ird $dir`, "post-checkout", postCheckout(`"$(git rev-parse --show-toplevel)/we\"ird \$dir"`)},
 	}
 	for _, tt := range tests {
 		want := "#!/bin/sh\n# installed by stew\n" + tt.want + "\n"
@@ -51,6 +53,14 @@ func TestScript(t *testing.T) {
 			t.Errorf("Script(%q, %q) = %q, want %q", tt.rel, tt.hook, got, want)
 		}
 	}
+}
+
+// postCheckout is the post-checkout hook body for a stew root at dir, a double-quoted shell word.
+func postCheckout(dir string) string {
+	return `case "$1" in *[!0]*) exit 0 ;; esac` + "\n" +
+		"dir=" + dir + "\n" +
+		`[ -d "$dir/.stew" ] || { echo "stew: no workspace in $dir, skipping worktree setup" >&2; exit 0; }` + "\n" +
+		`cd "$dir" && stew trust --yes && exec stew setup-worktree`
 }
 
 func TestInstallInSubdirectory(t *testing.T) {
@@ -103,7 +113,7 @@ func TestInstallRespectsHooksPath(t *testing.T) {
 }
 
 func TestInstallErrors(t *testing.T) {
-	if _, err := Install(t.TempDir(), "post-merge", os.Environ()); err == nil || !strings.Contains(err.Error(), "supported: pre-commit, pre-push") {
+	if _, err := Install(t.TempDir(), "post-merge", os.Environ()); err == nil || !strings.Contains(err.Error(), "supported: pre-commit, pre-push, post-checkout") {
 		t.Errorf("unsupported hook: err = %v", err)
 	}
 	if _, err := exec.LookPath("git"); err != nil {

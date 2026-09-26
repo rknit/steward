@@ -35,11 +35,13 @@ stdout '^\(exit 7\)$'
 
 -- .stew/config.toml --
 workspace_wrapper = "outer {{STEW_STEP}}"
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["api", "core"]
 -- api/stew.toml --
 name = "api"
 project_wrapper = "inner {{STEW_STEP}}"
+project_trust = ""
 [setup]
 run = 'echo "$LAYERS $STEW_PROJECT" > seen'
 requires = ["core:build"]
@@ -52,6 +54,7 @@ requires = ["api:build"]
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = 'echo "$LAYERS $STEW_PROJECT" > seen'
 [build]
@@ -76,11 +79,14 @@ inner; api
  core
 -- want/none.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- want/outer.toml --
 workspace_wrapper = "outer {{STEW_STEP}}"
+workspace_trust = ""
 -- want/api-or-true.toml --
 name = "api"
 project_wrapper = "{{STEW_STEP}} || true"
+project_trust = ""
 [setup]
 run = "exit 7"
 requires = ["core:build"]
@@ -93,6 +99,7 @@ requires = ["api:build"]
 -- want/api-true.toml --
 name = "api"
 project_wrapper = "true # {{STEW_STEP}}"
+project_trust = ""
 [setup]
 run = "touch ran"
 requires = ["core:build"]

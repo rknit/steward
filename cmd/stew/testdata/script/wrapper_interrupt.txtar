@@ -55,11 +55,13 @@ stdout '^0$'
 
 -- .stew/config.toml --
 workspace_wrapper = "wrap-exec {{STEW_STEP}}"
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["core"]
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "echo $$ > cmd.pid; echo $PPID > step.pid; trap 'echo got-int; exit 1' INT; trap 'echo got-term; exit 1' TERM; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; touch survived"
 [build]
@@ -96,3 +98,4 @@ alive() {
 if alive; then echo lingering; else echo gone; fi
 -- want/fork.toml --
 workspace_wrapper = "wrap-fork {{STEW_STEP}}"
+workspace_trust = ""

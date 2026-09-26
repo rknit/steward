@@ -48,6 +48,7 @@ stdout '^0$'
 
 -- .stew/config.toml --
 workspace_wrapper = "wrap-fork {{STEW_STEP}}"
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = []
 -- trap-int --

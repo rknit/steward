@@ -40,15 +40,18 @@ core	libs/core
 web	apps/web	api,core
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["apps/web", "libs/core", "services/api"]
 -- empty/.stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- empty/.stew/projects.toml --
 projects = []
 -- libs/core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 [build]
@@ -60,6 +63,7 @@ requires = ["core:build"]
 -- services/api/stew.toml --
 name = "api"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["core:build"]
@@ -72,6 +76,7 @@ requires = ["api:build"]
 -- apps/web/stew.toml --
 name = "web"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["core:build", "api:build"]

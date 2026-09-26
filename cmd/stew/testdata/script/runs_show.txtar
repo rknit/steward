@@ -86,11 +86,13 @@ stdout '^core\tsetup\tdone\t'
 
 -- .stew/config.toml --
 workspace_wrapper = ""
+workspace_trust = ""
 -- .stew/projects.toml --
 projects = ["api", "app", "core", "webapi"]
 -- core/stew.toml --
 name = "core"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "echo core-setup-out"
 [build]
@@ -102,6 +104,7 @@ requires = ["core:build"]
 -- api/stew.toml --
 name = "api"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = ""
 requires = ["core:build"]
@@ -114,6 +117,7 @@ requires = ["api:build"]
 -- app/stew.toml --
 name = "app"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "echo never"
 requires = ["api:build"]
@@ -126,6 +130,7 @@ requires = ["app:build"]
 -- webapi/stew.toml --
 name = "webapi"
 project_wrapper = ""
+project_trust = ""
 [setup]
 run = "echo webapi-setup-out"
 requires = ["core:build"]
