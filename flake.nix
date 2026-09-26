@@ -33,13 +33,20 @@
             pkgs.gopls
             pkgs.git
             (pkgs.writeShellScriptBin "stew" ''
-              root="''${STEW_ROOT:?stew: STEW_ROOT is unset; enter the dev shell from the repo}"
-              go build -C "$root" -o "$root/.direnv/bin/stew" ./cmd/stew || exit
-              exec "$root/.direnv/bin/stew" "$@"
+              src=$PWD
+              until [ "$(sed -n 1p "$src/go.mod" 2>/dev/null)" = "module github.com/rknit/steward" ]; do
+                if [ "$src" = / ]; then
+                  src="''${STEWARD_SRC:?stew: no steward checkout above $PWD and STEWARD_SRC is unset}"
+                  break
+                fi
+                src=$(dirname "$src")
+              done
+              go build -C "$src" -buildvcs=false -o "$src/.direnv/bin/stew" ./cmd/stew || exit
+              exec "$src/.direnv/bin/stew" "$@"
             '')
           ];
           shellHook = ''
-            export STEW_ROOT="$(git rev-parse --show-toplevel)"
+            export STEWARD_SRC="$(git rev-parse --show-toplevel)"
           '';
         };
       });
