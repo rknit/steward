@@ -9,9 +9,6 @@ import (
 // TestShellReapsAdoptedLeftovers checks that once stew adopts orphans, a stopped leftover is reaped by stew itself:
 // otherwise its zombie keeps the process group alive until KillDelay passes.
 func TestShellReapsAdoptedLeftovers(t *testing.T) {
-	if err := AdoptOrphans(); err != nil {
-		t.Fatal(err)
-	}
 	dir := t.TempDir()
 	start := time.Now()
 	res, _, _ := runShell(t, context.Background(), slowKillDelay, dir, "sleep 30 > /dev/null 2>&1 & echo $! > pid")

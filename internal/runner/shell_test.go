@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,15 @@ import (
 	"testing"
 	"time"
 )
+
+// TestMain adopts orphans as stew does before it runs anything, for every test alike.
+func TestMain(m *testing.M) {
+	if err := AdoptOrphans(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
 
 // boundedLoop keeps a command busy for at most 10 s, so a regression fails a test instead of hanging the suite.
 const boundedLoop = "i=0; while [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done"

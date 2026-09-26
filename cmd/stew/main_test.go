@@ -13,13 +13,19 @@ import (
 	_ "time/tzdata"
 
 	"github.com/rogpeppe/go-internal/testscript"
+
+	"github.com/rknit/steward/internal/runner"
 )
 
 // TestMain runs this test binary as stew when it is invoked as "stew", as test scripts and git hooks do with the
-// stew on PATH.
+// stew on PATH. Otherwise it adopts orphans up front, as the stew runs inside it do, so every test sees the same.
 func TestMain(m *testing.M) {
 	if filepath.Base(os.Args[0]) == "stew" {
 		main()
+	}
+	if err := runner.AdoptOrphans(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 	testscript.Main(m, map[string]func(){"hupcount": hupcount})
 }
