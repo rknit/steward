@@ -177,8 +177,10 @@ func (s *shellSession) lines(name string) int {
 }
 
 func TestExecTerminalInterrupt(t *testing.T) {
+	t.Parallel()
 	for _, project := range []string{"", "lib"} {
 		t.Run(map[string]string{"": "plain", "lib": "wrapped"}[project], func(t *testing.T) {
+			t.Parallel()
 			s := newShellSession(t)
 			s.send(`stew exec ` + project + ` 'trap "echo int >> ints" INT; echo "R-$((6*7))"; sleep 2; exit 5'; echo "rc=$((0+$?))"` + "\n")
 			s.expect(`R-42`)
@@ -205,8 +207,10 @@ func TestExecTerminalInterrupt(t *testing.T) {
 }
 
 func TestExecTerminalSuspend(t *testing.T) {
+	t.Parallel()
 	for _, project := range []string{"", "lib"} {
 		t.Run(map[string]string{"": "plain", "lib": "wrapped"}[project], func(t *testing.T) {
+			t.Parallel()
 			s := newShellSession(t)
 			s.send(`stew exec ` + project + ` 'echo "R-$((6*7))"; read line; echo "got:$line"'; echo "rc=$((0+$?))"` + "\n")
 			s.expect(`R-42`)
@@ -228,6 +232,7 @@ func TestExecTerminalSuspend(t *testing.T) {
 }
 
 func TestExecTerminalTermSparesPipeline(t *testing.T) {
+	t.Parallel()
 	s := newShellSession(t)
 	s.send(`stew exec 'echo $PPID > stewpid; echo $$ > cmdpid; echo "R-$((6*7))"; sleep 5' | { cat; echo "sibling alive" > sibling; } &` + "\n")
 	s.expect(`R-42`)
@@ -244,18 +249,39 @@ func TestExecTerminalTermSparesPipeline(t *testing.T) {
 // A hangup reaches the command, and no more often under stew than when bash runs it directly. Two SIGHUPs that
 // arrive together merge into one, so the count under stew may be lower.
 func TestExecTerminalHangup(t *testing.T) {
-	count := func(command string) int {
-		s := newShellSession(t)
-		s.send(command + "\n")
-		s.expect(`hupcount ready`)
-		s.master.Close()
-		time.Sleep(1500 * time.Millisecond)
-		return s.lines("hups")
+	commands := map[string]string{
+		"direct":  `hupcount hups`,
+		"plain":   `stew exec 'hupcount hups'`,
+		"wrapped": `stew exec lib 'hupcount hups'`,
 	}
-	direct := count(`hupcount hups`)
-	for _, project := range []string{"", "lib"} {
-		if got := count(`stew exec ` + project + ` 'hupcount hups'`); got < 1 || got > direct {
-			t.Errorf("project=%q: command got SIGHUP %d times under stew, %d times directly; want 1 to %d", project, got, direct, direct)
+	var mu sync.Mutex
+	hups := map[string]int{}
+	t.Run("count", func(t *testing.T) {
+		for name, command := range commands {
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				s := newShellSession(t)
+				s.send(command + "\n")
+				s.expect(`hupcount ready`)
+				s.master.Close()
+				time.Sleep(1500 * time.Millisecond)
+				n := s.lines("hups")
+				mu.Lock()
+				hups[name] = n
+				mu.Unlock()
+			})
+		}
+	})
+	if t.Failed() {
+		return
+	}
+	if len(hups) != len(commands) {
+		t.Skip("a terminal session was skipped")
+	}
+	direct := hups["direct"]
+	for _, name := range []string{"plain", "wrapped"} {
+		if got := hups[name]; got < 1 || got > direct {
+			t.Errorf("%s: command got SIGHUP %d times under stew, %d times directly; want 1 to %d", name, got, direct, direct)
 		}
 	}
 	t.Logf("SIGHUPs on hangup: %d", direct)

@@ -1,0 +1,35 @@
+# Without wrappers, stew exec runs the command directly and keeps its status.
+exec chmod 755 bin/wrap-none
+env PATH=$WORK/bin:$PATH
+env TMPDIR=$WORK/tmp
+mkdir tmp
+exec stew exec 'env | grep -c "^STEW_ROOT="; echo "project=$STEW_PROJECT"'
+stdout '^1$'
+stdout '^project=$'
+exec sh -c 'stew exec "echo ws=\$WS; exit 4"; echo "exit=$?"'
+stdout '^ws=$'
+stdout '^exit=4$'
+
+# A wrapper that never runs the command fails with exit 1.
+cp want/broken.toml .stew/config.toml
+exec sh -c 'stew exec "echo ran" 2>&1; echo "exit=$?"'
+stdout '^stew: wrapper did not run the command \(exit 0\)$'
+! stdout '^ran$'
+stdout '^exit=1$'
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+-- .stew/projects.toml --
+projects = ["lib"]
+-- lib/stew.toml --
+name = "lib"
+project_wrapper = ""
+[setup]
+run = "true"
+-- bin/wrap-none --
+#!/bin/sh
+exit 0
+-- want/broken.toml --
+workspace_wrapper = "wrap-none {{STEW_STEP}}"

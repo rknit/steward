@@ -1,0 +1,48 @@
+# stew exec exits with the command's status, passes stdin to the command, and leaves no step directory.
+exec chmod 755 bin/wrap-ws bin/wrap-lib
+env PATH=$WORK/bin:$PATH
+env TMPDIR=$WORK/tmp
+mkdir tmp
+
+# The command's exit status is stew's.
+exec sh -c 'stew exec lib "exit 3"; echo "exit=$?"'
+stdout '^exit=3$'
+exec sh -c 'stew exec "kill -TERM \$\$"; echo "exit=$?"'
+stdout '^exit=143$'
+
+# stdin reaches the command.
+stdin input.txt
+exec stew exec lib 'cat'
+stdout '^hello from stdin$'
+
+# No step directory is left.
+exec sh -c 'ls -A tmp | wc -l'
+stdout '^0$'
+
+# An unknown project and a missing command are usage errors.
+! exec stew exec web 'true'
+stderr '^stew: unknown project "web"$'
+exec sh -c 'stew exec 2>/dev/null; echo "exit=$?"'
+stdout '^exit=2$'
+
+-- .stew/config.toml --
+workspace_wrapper = 'wrap-ws "$STEW_ROOT" {{STEW_STEP}}'
+-- .stew/projects.toml --
+projects = ["lib"]
+-- lib/stew.toml --
+name = "lib"
+project_wrapper = "wrap-lib {{STEW_STEP}}"
+[setup]
+run = "true"
+-- input.txt --
+hello from stdin
+-- bin/wrap-ws --
+#!/bin/sh
+export WS=yes WS_ARG="$1" WS_CWD="$(pwd)"
+shift
+exec "$@"
+-- bin/wrap-lib --
+#!/bin/sh
+[ "$WS" = yes ] || exit 9
+export LIB=yes LIB_CWD="$(pwd)"
+exec "$@"

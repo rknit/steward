@@ -1,6 +1,6 @@
 # stew exec runs a command in the current directory. Wrappers run in the workspace root, or in the named project's
 # directory, as for a section, and the command returns to the current directory.
-exec chmod 755 bin/wrap-ws bin/wrap-lib bin/wrap-none
+exec chmod 755 bin/wrap-ws bin/wrap-lib
 env PATH=$WORK/bin:$PATH
 env TMPDIR=$WORK/tmp
 mkdir tmp
@@ -28,46 +28,6 @@ mkdir 'lib/my dir''s'
 cd 'lib/my dir''s'
 exec stew exec lib 'pwd'
 stdout '^'$WORK'/lib/my dir''s$'
-cd $WORK
-
-# The command's exit status is stew's.
-exec sh -c 'stew exec lib "exit 3"; echo "exit=$?"'
-stdout '^exit=3$'
-exec sh -c 'stew exec "kill -TERM \$\$"; echo "exit=$?"'
-stdout '^exit=143$'
-
-# stdin reaches the command.
-stdin input.txt
-exec stew exec lib 'cat'
-stdout '^hello from stdin$'
-
-# No step directory is left.
-exec sh -c 'ls -A tmp | wc -l'
-stdout '^0$'
-
-# Without wrappers, the command runs directly and keeps its status.
-cp want/none.toml .stew/config.toml
-exec stew exec 'env | grep -c "^STEW_ROOT="; echo "project=$STEW_PROJECT"'
-stdout '^1$'
-stdout '^project=$'
-exec sh -c 'stew exec "echo ws=\$WS; exit 4"; echo "exit=$?"'
-stdout '^ws=$'
-stdout '^exit=4$'
-
-# A wrapper that never runs the command fails with exit 1.
-cp want/broken.toml .stew/config.toml
-exec sh -c 'stew exec "echo ran" 2>&1; echo "exit=$?"'
-stdout '^stew: wrapper did not run the command \(exit 0\)$'
-! stdout '^ran$'
-stdout '^exit=1$'
-exec sh -c 'ls -A tmp | wc -l'
-stdout '^0$'
-
-# An unknown project and a missing command are usage errors.
-! exec stew exec web 'true'
-stderr '^stew: unknown project "web"$'
-exec sh -c 'stew exec 2>/dev/null; echo "exit=$?"'
-stdout '^exit=2$'
 
 -- .stew/config.toml --
 workspace_wrapper = 'wrap-ws "$STEW_ROOT" {{STEW_STEP}}'
@@ -79,8 +39,6 @@ project_wrapper = "wrap-lib {{STEW_STEP}}"
 [setup]
 run = "true"
 -- lib/src/.keep --
--- input.txt --
-hello from stdin
 -- bin/wrap-ws --
 #!/bin/sh
 export WS=yes WS_ARG="$1" WS_CWD="$(pwd)"
@@ -91,10 +49,3 @@ exec "$@"
 [ "$WS" = yes ] || exit 9
 export LIB=yes LIB_CWD="$(pwd)"
 exec "$@"
--- bin/wrap-none --
-#!/bin/sh
-exit 0
--- want/none.toml --
-workspace_wrapper = ""
--- want/broken.toml --
-workspace_wrapper = "wrap-none {{STEW_STEP}}"
