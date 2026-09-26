@@ -287,55 +287,37 @@ func TestExecTerminalTermSparesPipeline(t *testing.T) {
 	}
 }
 
-// A hangup reaches the command, and no more often under stew than when bash runs it directly. Two SIGHUPs that
-// arrive together merge into one, so the count under stew may be lower.
+// A hangup reaches the command once from each of its two sources, the kernel and bash, which passes it on to its
+// job before it exits. Two SIGHUPs that arrive together merge into one, so the command gets it once or twice, with
+// or without stew; a third would mean stew passed a SIGHUP on more than once.
 //
-// bash passes the hangup on to its job before it exits. After that only stew may still pass a SIGHUP on, so a
-// SIGTERM passed through stew reaches hupcount after every SIGHUP, and the count is final once hupcount records the
-// SIGTERM. When stew exits instead, because a forking wrapper died of the hangup, nothing passes signals any more
-// and hupcount gets the SIGTERM directly.
+// After bash exits only stew may still pass a SIGHUP on, so a SIGTERM passed through stew reaches hupcount after every
+// SIGHUP, and the count is final once hupcount records the SIGTERM. When stew exits instead, because a forking wrapper
+// died of the hangup, nothing passes signals any more and hupcount gets the SIGTERM directly.
 func TestExecTerminalHangup(t *testing.T) {
-	commands := map[string]string{
+	t.Parallel()
+	for name, command := range map[string]string{
 		"direct":  `hupcount hups`,
 		"plain":   `stew exec "hupcount hups"`,
 		"wrapped": `stew exec lib "hupcount hups"`,
-	}
-	var mu sync.Mutex
-	hups := map[string]int{}
-	t.Run("count", func(t *testing.T) {
-		for name, command := range commands {
-			t.Run(name, func(t *testing.T) {
-				t.Parallel()
-				s := newShellSession(t)
-				s.send(`sh -c 'echo $$ > last-passer; exec ` + command + `'` + "\n")
-				s.expect(`hupcount ready`)
-				s.master.Close()
-				s.bash.Wait()
-				passer := s.pid("last-passer")
-				syscall.Kill(passer, syscall.SIGTERM)
-				s.waitForFile("hups.done", func() {
-					if exited(passer) {
-						syscall.Kill(s.pid("hups.pid"), syscall.SIGTERM)
-					}
-				})
-				n := s.lines("hups")
-				mu.Lock()
-				hups[name] = n
-				mu.Unlock()
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newShellSession(t)
+			s.send(`sh -c 'echo $$ > last-passer; exec ` + command + `'` + "\n")
+			s.expect(`hupcount ready`)
+			s.master.Close()
+			s.bash.Wait()
+			passer := s.pid("last-passer")
+			syscall.Kill(passer, syscall.SIGTERM)
+			s.waitForFile("hups.done", func() {
+				if exited(passer) {
+					syscall.Kill(s.pid("hups.pid"), syscall.SIGTERM)
+				}
 			})
-		}
-	})
-	if t.Failed() {
-		return
+			if n := s.lines("hups"); n < 1 || n > 2 {
+				t.Errorf("command got SIGHUP %d times, want 1 or 2", n)
+			}
+		})
 	}
-	if len(hups) != len(commands) {
-		t.Skip("a terminal session was skipped")
-	}
-	direct := hups["direct"]
-	for _, name := range []string{"plain", "wrapped"} {
-		if got := hups[name]; got < 1 || got > direct {
-			t.Errorf("%s: command got SIGHUP %d times under stew, %d times directly; want 1 to %d", name, got, direct, direct)
-		}
-	}
-	t.Logf("SIGHUPs on hangup: %d", direct)
 }
