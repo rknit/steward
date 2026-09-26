@@ -20,24 +20,24 @@ stdout '^exit=2$'
 workspace_wrapper = ""
 -- .stew/projects.toml --
 this is not valid toml [
--- .stew/runs/tmp/core-setup.log --
+-- .stew/runs/tmp/core:setup.log --
 not a run
 -- .stew/runs/notes --
 not a run
--- .stew/runs/20261399T000000Z-0006/core-setup.log --
+-- .stew/runs/20261399T000000Z-0006/core:setup.log --
 bad date
--- .stew/runs/20260101T000000Z-0000/core-setup.stdout --
+-- .stew/runs/20260101T000000Z-0000/core:setup.stdout --
 old run without a manifest
 -- .stew/runs/20260101T000001Z-0001/run.json --
-{"argv":["ci","--level","pre-commit"],"columns":["setup","build","ci.pre-commit"],"projects":["core"],"phases":[{"project":"core","phase":"setup","used":"setup","status":"skip","duration_ms":104}]}
+{"argv":["ci","--level","pre-commit"],"columns":["setup","build","ci.pre-commit"],"projects":["core"],"sections":[{"project":"core","section":"setup","status":"skip","duration_ms":104}]}
 -- .stew/runs/20260101T000002Z-0002/run.json --
-{"argv":["build"],"columns":["setup"],"projects":["core"],"phases":[{"project":"core","phase":"setup","used":"setup","status":"great"}]}
+{"argv":["build"],"columns":["setup"],"projects":["core"],"sections":[{"project":"core","section":"setup","status":"great"}]}
 -- .stew/runs/20260102T000000Z-0003/run.json --
-{"argv":["ci","core"],"columns":["setup","build","ci.full"],"projects":["core"],"phases":[{"project":"core","phase":"setup","used":"setup","status":"done","duration_ms":400},{"project":"core","phase":"build","used":"build","status":"skip","duration_ms":0},{"project":"core","phase":"ci.full","used":"ci.full","status":"pass","duration_ms":8000}],"total_ms":8400}
+{"argv":["ci","core"],"columns":["setup","build","ci.full"],"projects":["core"],"sections":[{"project":"core","section":"setup","status":"done","duration_ms":400},{"project":"core","section":"build","status":"skip","duration_ms":0},{"project":"core","section":"ci.full","status":"done","duration_ms":8000}],"total_ms":8400}
 -- .stew/runs/20260102T000100Z-0004/run.json --
-{"argv":["build","my app"],"columns":["setup","build"],"projects":["core","api"],"phases":[{"project":"core","phase":"setup","used":"setup","status":"fail","duration_ms":2000,"cause":"exit 1"},{"project":"api","phase":"setup","used":"setup","status":"blocked","blocked_by":["core"]}],"total_ms":75004}
+{"argv":["build","my app"],"columns":["setup","build"],"projects":["core","api"],"sections":[{"project":"core","section":"setup","status":"fail","duration_ms":2000,"cause":"exit 1"},{"project":"api","section":"setup","status":"blocked","blocked_by":["core:setup"]}],"total_ms":75004}
 -- .stew/runs/20260102T000200Z-0005/run.json --
-{"argv":["build","a\tb"],"columns":["setup","build"],"projects":["core"],"phases":[{"project":"core","phase":"setup","used":"setup","status":"fail","duration_ms":100,"cause":"exit 1"},{"project":"core","phase":"build","used":"build","status":"interrupted","cause":"signal SIGINT"}],"total_ms":1200}
+{"argv":["build","a\tb"],"columns":["setup","build"],"projects":["core"],"sections":[{"project":"core","section":"setup","status":"fail","duration_ms":100,"cause":"exit 1"},{"project":"core","section":"build","status":"interrupted","cause":"signal SIGINT"}],"total_ms":1200}
 -- want/table --
 ┌─────────────────────┬───────────────────────┬─────────────┬───────┬────────────────────────────┐
 │ started             │ run                   │ result      │ total │ command                    │

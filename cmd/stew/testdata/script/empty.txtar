@@ -1,8 +1,8 @@
-# A fresh workspace with no projects runs cleanly and prints a header-only table.
+# A fresh workspace with no projects has no sections, so every pattern matches nothing: exit 2 and no run.
 exec stew init
-exec stew build
-stdout '^│ project │ setup │ build │$'
-! stdout '==>'
-stdout '^total: '
-exec stew ci
-stdout '^│ project │ setup │ build │ ci\.full │$'
+! exec stew build
+stderr '^stew: pattern "\.\*:build" matches no section$'
+! stdout .
+! exec stew ci
+stderr '^stew: pattern "\.\*:ci\\\.full" matches no section$'
+! exists .stew/runs

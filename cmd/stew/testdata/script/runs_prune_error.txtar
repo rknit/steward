@@ -14,7 +14,7 @@ exists .stew/runs/20000101T000000Z-0000/sub
 workspace_wrapper = ""
 -- .stew/projects.toml --
 projects = []
--- .stew/runs/20000101T000000Z-0000/core-setup.log --
+-- .stew/runs/20000101T000000Z-0000/core:setup.log --
 x
--- .stew/runs/20000102T000000Z-0001/core-setup.log --
+-- .stew/runs/20000102T000000Z-0001/core:setup.log --
 x

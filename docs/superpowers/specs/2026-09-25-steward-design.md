@@ -8,9 +8,15 @@ Status: draft, pending review
 `stew` is a small monorepo orchestrator written in Go.
 It runs setup, build, and CI for explicitly registered subprojects.
 
-- Stack-agnostic. The only contract is the `stew.toml` interface: shell commands per phase.
+- Stack-agnostic. The only contract is the `stew.toml` interface: shell commands per section.
 - Explicit. No auto-discovery. Projects exist only after `stew add`.
-- Predictable. Required sections, strict validation, deterministic order, no implicit behavior.
+- Predictable. Strict validation, deterministic order, no implicit behavior.
+
+## Terms
+
+- **Section.** A table in `stew.toml` with commands.
+- **Key.** `<project>:<section>`, e.g. `my.lib:ci.full`. Project names cannot contain `:`, so a key splits
+  at its only `:`. The same key is used in `requires`, patterns, log file names, `STEW_TAG`, and `blocked_by`.
 
 ## CLI
 
@@ -19,17 +25,19 @@ stew init
 stew add <path> [-a/--alias <name>]
 stew remove <name>... [--clean]
 stew list [--porcelain]
-stew setup [name...]
-stew build [name...]
-stew ci [name...] [-l/--level full|quick|pre-commit|pre-push]
+stew run <regex>...
+stew setup [project...]
+stew build [project...]
+stew ci [project...] [-l/--level <name>]
 stew git install pre-commit|pre-push
-stew runs show <run-id> [<project-phase-regex>...] [--porcelain] [--no-pager]
+stew runs show <run-id> [<project:section-regex>...] [--porcelain] [--no-pager]
 stew runs list [--porcelain] [--no-pager]
 stew runs prune [--keep-since <time>] [--keep-last-n <n>]
 ```
 
 - Projects are referenced only by `name`. Only `stew add` takes a path.
-- No names means all registered projects.
+- `stew run` requires at least one regex. `setup`, `build`, and `ci` are aliases over `stew run` (see Aliases);
+  with no project named, each runs its section in every project that defines it.
 - Flags may appear before or after names.
 
 ## Root Discovery
@@ -50,12 +58,12 @@ stew runs prune [--keep-since <time>] [--keep-last-n <n>]
     runs/                  # ignored; per-run command logs
       20260925T043601Z-3f9a/
         run.json
-        core-setup.log
-        core-setup.stdout
-        core-setup.stderr
-        core-build.log
-        core-build.stdout
-        core-build.stderr
+        core:setup.log
+        core:setup.stdout
+        core:setup.stderr
+        core:build.log
+        core:build.stdout
+        core:build.stderr
   libs/core/stew.toml
   services/api/stew.toml
 ```
@@ -105,62 +113,59 @@ Written by `stew init`. Stew never rewrites it and does not check it on load.
 
 ### `.stew/runs/` (Run Logs)
 
-Every `setup`, `build`, or `ci` invocation is one run. Each run captures all command output to disk.
+Every `stew run` invocation, including through `setup`, `build`, or `ci`, is one run.
+Each run captures all command output to disk.
 
-- **Run directory.** `.stew/runs/<run-id>/`, created after validation and before the first phase.
+- **Run directory.** `.stew/runs/<run-id>/`, created after validation and before the first section.
   `.stew/runs/` itself is created on demand.
 - **Run ID.** `<UTC time>-<4 random hex>`, e.g. `20260925T043601Z-3f9a`. IDs sort by start time.
   The directory is created with `os.Mkdir`. If it already exists, a new random suffix is drawn.
 - **Lock.** From creation until it exits, stew holds an exclusive `flock` on the run directory.
   The kernel drops it when stew exits or dies, so an unlocked run is finished or crashed. Commands do not inherit it.
   After locking, stew checks the directory is still the one it made. If a concurrent `stew runs prune` removed
-  or locked it first, stew draws a new suffix. Any other lock failure exits 1 before any phase runs,
+  or locked it first, stew draws a new suffix. Any other lock failure exits 1 before any section runs,
   as when the directory cannot be created.
-- **Files.** `<project>-<phase>.stdout`, `<project>-<phase>.stderr`, and `<project>-<phase>.log`,
-  e.g. `api-build.stderr`. `<project>-<phase>` is the phase's key.
-  - One run directory holds a triple for every project-phase the run executed.
-    Because phases are cumulative, `stew ci api` writes `core-setup`, `core-build`, `api-setup`, `api-build`,
-    and `api-ci.<level>` triples into the same directory.
-  - For CI, `<phase>` is the level that ran after fallback, e.g. `api-ci.quick.stdout`.
+- **Files.** `<key>.stdout`, `<key>.stderr`, and `<key>.log`, where `<key>` is `<project>:<section>`,
+  e.g. `api:build.stderr`.
+  - One run directory holds a triple for every section the run executed.
   - `.log` holds stdout and stderr combined, in the order stew received the writes, with no stream tags.
     It holds the same bytes as the live failure replay; order across the two streams is approximate.
     A mutex keeps each write whole.
-  - A phase that runs at least one command gets all three files, even if some stay empty.
-    They are created together. If one cannot be created, the phase does not start.
-  - A phase that runs no command (`skip` with both commands `""`, or `blocked`) gets no files.
-  - Each step in a phase appends to the same files, in step order. That includes a pre-run `verify`.
+  - A section that runs at least one command gets all three files, even if some stay empty.
+    They are created together. If one cannot be created, the section does not start.
+  - A section that runs no command (`skip` with `run` and `verify` both `""`, or `blocked`) gets no files.
+    A `skip` reached through `skip_if` exit 0 did run a command, so it gets files.
+  - Each step in a section appends to the same files, in step order. That includes a failed `skip_if`.
 - **Step markers.** Before each step's output, stew writes one line to all three files:
-  `--- stew: <step>: <cmd>`, where `<step>` is `verify`, `run`, or `verify after run`.
+  `--- stew: <step>: <cmd>`, where `<step>` is `skip_if`, `run`, or `verify`.
 - **Manifest.** `run.json` records the run for `stew runs show` (see Run Manifest).
 - **Location in output.** After the summary and total, stew prints `logs: .stew/runs/<run-id>` (root-relative).
 - **Log errors.** No command runs without a complete log.
-  - Run directory cannot be created: the command exits 1 before any phase runs.
-  - A phase's log files cannot be created: that phase does not start.
+  - Run directory cannot be created: the command exits 1 before any section runs.
+  - A section's log files cannot be created: that section does not start.
   - A write to a log file (output or step marker) fails while a command runs: stew stops the command
     (SIGTERM to its process group, then SIGKILL after 5 s).
-  - In both phase cases, the phase reports `fail` with last line `(log error: <error>)` in its content area.
-    It is handled like any other `fail`: the project stops, its dependents are `blocked`,
-    and independent projects keep running.
+  - In both section cases, the section reports `fail` with last line `(log error: <error>)` in its content area.
+    It is handled like any other `fail`: sections that require it, transitively, become `blocked`,
+    and other sections keep running.
 - **Retention.** Runs are never deleted automatically. `stew runs prune` deletes them on request.
 
 ### Run Manifest (`run.json`)
 
 ```json
 {
-  "argv": ["ci", "--level", "pre-commit"],
+  "argv": ["run", "api:build", "core:typecheck"],
   "workspace_wrapper": "tool exec . {{STEW_STEP}}",
   "project_wrapper": {"api": "other-tool run {{STEW_STEP}}"},
-  "columns": ["setup", "build", "ci.pre-commit"],
-  "projects": ["core", "api", "web"],
-  "phases": [
-    {"project": "core", "phase": "setup", "used": "setup", "status": "skip", "duration_ms": 104},
-    {"project": "core", "phase": "build", "used": "build", "status": "skip", "duration_ms": 31},
-    {"project": "core", "phase": "ci.pre-commit", "used": "ci.quick", "status": "pass", "duration_ms": 8210},
-    {"project": "api", "phase": "setup", "used": "setup", "status": "skip", "duration_ms": 95},
-    {"project": "api", "phase": "build", "used": "build", "status": "fail", "duration_ms": 63012, "cause": "exit 1"},
-    {"project": "web", "phase": "setup", "used": "setup", "status": "blocked", "blocked_by": ["api"]}
+  "columns": ["setup", "build", "typecheck"],
+  "projects": ["core", "api"],
+  "sections": [
+    {"project": "core", "section": "setup", "status": "fail", "duration_ms": 2700, "cause": "exit 2"},
+    {"project": "core", "section": "build", "status": "blocked", "blocked_by": ["core:setup"]},
+    {"project": "api", "section": "build", "status": "blocked", "blocked_by": ["core:build"]},
+    {"project": "core", "section": "typecheck", "status": "done", "duration_ms": 400}
   ],
-  "total_ms": 75004
+  "total_ms": 3100
 }
 ```
 
@@ -171,25 +176,29 @@ Every `setup`, `build`, or `ci` invocation is one run. Each run captures all com
 | `project_wrapper`   | Non-empty project wrappers as written, by project name. Absent when none.      |
 | `columns`           | Summary columns, as in the live summary.                                       |
 | `projects`          | Selected projects in execution order: the summary rows.                        |
-| `phases`            | Phases that ended or were blocked, in execution order.                         |
-| `phase`, `used`     | Requested and actual phase name. They differ only on CI fallback.              |
-| `duration_ms`       | Phase duration in milliseconds. Absent on `blocked` and `interrupted`.         |
+| `sections`          | Sections that ended or were blocked, in execution order.                       |
+| `section`           | The section name; with `project`, the key.                                    |
+| `duration_ms`       | Section duration in milliseconds. Absent on `blocked` and `interrupted`.       |
 | `cause`             | Content area last line without parentheses. Only on `fail` and `interrupted`.  |
-| `blocked_by`        | Direct dependencies that failed or were blocked. Only on `blocked`.            |
+| `blocked_by`        | Direct requirements that failed or were blocked, in execution order. Only on `blocked`. |
 | `total_ms`          | Run wall time in milliseconds. Present only once the run has finished.         |
 
 - JSON via `encoding/json`. The file is machine-written only.
+- Readers reject anything stew never writes: an unknown status, a project or column that is not a valid name,
+  a section outside `projects` or `columns`, a negative duration or `total_ms`, a `project_wrapper` entry for a
+  project outside `projects`, or a `blocked_by` entry that is not a key.
+  `stew runs show` then fails with `read run <id>: invalid run.json: <reason>`.
 - Every save rewrites the whole file from memory: a temp file in the run directory, then rename.
   A failed save is repaired by the next successful one.
-- Saves happen at run start, after each phase ends or is blocked, and at run end.
-- A phase that started but has no entry has a `.log` whose key is missing from `phases`.
-  Execution is sequential, so at most one exists, unless phase-end saves failed. Several are sorted by key.
+- Saves happen at run start, after each section ends or is blocked, and at run end.
+- A section that started but has no entry has a `.log` whose key is missing from `sections`.
+  Execution is sequential, so at most one exists, unless section-end saves failed. Several are sorted by key.
 - Save errors follow the log error rules:
 
   | Save fails at | Effect                                                                                    |
   | ------------- | ----------------------------------------------------------------------------------------- |
-  | Run start     | Exit 1 before any phase runs, like a run directory that cannot be created.               |
-  | Phase end     | The phase becomes `fail` with last line `(log error: <error>)`, unless it already is `fail` or `interrupted`. Dependents are `blocked`; independent projects keep running. The record is kept as that `fail`; the next successful save includes it. |
+  | Run start     | Exit 1 before any section runs, like a run directory that cannot be created.             |
+  | Section end   | The section becomes `fail` with last line `(log error: <error>)`, unless it already is `fail` or `interrupted`. Sections that require it, transitively, become `blocked`; other sections keep running. The record is kept as that `fail`; the next successful save includes it. |
   | Blocked       | Nothing else changes. The next successful save includes it.                              |
   | Run end       | `stew: log error: <error>` on stderr. Exit 1 if the exit code would otherwise be 0.      |
 
@@ -197,48 +206,71 @@ Every `setup`, `build`, or `ci` invocation is one run. Each run captures all com
 
 ```toml
 name = "api"
-dependencies = ["core"]
 project_wrapper = ""
 
 [setup]
+skip_if = "test -d node_modules"
 run = "npm ci"
-verify = "test -d node_modules"
 
 [build]
 run = "npm run build"
 verify = "test -f dist/index.js"
+requires = ["api:setup", "core:build"]
 
 [ci.full]
 run = "npm test"
+requires = ["api:build"]
 
 [ci.quick]
 run = "npm run lint"
+requires = ["api:build"]
 
 [ci.pre-commit]
-run = "npm run lint -- --cache"
-
-[ci.pre-push]
-run = "npm run test:e2e"
+run = ""
+requires = ["api:ci.quick"]
 ```
 
 | Key / section     | Required | Rule                                                            |
 | ----------------- | -------- | --------------------------------------------------------------- |
 | `name`            | yes      | Unique across the workspace. Must match `[a-z0-9][a-z0-9._-]*`. |
-| `dependencies`    | yes      | List of other projects' `name`s. `[]` for none.                 |
 | `project_wrapper` | yes      | String. `""` means no wrapper. Nested inside the workspace one. |
-| `[setup]`         | yes      | Keys `run` and `verify`, both required.                         |
-| `[build]`         | yes      | Keys `run` and `verify`, both required.                         |
-| `[ci.full]`       | yes      | Key `run` required.                                             |
-| `[ci.quick]`      | no       | Key `run` required if the section exists.                       |
-| `[ci.pre-commit]` | no       | Key `run` required if the section exists.                       |
-| `[ci.pre-push]`   | no       | Key `run` required if the section exists.                       |
+| any other table   | no       | A section. A project may have zero sections.                    |
+| `run`             | yes      | String. `""` allowed.                                           |
+| `skip_if`         | no       | String. Absent and `""` both mean none.                         |
+| `verify`          | no       | String. Absent and `""` both mean none.                         |
+| `requires`        | no       | List of keys. Absent means `[]`.                                |
 
-- Required keys must be present. Their value may be `""`.
-- Sections are forced so that an empty command is always a deliberate choice.
-- `[ci.*]` sections accept only `run`. A `verify` key there is an unknown key.
-- Any unknown key, unknown section, or unknown CI level is rejected.
-- `project_wrapper` gets the same wrapper checks as `workspace_wrapper` (see `.stew/config.toml`).
-  The error names the project's `stew.toml` and `project_wrapper`.
+- `dependencies` is not a `stew.toml` key. Project dependencies are derived from `requires` (see `stew list`).
+- No section name is special. `setup`, `build`, and `ci.full` are not required, and a project may have none.
+- Errors inside a section name the section: `<file>: [build]: missing key "run"`, `<file>: [build]: unknown key "foo"`.
+
+#### Section Names
+
+- A dotted TOML table is a dotted name: `[ci.full]` is section `ci.full`.
+- A table is a section when it holds any of `run`, `skip_if`, `verify`, `requires`.
+  Otherwise it is a namespace and must hold only tables.
+- A table cannot be both. `[ci]` with `run`, plus `[ci.full]`, is an error:
+  `<file>: [ci]: a section cannot contain sections`.
+- A namespace with a non-table key is an unknown key, named by its dotted path: `<file>: unknown key "ci.foo"`.
+- An empty table (`[lint]` with no keys) is a namespace with nothing in it, so it defines no section.
+- Each name segment must match `[a-z0-9][a-z0-9_-]*`. So a quoted key with a `.`, as in `["ci.full"]`, is rejected:
+  `<file>: invalid section name segment "ci.full" (want [a-z0-9][a-z0-9_-]*)`.
+- The full name is the segments joined by `.`.
+
+#### `requires` Checks
+
+At load, for every entry:
+
+- It must contain exactly one `:`: `<file>: [build]: requires "core": want <project>:<section>`.
+- Its project must exist: `... requires "core:build": unknown project "core"`.
+- Its section must exist in that project: `... requires "core:build": core has no section "build"`.
+- It must not name its own section: `... requires "api:build": section requires itself`.
+- No duplicates within one list: `... duplicate requires "core:build"`.
+
+Across the workspace, the node graph must have no cycle. The error prints the cycle by key:
+`cycle: api:build -> core:build -> api:build`. It is found with names visited in sorted order.
+
+A section may require another section of the same project. It must name the project: `api:setup`.
 
 ### `stew add` Template
 
@@ -246,27 +278,23 @@ For a new project, `stew add` writes this exact file, with `<name>` substituted:
 
 ```toml
 name = "<name>"
-dependencies = []
 # Wraps every command of this project, inside the workspace wrapper.
 # {{STEW_STEP}} marks where the command goes. "" means none.
 project_wrapper = ""
 
-# Each phase: `verify` runs first; exit 0 skips `run`.
-# Otherwise `run` runs, then `verify` confirms. Empty strings are no-ops.
-[setup]
-run = ""
-verify = ""
-
-[build]
-run = ""
-verify = ""
-
-# Levels: pre-commit falls back to quick; quick and pre-push fall back to full.
-[ci.full]
-run = ""
+# Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose
+# <project>:<section> key matches; `stew build` is `stew run '.*:build'`.
+# skip_if exit 0 skips the section. verify runs after run and must exit 0.
+# requires lists sections that must succeed first, as "<project>:<section>".
+#
+# [build]
+# run = ""
+# skip_if = ""
+# verify = ""
+# requires = []
 ```
 
-The template is valid on creation and does nothing until filled in.
+The template defines no section. It is valid on creation and does nothing until filled in.
 
 ## Validation
 
@@ -278,11 +306,11 @@ Checks:
 - `.stew/projects.toml` parses; paths are valid and unique.
 - `.stew/config.toml` parses; `workspace_wrapper` passes the wrapper checks (placeholder count and `sh -n`).
 - Every registered path contains a `stew.toml`.
-- Every `stew.toml` parses with no unknown keys and has all required sections and keys;
+- Every `stew.toml` parses with no unknown keys, valid section names, and no section that is also a namespace;
   `project_wrapper` passes the wrapper checks.
 - Every `name` is valid and unique.
-- Every dependency names an existing project and is not the project itself.
-- The dependency graph has no cycle. The error prints the cycle, e.g. `cycle: a -> b -> c -> a`.
+- Every `requires` entry passes the `requires` checks above.
+- The section graph, over keys, has no cycle. The error prints the cycle, e.g. `cycle: a:build -> b:build -> a:build`.
 
 ## Commands
 
@@ -302,8 +330,10 @@ Checks:
 4. If `<path>/stew.toml` already exists, use it unchanged:
    - It must parse and validate like any `stew.toml`.
    - The name is its `name`. Reject if `--alias` is given and differs.
-   - Reject if a dependency is the project itself or is not registered (`add it first`).
-     Projects are therefore added in dependency order, and no cycle can form.
+   - Every `requires` entry must name a registered project (`add it first`) and a section that project defines.
+     An entry naming the project itself is checked against its own sections, which must have no cycle:
+     `<path>/stew.toml: cycle: self:build -> self:setup -> self:build`.
+     Projects are therefore added in `requires` order across projects.
 5. Otherwise, the name is `--alias` if given, otherwise the directory's basename.
    For the root itself (`"."`), the basename of the root directory. Reject an invalid name (the error suggests `-a`).
 6. Reject if the name is already used by another project.
@@ -317,7 +347,8 @@ Checks:
 ### `stew list [--porcelain]`
 
 Prints every registered project, sorted by name, in a bordered table like the Summary.
-Dependencies are sorted and comma-separated, or `-` when there are none.
+The dependencies column is derived: the other projects named in any `requires` of the project, sorted
+and comma-separated, or `-` when there are none.
 
 ```
 ┌─────────┬──────────────┬──────────────┐
@@ -331,14 +362,15 @@ Dependencies are sorted and comma-separated, or `-` when there are none.
 
 - An empty workspace prints `no projects (add one with: stew add <path>)`.
 - `--porcelain` prints one line per project for scripts: `<name>\t<path>\t<dep>,<dep>`.
-  No header, no borders. An empty workspace prints nothing.
+  No header, no borders. An empty workspace prints nothing. `--porcelain` uses the same derived list.
 
 ### `stew remove <name>... [--clean]`
 
 1. Find the root and load the workspace. An invalid workspace is an error (exit 2).
 2. Reject before changing anything if:
    - a name is unknown: `unknown project "<name>"` (exit 2);
-   - a project that is not removed depends on a removed one (exit 1). One line per blocked project:
+   - a project that is not removed has a `requires` naming a removed one (exit 1). "Needed by" is derived the
+     same way as `stew list`'s dependencies column. One line per blocked project:
      `stew: cannot remove core: needed by api, web`.
      Removing a project together with all its dependents is allowed.
 3. Remove the paths from `.stew/projects.toml` (sorted, atomic write).
@@ -353,54 +385,61 @@ Dependencies are sorted and comma-separated, or `-` when there are none.
 - A project whose `stew.toml` is missing cannot be removed by name, because the workspace does not load.
   Edit `.stew/projects.toml` by hand.
 
-### `stew setup | build | ci`
+### `stew run <regex>...`
 
-Phases are cumulative.
+- At least one regex. Each is Go RE2 and must match a whole key, as in `stew runs show`.
+- Every regex must match at least one defined section. Otherwise exit 2 before anything runs:
+  `pattern "web:build" matches no section`. The pattern prints as given, between plain double quotes.
+- An invalid regex is exit 2 with the regex error.
+- Selected: every matched section, plus its `requires`, transitively.
 
-| Command                | Dependencies (transitive) get | Named projects get         |
-| ---------------------- | ----------------------------- | -------------------------- |
-| `stew setup [name...]` | setup                         | setup                      |
-| `stew build [name...]` | setup → build                 | setup → build              |
-| `stew ci [name...]`    | setup → build                 | setup → build → ci.<level> |
+### Aliases
 
-- Selection: the named projects plus all their transitive dependencies. No names selects all projects.
-- With no names, every project is "named", so `stew ci` runs CI for every project.
-- An unknown name is an error (exit 2) before anything runs.
-- Order: topological by dependencies. Ties are broken by name, so the order is identical on every run.
-- Execution is sequential and project by project.
-  A project runs all its phases before the next project starts.
+| Alias                                    | Runs                                                        |
+| ----------------------------------------- | ----------------------------------------------------------- |
+| `stew setup [project...]`                | `stew run '<project>:setup'...`, or `'.*:setup'` with none. |
+| `stew build [project...]`                | Same with `build`.                                           |
+| `stew ci [project...] [-l <level>]`      | Same with `ci.<level>`. `--level` defaults to `full`.        |
 
-### CI Levels
+- Project names and the section name are regex-quoted, so `my.lib` matches only `my.lib`.
+- A named project without the section fails its pattern: `pattern "web:build" matches no section` (exit 2).
+- An unknown project name keeps its own error: `unknown project "web"` (exit 2).
+- With no project named, the alias is `stew run '.*:<section>'`: it runs in every project that defines the
+  section, and a project that does not define it is simply not selected. If no project in the workspace defines
+  the section at all, that single pattern matches nothing, so the alias exits 2 like `stew run`:
+  `pattern ".*:build" matches no section`. This is why `stew build` in a fresh, empty workspace exits 2.
+- `--level` takes any name that makes `ci.<level>` a valid section name. There is no fallback chain and
+  no fixed level list. `stew ci -l lint` runs `ci.lint`. `stew ci -l 'a b'` is exit 2: `invalid CI level "a b"`.
+- `run.json` `argv` records the command as typed, e.g. `["ci", "--level", "pre-commit"]`.
+- Git hooks run `stew ci --level pre-commit|pre-push` (see `stew git install`). In a workspace where no project
+  defines that section, the hook fails with exit 2.
 
-- `--level` defaults to `full`.
-- Resolution chains: `pre-commit → quick → full` and `pre-push → full`.
-  A requested level that the project does not define falls back to the next level in its chain.
-- `full` always exists, so resolution always succeeds.
-- When a fallback is used, the phase header and summary show it (see Output).
+### Order and Execution
 
-## Phase Algorithm
+- Order: topological over selected sections (Kahn). Among ready sections, the smallest project name goes first,
+  then the smallest section name. The order is identical on every run.
+- Execution is sequential, one section at a time.
 
-Applies to `setup` and `build`. A CI level is the same with `verify` treated as `""`.
+## Section Algorithm
+
 Stew never invokes `sh -c ""`.
 
-| `run` | `verify` | Steps                   | Result                      |
-| ----- | -------- | ----------------------- | --------------------------- |
-| `""`  | `""`     | nothing                 | `skip`                      |
-| set   | `""`     | run `run`               | exit 0: `done`; else `fail` |
-| set   | set      | run `verify`            | exit 0: `skip`              |
-|       |          | else run `run`          | non-zero: `fail`            |
-|       |          | then run `verify` again | exit 0: `done`; else `fail` |
-| `""`  | set      | run `verify` once       | exit 0: `skip`; else `fail` |
+| Step      | When       | Result                                     |
+| --------- | ---------- | ------------------------------------------- |
+| `skip_if` | not `""`   | exit 0: `skip`. Non-zero: continue.         |
+| `run`     | not `""`   | Non-zero: `fail`.                           |
+| `verify`  | not `""`   | Non-zero: `fail`.                           |
+| end       |            | `run` or `verify` ran: `done`. Else `skip`. |
 
-- The last row makes `verify` with an empty `run` an assertion.
-- For CI levels, `done` is reported as `pass`. A CI level with `run = ""` reports `skip`, never `pass`.
+- A failed `skip_if` means "not done yet". Its output is not replayed.
+- A wrapper failure in `skip_if` fails the section.
+- `run = ""` with `verify` set runs `verify` once. It is an assertion.
+- `run = ""` with only `skip_if` set gives `skip` either way: nothing is left to run.
+- A section that runs no command gets no log files, as in Run Logs.
 
 ### Status Words
 
-| Phase            | Words                                            |
-| ---------------- | ------------------------------------------------ |
-| `setup`, `build` | `done`, `skip`, `fail`, `blocked`, `interrupted` |
-| `ci.<level>`     | `pass`, `skip`, `fail`, `blocked`, `interrupted` |
+Every section: `done`, `skip`, `fail`, `blocked`, `interrupted`.
 
 ### Command Execution
 
@@ -415,13 +454,13 @@ Stew never invokes `sh -c ""`.
   | `STEW_RUN_ID`  | run ID, as in `.stew/runs/<run-id>/`                             |
   | `STEW_ROOT`    | absolute workspace root                                          |
   | `STEW_PROJECT` | project name                                                     |
-  | `STEW_PHASE`   | phase that runs, after CI fallback: `setup`, `build`, `ci.quick` |
-  | `STEW_TAG`     | `<project>.<phase>`, e.g. `core.ci.quick`                        |
+  | `STEW_SECTION` | section name, e.g. `ci.quick`                                    |
+  | `STEW_TAG`     | the key, `<project>:<section>`, e.g. `core:ci.quick`             |
 
-  `STEW_TAG` is a label, not something to parse: project names may contain `.`.
+  `STEW_TAG` is parseable at its only `:`, since project names cannot contain `:`.
 - Nothing streams live. Each command's output goes to two places:
-  - stdout to the phase's `.stdout` log file, stderr to its `.stderr` log file;
-  - both, in write order, to one in-memory buffer per phase, which is replayed on failure.
+  - stdout to the section's `.stdout` log file, stderr to its `.stderr` log file;
+  - both, in write order, to one in-memory buffer per section, which is replayed on failure.
 - stdin is `/dev/null`. Output is hidden while a command runs, so an interactive prompt would hang unseen.
 - Each command runs in its own session and process group, with no controlling terminal.
   Stew can signal the command and everything it started, and a command that opens `/dev/tty` fails at once
@@ -447,7 +486,7 @@ project's commands, inside the workspace wrapper. A level whose wrapper is `""` 
 - stew knows no environment tool and special-cases none.
 - The user writes where the command goes. stew appends nothing and adds no options, variables, or shell settings
   to the wrapper. Anything like quieter logs or `set -e` is the user's to write.
-- A wrapper that does not run the command exactly once fails the phase. A command never passes without running.
+- A wrapper that does not run the command exactly once fails the section. A command never passes without running.
 
 Examples of the shape (not a supported-tools list):
 
@@ -463,8 +502,8 @@ Examples of the shape (not a supported-tools list):
 - The path starts with `/`, so a tool that parses options never reads it as an option.
 - The wrapper runs with cwd set to the project directory, like commands.
 - It is shell code: `$STEW_*`, `$HOME`, and other variables expand.
-- It applies to every step of every phase: `setup`, `build`, `ci.*`, `run` and `verify`.
-- The wrapper also runs `setup`'s commands, so it must work before `setup` has run.
+- It applies to every step of every section: `skip_if`, `run`, and `verify`.
+- No section is special, so the wrapper must work for any section that might run first.
 - It keeps normal `sh` meaning. `<tool> ; {{STEW_STEP}}` runs the command even when `<tool>` fails.
   Use `&&`, or `set -e;`, to stop on failure.
 
@@ -473,17 +512,17 @@ Examples of the shape (not a supported-tools list):
 With at least one wrapper, stew writes executables for each step into the step directory.
 For a project with both wrappers:
 
-| File                     | Content                                                                                  |
-| ------------------------ | ---------------------------------------------------------------------------------------- |
-| `<project>-<phase>.1`    | `#!/bin/sh`, then `project_wrapper` with `{{STEW_STEP}}` replaced by the `.step` path    |
-| `<project>-<phase>.step` | `#!/bin/sh`, then: count one reach, export every `STEW_*`, run `sh -c <cmd>`,            |
-|                          | write its exit status to `<project>-<phase>.status`, and exit with that status           |
+| File                       | Content                                                                                  |
+| -------------------------- | ---------------------------------------------------------------------------------------- |
+| `<project>-<section>.1`    | `#!/bin/sh`, then `project_wrapper` with `{{STEW_STEP}}` replaced by the `.step` path    |
+| `<project>-<section>.step` | `#!/bin/sh`, then: count one reach, export every `STEW_*`, run `sh -c <cmd>`,            |
+|                            | write its exit status to `<project>-<section>.status`, and exit with that status         |
 
 Then it runs `sh -c <workspace_wrapper with {{STEW_STEP}} replaced by the .1 path>`.
 With one wrapper, there is no `.1` file. stew runs `sh -c <that wrapper>`, with `{{STEW_STEP}}` replaced by
 the `.step` path.
 
-- `<project>-<phase>` is the phase's key, as in the log file names.
+- `<project>-<section>` is a `:`-free rendering of the section's key (see Step Directory), not the run log names.
 - `STEW_*` are in the environment of the whole chain, so a wrapper can read them.
 - The step script sets them again, so no wrapper can change what the command sees.
   Their values are shell-quoted inside the script, so any value is safe.
@@ -502,8 +541,10 @@ the `.step` path.
 - Created at run start, before the run directory, only when a project in the run has a workspace or project
   wrapper. It is a new `stew-*` directory in `$TMPDIR` (made absolute), or in `/tmp` when `TMPDIR` is unset.
 - Its full path must match `[A-Za-z0-9/._-]+`, so no file in it ever needs quoting, however many times a tool
-  parses it. Otherwise the run exits 1 before any phase:
+  parses it. Otherwise the run exits 1 before any section:
   `cannot create step directory: <path> needs shell quoting; set TMPDIR to a path of letters, digits, and /._-`.
+  Its files use a `:`-free rendering of each section's key, since a key can contain `:`. Two keys can map to the
+  same name (`a-b:c`, `a:b-c`), which is harmless: steps run one at a time, and a step's files are removed after it.
 - It sits outside the workspace, so a workspace path with spaces or quotes never reaches a wrapper.
 - Any failure to create it exits 1 with `cannot create step directory: <error>`, before any run directory exists.
 - The temp directory must allow executing files. On a `noexec` mount, every wrapped step fails with
@@ -512,8 +553,8 @@ the `.step` path.
 
 #### Reach Count
 
-The step script appends one line to `<project>-<phase>.reach` in the step directory each time it runs.
-When the command finishes, the step script writes the command's exit status to `<project>-<phase>.status`.
+The step script appends one line to `<project>-<section>.reach` in the step directory each time it runs.
+When the command finishes, the step script writes the command's exit status to `<project>-<section>.status`.
 
 - stew removes the step's `.reach` and `.status` files before every step, and all the step's files after it.
 - After a wrapped step exits, stew counts the lines and reads the status.
@@ -528,8 +569,8 @@ When the command finishes, the step script writes the command's exit status to `
 
 - The command's status wins both ways. `{{STEW_STEP}} || true` and `{{STEW_STEP}}; echo post` fail when the command
   fails. `{{STEW_STEP}}; false` passes when the command passes.
-- A wrapper failure (a reach count other than 1, or no status) fails the phase for every step, including a pre-run
-  `verify`. A wrapper failure is not "not done yet".
+- A wrapper failure (a reach count other than 1, or no status) fails the section for every step, including a
+  failed `skip_if`. A wrapper failure is not "not done yet".
 - Precedence: an interrupt gives `interrupted`, and a log error gives `log error: …`, before the reach check.
   An interrupt may stop the step script before the command finishes. The cause is then
   `wrapper exited before the command finished (signal S)`.
@@ -555,14 +596,21 @@ None of the guards change what the wrapper does. They only check the input or th
 - Step markers are `--- stew: <step>: <cmd>`. The wrapper is not repeated per step.
 - Wrapper output goes into the step's logs and replay like any other output. stew does not filter or silence it.
 
-### Failure Handling
+### Failure and Blocking
 
-- A project stops at its first phase that ends `fail`, `blocked`, or `interrupted`.
-  Its later phases do not run, print no line, and show `-` in the summary.
-- A project whose direct dependency failed or was blocked is `blocked` at its first phase (`setup`).
-  Blocking spreads to transitive dependents one hop at a time.
-- Independent projects keep running.
-- After the run, the summary is printed and the exit code is 1.
+- A section is `blocked` when any section it requires failed or was blocked.
+- Blocking follows `requires` edges only. Other sections of the same project keep running.
+- Nothing below a failure runs. Output is pruned: only sections that directly require a failed section print a
+  line.
+  - Line: `==> <project>: <section> ... blocked by <key>, <key>`, at its place in the order. It lists the direct
+    requirements that failed, in execution order.
+  - A blocked section whose failed-or-blocked requirements are all blocked prints nothing.
+- The summary still shows `blocked` for every blocked section, printed or not.
+- `run.json` records every blocked section. Its `blocked_by` lists all direct requirements that failed or were
+  blocked, in execution order. `stew runs show` without regexes applies the same pruning rule from the recorded
+  statuses. With regexes, every matched blocked section prints its line, listing its whole `blocked_by`, so a
+  section asked for by name is never hidden.
+- After the run, the summary is printed. The exit code is 1 when any section failed or was blocked.
 
 ### Interrupt
 
@@ -572,45 +620,48 @@ None of the guards change what the wrapper does. They only check the input or th
 - On SIGTERM or SIGHUP (CI cancel, `timeout`, closed terminal) stew forwards that signal to the group,
   then sends SIGKILL after 5 s if the command is still running. It starts nothing new.
 - A second stop signal (Ctrl-C, SIGTERM, or SIGHUP) while stew waits sends SIGKILL to the command's group at once.
-- The phase in progress reports `interrupted`, followed by its content area (see Output).
+- The section in progress reports `interrupted`, followed by its content area (see Output).
 - Stew then prints the summary and exits 128 + the first signal's number: 130 (SIGINT), 143 (SIGTERM), 129 (SIGHUP).
 
 ## Output
 
 All output goes to stdout, except configuration and usage errors, which go to stderr.
 
-### Phase Lines
+### Section Lines
 
-One line per phase, and nothing else on it: `==> <project>: <phase> ... <status>`,
-plus ` (<duration>)` when the status is `done`, `pass`, `skip`, or `fail`.
+One line per section, and nothing else on it: `==> <project>: <section> ... <status>`,
+plus ` (<duration>)` when the status is `done`, `skip`, or `fail`.
 Exit codes, failing steps, and command output go in the content area below a `fail` or `interrupted` line.
 
-Example 1, success: `stew ci api --level pre-commit`, where `api` depends on `core`.
+Example 1, success: `stew ci api`, where `api:setup` requires `core:build`.
 
 ```
 ==> core: setup ... skip (0.1s)
 ==> core: build ... skip (0.0s)
 ==> api: setup ... done (12.4s)
 ==> api: build ... done (1m3s)
-==> api: ci.pre-commit -> ci.quick ... pass (8.2s)
+==> api: ci.full ... done (8.2s)
 ```
 
-Example 2, failure: `stew build`, where `app` depends on `api` and `backend`,
-and `api` and `backend` depend on `core`.
+`core` runs only because `api`'s sections require it, so it gets no CI column entry.
+
+Example 2, failure: `stew run api:build core:typecheck`, where `core:build` requires `core:setup`,
+`api:build` requires `core:build`, and `core:typecheck` requires nothing.
 
 ```
 ==> core: setup ... fail (2.7s)
 --- stew: run: npm ci
 <captured output of core's setup run>
 (exit 2)
-==> api: setup ... blocked by core
-==> backend: setup ... blocked by core
-==> app: setup ... blocked by api, backend
+==> core: build ... blocked by core:setup
+==> core: typecheck ... done (0.4s)
 ```
 
-- **Fallback.** A CI level that falls back shows `<requested> -> <used>`, e.g. `ci.pre-commit -> ci.full`.
-- **Success.** `done`, `skip`, and `pass` print only the line. Command output is not shown.
-- **Duration.** Wall time of the whole phase, from its first step to its last, for profiling.
+`api:build` prints nothing. Its only requirement, `core:build`, is itself blocked, not failed, so the pruning
+rule (see Failure and Blocking) hides its line; its summary cell is still `blocked`.
+
+- **Success.** `done` and `skip` print only the line. Command output is not shown.
+- **Duration.** Wall time of the whole section, from its first step to its last, for profiling.
   - Under one minute: seconds with one decimal, e.g. `(0.0s)`, `(10.5s)`. Rounded to the nearest 0.1 s.
   - One minute or more: rounded to the nearest second, then `<m>m<s>s` or `<h>h<m>m<s>s`,
     with zero units kept after the largest: `(1m2s)`, `(1m0s)`, `(1h5m12s)`, `(1h0m0s)`.
@@ -619,57 +670,57 @@ and `api` and `backend` depend on `core`.
   - `blocked` and `interrupted` lines have no duration.
 - **Content area.** Printed only after a `fail` or `interrupted` line:
   - For each replayed step, a marker line `--- stew: <step>: <cmd>`, then that step's output verbatim.
-    `<step>` is `verify`, `run`, or `verify after run`, matching the log file markers.
-  - Replayed steps: every step of the phase except a pre-run `verify` that failed.
+    `<step>` is `skip_if`, `run`, or `verify`, matching the log file markers.
+  - Replayed steps: every step of the section except a failed `skip_if`.
     That failure only means "not done yet", so its output is noise.
   - A newline is added if the output does not end in one.
   - Last line: `(exit <n>)`, `(signal <name>)`, `(cannot start: <error>)`, or `(log error: <error>)`.
-- **Blocked.** A blocked project prints one line, for its first phase: `==> <project>: setup ... blocked by <names>`,
-  at the point in the order where it would have run. No animation. No content area.
-  - `<names>` lists only **direct** dependencies that failed or were blocked, in execution order.
-    Following `blocked by` names one hop at a time leads back to the failed project.
-  - `blocked by` names dependencies only. A project is never blocked by itself.
-- **Stopped projects.** After a `fail`, `blocked`, or `interrupted` line, that project prints nothing more.
+- **Blocked.** A blocked section that prints (see Failure and Blocking) prints one line, at the point in the
+  order where it would have run: `==> <project>: <section> ... blocked by <key>, <key>`. No animation.
+  No content area.
+  - `<key>, <key>` lists only its **direct** requirements that failed or were blocked, in execution order.
+    Following `blocked by` one hop at a time leads back to a failed section.
+  - `blocked by` never names the section itself.
+- **Stopped sections.** After a `fail`, `blocked`, or `interrupted` line, that section prints nothing more.
+  Other sections of the same project are unaffected unless they require it.
 
 ### Progress Animation
 
-- **Terminal (stdout is a TTY).** While a phase runs, the line ends in dots that cycle `.` → `..` → `...` → `.`,
+- **Terminal (stdout is a TTY).** While a section runs, the line ends in dots that cycle `.` → `..` → `...` → `.`,
   one frame every 300 ms, redrawn in place with `\r` and clear-to-end-of-line.
-  When the phase ends, the line is redrawn as `... <status> (<duration>)` followed by a newline.
+  When the section ends, the line is redrawn as `... <status> (<duration>)` followed by a newline.
   (`interrupted` has no duration, in both modes.)
-- **Not a terminal (CI logs, pipes).** Stew writes `==> <project>: <phase> ... ` when the phase starts,
+- **Not a terminal (CI logs, pipes).** Stew writes `==> <project>: <section> ... ` when the section starts,
   and `<status> (<duration>)` plus a newline when it ends. No escape codes.
-  Long phases still show which phase is running.
+  Long sections still show which section is running.
 
 ### Summary
 
-A bordered table prints after every `setup`, `build`, or `ci` run. Rows follow execution order.
+A bordered table prints after every `stew run` (and every alias). Rows follow execution order.
 
-Example: `stew ci core api web --level pre-commit`, where `api` depends on `core` and `lib`,
-`web` depends on `api`, and `api`'s build fails.
+Example: `stew run 'web:e2e' 'api:test' 'docs:build' 'core:lint'`, where `api:build` requires `api:setup` and
+`core:build`, `api:build` fails, and everything that requires it, directly or transitively, is blocked.
 
 ```
-┌─────────┬─────────┬───────┬───────────────┐
-│ project │ setup   │ build │ ci.pre-commit │
-├─────────┼─────────┼───────┼───────────────┤
-│ core    │ skip    │ done  │ pass (quick)  │
-│ lib     │ skip    │ done  │ -             │
-│ api     │ done    │ fail  │ -             │
-│ web     │ blocked │ -     │ -             │
-└─────────┴─────────┴───────┴───────────────┘
-total: 1m15s
-logs: .stew/runs/20260925T043601Z-3f9a
+┌─────────┬───────┬──────┬─────────┬─────────┬─────────┬─────────┐
+│ project │ setup │ lint │ build   │ image   │ test    │ e2e     │
+├─────────┼───────┼──────┼─────────┼─────────┼─────────┼─────────┤
+│ api     │ done  │ -    │ fail    │ blocked │ blocked │ -       │
+│ core    │ done  │ done │ done    │ -       │ -       │ -       │
+│ docs    │ -     │ -    │ done    │ -       │ -       │ -       │
+│ web     │ -     │ -    │ blocked │ -       │ -       │ blocked │
+└─────────┴───────┴──────┴─────────┴─────────┴─────────┴─────────┘
+total: T
+logs: .stew/runs/ID
 ```
 
-- Columns are the phases the command runs. The CI column is named after the requested level.
-- Cells hold the status word, or `-` for a phase that did not run: not selected, after its project stopped,
-  or after an interrupt.
-- A dependency-only project under `stew ci` shows `-` in the CI column.
-- A CI cell that used a fallback names the level used, e.g. `pass (quick)`.
+- Rows are projects, in order of each project's first section in execution order.
+- Columns are sections, in order of first appearance in execution order.
+- Cells hold the status word, or `-` for a section that was not selected.
 - Borders use Unicode box-drawing characters. Column width is the widest cell plus one space of padding per side.
 - Two lines follow the table:
-  - `total: <duration>`: wall time from run directory creation to the end of the last phase,
-    in the phase duration format. Printed on every run, including failed and interrupted ones.
+  - `total: <duration>`: wall time from run directory creation to the end of the last section,
+    in the section duration format. Printed on every run, including failed and interrupted ones.
   - `logs: .stew/runs/<run-id>` (see Run Logs).
 
 ## Exit Codes
@@ -677,53 +728,49 @@ logs: .stew/runs/20260925T043601Z-3f9a
 | Code | Meaning                                                                                              |
 | ---- | ---------------------------------------------------------------------------------------------------- |
 | 0    | Success.                                                                                             |
-| 1    | A phase failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no match or an unreadable run; `runs list` could not read `.stew/runs/`; `runs prune` could not read `.stew/runs/` or delete a run. |
-| 2    | Invalid CLI usage or invalid workspace configuration.                                                |
+| 1    | A section failed or was blocked; `init`/`add`/`remove`/`git install` rejected; a git command failed; `runs show` found no matching section or an unreadable run; `runs list` could not read `.stew/runs/`; `runs prune` could not read `.stew/runs/` or delete a run. |
+| 2    | Invalid CLI usage, an invalid or unmatched pattern, or invalid workspace configuration.               |
 | 130  | Interrupted by Ctrl-C (SIGINT). SIGTERM exits 143 and SIGHUP exits 129.                              |
 
-## `stew runs show <run-id> [<project-phase-regex>...] [--porcelain] [--no-pager]`
+## `stew runs show <run-id> [<project:section-regex>...] [--porcelain] [--no-pager]`
 
 Shows a past or running run from its logs.
 
 - Root discovery only. The workspace is not loaded or validated, so logs stay readable while a `stew.toml` is broken.
 - `<run-id>` is an exact run ID or `latest`, the ID that sorts last in `.stew/runs/`.
 - Selection:
-  - Each regex is Go RE2 and must match the whole phase key `<project>-<phase>`, e.g. `api-build`, `api-.*`,
-    `.*-ci\..*`. `api` does not match `webapi-build`.
-  - `<phase>` is the level used after fallback (`ci.quick`), as in the log file names.
-  - Several regexes are OR-ed. No regex selects every phase of the run.
+  - Each regex is Go RE2 and must match the whole key `<project>:<section>`, e.g. `api:build`, `.*:ci\..*`.
+    `api` does not match `webapi:build`.
+  - Several regexes are OR-ed. No regex selects every section of the run.
 - Errors:
 
-  | Case                                  | Message                    | Exit |
-  | ------------------------------------- | -------------------------- | ---- |
-  | Unknown run ID, or `latest` with none | `unknown run "<id>"`       | 2    |
-  | Invalid regex                         | the regex error            | 2    |
-  | Regexes given, no phase matches       | `no phase matches`         | 1    |
-  | No `run.json`                         | `run <id> has no run.json` | 1    |
-  | `run.json` unreadable or invalid      | `read run <id>: <error>`   | 1    |
+  | Case                                   | Message                    | Exit |
+  | --------------------------------------- | -------------------------- | ---- |
+  | Unknown run ID, or `latest` with none   | `unknown run "<id>"`       | 2    |
+  | Invalid regex                           | the regex error            | 2    |
+  | Regexes given, no section matches       | `no section matches`       | 1    |
+  | No `run.json`                           | `run <id> has no run.json` | 1    |
+  | `run.json` unreadable or invalid        | `read run <id>: <error>`   | 1    |
 
-  Runs recorded before `run.json` existed have no fallback reader.
+  A run recorded before sections existed has no `sections` field; that loads as empty, so it shows only its
+  header and a summary whose cells are all `-` (see Files).
 
 ### Default Output
 
 The live plain format, without animation, plus a header line and one `wrapper` line per wrapper the run had.
-Example: `stew runs show latest` for the run in Run Manifest, where `api` depends on `core` and `web` on `api`.
+Example: `stew runs show latest` for `stew ci api`, where `api:setup` requires `core:build`.
 
 ```
-run 20260925T043601Z-3f9a: stew ci --level pre-commit
+run 20260925T043601Z-3f9a: stew ci api
 wrapper: tool exec . {{STEW_STEP}}
 wrapper api: other-tool run {{STEW_STEP}}
 ==> core: setup ... skip (0.1s)
---- stew: verify: test -d node_modules
+--- stew: skip_if: test -d node_modules
 ==> core: build ... skip (0.0s)
---- stew: verify: test -f dist/index.js
-==> core: ci.pre-commit -> ci.quick ... pass (8.2s)
---- stew: run: npm run lint
-lint ok
-==> api: setup ... skip (0.1s)
---- stew: verify: test -d node_modules
+--- stew: skip_if: test -f dist/index.js
+==> api: setup ... done (12.4s)
+--- stew: run: npm ci
 ==> api: build ... fail (1m3s)
---- stew: verify: test -f dist/index.js
 --- stew: run: npm run build
 
 > api@1.0.0 build
@@ -732,16 +779,14 @@ lint ok
 src/db.ts(12,5): error TS2322: Type 'string' is not assignable to type 'number'.
 src/api.ts(40,1): error TS2304: Cannot find name 'handler'.
 done in 4.1s
---- stew: verify after run: test -f dist/index.js
 (exit 1)
-==> web: setup ... blocked by api
-┌─────────┬─────────┬───────┬───────────────┐
-│ project │ setup   │ build │ ci.pre-commit │
-├─────────┼─────────┼───────┼───────────────┤
-│ core    │ skip    │ skip  │ pass (quick)  │
-│ api     │ skip    │ fail  │ -             │
-│ web     │ blocked │ -     │ -             │
-└─────────┴─────────┴───────┴───────────────┘
+==> api: ci.full ... blocked by api:build
+┌─────────┬───────┬───────┬─────────┐
+│ project │ setup │ build │ ci.full │
+├─────────┼───────┼───────┼─────────┤
+│ core    │ skip  │ skip  │ -       │
+│ api     │ done  │ fail  │ blocked │
+└─────────┴───────┴───────┴─────────┘
 total: 1m15s
 logs: .stew/runs/20260925T043601Z-3f9a
 ```
@@ -753,19 +798,18 @@ logs: .stew/runs/20260925T043601Z-3f9a
   - Then `wrapper <project>: <project_wrapper>` for each project in `project_wrapper`, in `projects` order.
   - A wrapper prints verbatim, unless it has a control character (e.g. a newline) or invalid UTF-8.
     Then it uses the header's `$'…'` quoting, so each wrapper stays on one line.
-- **Order.** Matched phases in execution order, from `run.json`.
-- **Phase line.** Identical to the live line, including `<requested> -> <used>` and `blocked by <names>`.
-- **Body.** Every phase that ran a command prints its whole `.log` verbatim, markers included.
-  - This includes `done`, `skip`, and `pass` phases, and a failed pre-run `verify`.
+- **Order.** Matched sections in execution order, from `run.json`.
+- **Section line.** Identical to the live line, including `blocked by <key>, <key>`. There is no `-> <used>` form.
+- **Body.** Every section that ran a command prints its whole `.log` verbatim, markers included.
+  - This includes `done` and `skip` sections, and a section whose `skip_if` failed.
   - A newline is added if the log does not end in one.
 - **Last line.** `(<cause>)` after `fail` and `interrupted`, as in the live output.
-- **No command.** `blocked` and a `skip` with both commands `""` print the line only.
+- **No command.** `blocked` and a `skip` with `run` and `verify` both `""` print the line only.
 - **Summary.** The summary table, `total:`, and `logs:` lines print only when no regex is given.
 - **Unfinished run** (still running, or stew was killed):
-  - A phase without an entry prints `==> <project>: <phase> ... unfinished`, then its partial `.log`.
-    No duration, no last line. Such phases print after all phases in `run.json`.
-  - Its project and used phase come from the `.log` name. A used `ci.*` level maps to the CI column in `columns`,
-    which gives the requested name for the phase line and summary cell.
+  - A section without an entry prints `==> <project>: <section> ... unfinished`, then its partial `.log`.
+    No duration, no last line. Such sections print after all sections in `run.json`.
+  - Its project and section come from the `.log` name, split at the colon.
   - Its summary cell is `unfinished`. The `total:` line is `total: unfinished`.
   - Stew cannot tell a running run from a killed one, so both use the same word.
 - **Stream order.** stdout and stderr share one body in arrival order. Order within one stream is exact.
@@ -774,15 +818,15 @@ logs: .stew/runs/20260925T043601Z-3f9a
 
 ### `--porcelain`
 
-One line per matched phase, in execution order, and nothing else:
+One line per matched section, in execution order, and nothing else:
 
 ```
-<project>\t<phase>\t<status>\t<duration-ms>\t<log-path>
+<project>\t<section>\t<status>\t<duration-ms>\t<log-path>
 ```
 
-- `<phase>` is the level used. `<status>` is a status word or `unfinished`.
+- `<status>` is a status word or `unfinished`.
 - `<duration-ms>` is `-` when there is no duration.
-- `<log-path>` is root-relative, e.g. `.stew/runs/<id>/api-build.log`, or `-` when the phase has no log.
+- `<log-path>` is root-relative, e.g. `.stew/runs/<id>/api:build.log`, or `-` when the section has no log.
 - Never paged.
 
 ### Paging
@@ -822,11 +866,11 @@ Lists every run, newest first.
   | ------------- | ---------------------------------------------------------------- |
   | `unreadable`  | `run.json` is missing, invalid, or cannot be read                |
   | `unfinished`  | no `total_ms`: the run is still going or stew was killed         |
-  | `interrupted` | a phase is `interrupted`                                         |
-  | `fail`        | a phase is `fail` or `blocked`                                   |
+  | `interrupted` | a section is `interrupted`                                       |
+  | `fail`        | a section is `fail` or `blocked`                                 |
   | `ok`          | otherwise                                                        |
 
-- **Total.** `total_ms` in the phase duration format, or `-`.
+- **Total.** `total_ms` in the section duration format, or `-`.
 - **Command.** `stew <argv>`, quoted as in the `stew runs show` header, or `-` for an unreadable run.
 - An unreadable run still gets a row and exits 0. `stew runs show <id>` names the error.
 - No runs prints `no runs`.
@@ -881,7 +925,8 @@ Deletes the runs that no keep rule keeps. A run in progress is never deleted.
 
 ## `stew git install <hook>`
 
-`<hook>` is `pre-commit` or `pre-push`. The hook runs the CI level of the same name.
+`<hook>` is `pre-commit` or `pre-push`. The hook runs `stew ci --level <hook>`.
+In a workspace where no project defines `ci.<hook>`, the hook fails with exit 2 (see Aliases).
 
 1. Find the root. The workspace is not validated.
 2. Find the hooks directory with `git rev-parse --git-path hooks`, run from the root.
@@ -906,6 +951,8 @@ Deletes the runs that no keep rule keeps. A run in progress is never deleted.
 
 ```
 cmd/stew/            main: cobra commands, error → exit code mapping
+  run.go             `run` and the `setup`/`build`/`ci` aliases: one shared code path
+  plan.go            builds a runner.Plan from the sections Select(patterns) returns
   runs.go            `runs show` and `runs list`: run lookup, regex selection, result, porcelain lines
   prune.go           `runs prune`: keep flags, --keep-since parsing, output
   pager.go           pager choice, LESS default, direct-output fallback, broken-pipe handling
@@ -914,20 +961,23 @@ internal/workspace/
   registry.go        load/save .stew/projects.toml
   config.go          load .stew/config.toml: strict parse, workspace_wrapper
   wrapper.go         wrapper checks: placeholder count, `sh -n` syntax check
-  project.go         stew.toml schema, strict parse, required-key checks, project_wrapper, add template
-  graph.go           name index, dependency validation, cycle detection, Select(names) → plan
-internal/runner/     plan execution: phase algorithm, level resolution, blocked propagation, results
+  project.go         stew.toml schema, section names, strict parse, project_wrapper, add template
+  key.go             Key (`<project>:<section>`), parsing and comparison
+  graph.go           the graph over keys: requires validation, cycle detection, Select(patterns) → nodes
+internal/runner/     plan execution: section algorithm, per-section blocked propagation, results
   steps.go           {{STEW_STEP}}, the step directory, step scripts, reach counts and statuses
   orphans_*.go       Linux child subreaper; a no-op elsewhere
-internal/report/     phase lines, progress animation, failure replay, summary table, `runs show` page
-internal/runlog/     run ID, run directory and its lock, per-phase log files and step markers, run.json save/load
+internal/report/     section lines, progress animation, failure replay, summary table, `runs show` page
+internal/runlog/     run ID, run directory and its lock, per-section log files and step markers, run.json save/load
 internal/githook/    hooks-dir lookup via git, hook install
 ```
 
 - `workspace` knows nothing about running commands. Its only process is `sh -n` for the wrapper checks.
-- `runner` knows nothing about TOML or terminals. It receives a plan: ordered projects, each with its phases and
-  commands. It emits events to a `Reporter` interface: phase start,
-  phase end (status, cause, duration, captured output), project blocked, and the final results.
+  Derived project dependencies (for `list` and `remove`) come from one helper over each project's
+  `requires`.
+- `runner` knows nothing about TOML or terminals. It receives a `Plan`: an ordered list of sections, each with
+  its key, directory, wrappers, commands, and direct requirements. It emits events to a `Reporter` interface:
+  section start, section end (status, cause, duration, captured output), section blocked, and the final results.
 - `runner` measures durations with an injected clock (real: `time.Now`, monotonic), so tests control them.
   `report` formats them.
 - `runner` runs commands through an `Executor` interface: `Run(ctx, dir, env, argv []string, stdout, stderr) Result`.
@@ -939,23 +989,24 @@ internal/githook/    hooks-dir lookup via git, hook install
 - `runner` prepares and checks wrapped steps through a `Steps` interface: `Prepare(key, wrappers, env, cmd)` writes
   the step's files and returns the argv, and `Collect(key)` returns the reach count and, when the command
   finished, its exit status, then removes the files.
-  `runner.StepDir` implements it. `cmd/stew` creates one per run only when a project in the run has a workspace
+  `runner.StepDir` implements it. `cmd/stew` creates one per run only when a section in the run has a workspace
   or project wrapper, and removes it when the run ends.
-- `runner` builds each writer as a tee: log file plus the phase's combined replay buffer.
+- `runner` builds each writer as a tee: log file plus the section's combined replay buffer.
   The combined buffer is guarded by a mutex, because `os/exec` copies stdout and stderr on separate goroutines.
-- `runlog` gives `runner` a writer pair per phase. `runner` does not know log file paths.
-  Each writer also writes to the phase's `.log`, so `runner` is unaware of the combined file.
-- `runner` records results through a `Recorder` interface: `PhaseEnd(project, ph, out) error` and
-  `Blocked(project, ph, by) error`. Each is called before the matching `Reporter` event,
-  so a `PhaseEnd` save error can still turn the phase into `fail`. `runlog` implements it by saving `run.json`.
-- `runlog` also provides `Load(stewDir, id)` and `Latest(stewDir)`, and finds the unfinished phase from `.log` names.
+- `runlog` gives `runner` a writer pair per section. `runner` does not know log file paths.
+  Each writer also writes to the section's `.log`, so `runner` is unaware of the combined file.
+- `runner` records results through a `Recorder` interface: `SectionEnd(s Section, out Outcome) error` and
+  `Blocked(s Section, by []string) error`. Each is called before the matching `Reporter` event,
+  so a `SectionEnd` save error can still turn the section into `fail`. `runlog` implements it by saving `run.json`.
+- `runlog` also provides `Load(stewDir, id)` and `Latest(stewDir)`, and finds the unfinished section from `.log`
+  names, splitting each name at its `:`.
 - `runlog.Retention` picks the runs to delete from their IDs alone. `runlog.Delete` removes one run while holding
   its lock, and returns `ErrRunning` for a run in progress.
-- `report` builds the `runs show` page from a loaded run. It reuses the phase-line, duration, and summary helpers,
+- `report` builds the `runs show` page from a loaded run. It reuses the section-line, duration, and summary helpers,
   and rebuilds the summary from `run.json`.
 - The pager's TTY check and environment are injected, so tests can drive it.
 - A log write error cancels the command's context. The real `Executor` then signals the command's process group
-  (SIGTERM, SIGKILL after 5 s). The phase then fails like any other.
+  (SIGTERM, SIGKILL after 5 s). The section then fails like any other.
 - `report` has two `Reporter` implementations: TTY (animated) and plain. `cmd/stew` picks one by checking whether
   stdout is a terminal. The animation takes its ticker as a parameter, so tests can drive frames.
 
@@ -976,13 +1027,15 @@ internal/githook/    hooks-dir lookup via git, hook install
 ### Unit: `workspace`
 
 - Parse and validate, table-driven:
-  - each required section and key missing;
-  - `""` values accepted;
-  - unknown key, unknown section, unknown CI level, `verify` inside `[ci.*]`;
-  - invalid name, duplicate name, unknown dependency, self-dependency;
+  - dotted names, namespace vs. section, segment rules, a table that is both a namespace and a section;
+  - `run` missing; `""` values accepted;
+  - unknown key;
+  - invalid name, duplicate name;
+  - every `requires` check: bad shape, unknown project, unknown section, self-reference, duplicate;
   - cycle, with the cycle path in the message.
 - Registry: round trip, sorting, invalid and duplicate paths.
-- Selection: transitive dependencies, deterministic topological order with name tie-break, unknown name.
+- Selection: regex full match, no-match error, transitive `requires`, deterministic topological order with
+  project-then-section tie-break, unknown project.
 - `config.toml`: missing file; missing key; unknown key; wrong type; `""` accepted.
 - Placeholder count: 0 and 2 are rejected with file, key, and count. A placeholder inside quotes counts.
 - Syntax check: an unbalanced quote and a dangling `if` are rejected with file and key.
@@ -993,36 +1046,39 @@ internal/githook/    hooks-dir lookup via git, hook install
 
 ### Unit: plan
 
-- A project gets the workspace wrapper, then its own. Empty ones are dropped.
+- A section gets the workspace wrapper, then its project's own. Empty ones are dropped.
 
 ### Unit: `runner`
 
-- Every row of the phase algorithm table, including a failing `verify` after `run` and a failing assertion `verify`.
+- Every row of the section algorithm table, including a failing `verify` after a passing `run` and a failing
+  assertion `verify` (`run = ""`, `verify` set).
 - No executor call is ever made with an empty command.
-- Phase duration spans all steps of the phase (fake clock).
-- Level resolution for every combination of defined levels.
-- Cumulative phases per command.
-- Blocked propagation: transitive dependents blocked at `setup` only, independent projects still run.
-- Captured output passed on failure excludes a failed pre-run `verify` and includes every later step.
-- Every step of a phase gets the same `STEW_*` variables; `STEW_PHASE` is the phase used after CI fallback.
-- Blocked names list only direct dependencies that failed or were blocked, in execution order.
-  Case: `app -> {api, backend} -> core` with `core` failing gives `api`/`backend` blocked by `core`,
-  and `app` blocked by `api, backend`.
-- After `fail`, `blocked`, or `interrupted`, that project's later phases do not run, emit no line, and show `-`.
+- Section duration spans all its steps (fake clock).
+- Blocked propagation: transitive requirers blocked one hop at a time, other sections still run.
+- Captured output passed on failure excludes a failed `skip_if` and includes every later step.
+- Every step of a section gets the same `STEW_*` variables, including `STEW_SECTION` and the colon-joined
+  `STEW_TAG`.
+- Blocked keys list only direct requirements that failed or were blocked, in execution order.
+  Case: `app:build` requires `api:build` and `backend:build`, both requiring `core:build`. With `core:build`
+  failing, `api:build`/`backend:build` are blocked by `core:build`, and `app:build` by `api:build, backend:build`.
+- A blocked section whose failed-or-blocked requirements are all blocked reports `blocked` (for the summary
+  and `run.json`) without a printed line.
+- After `fail`, `blocked`, or `interrupted`, that section emits no further line; other sections of the same
+  project are unaffected unless they require it.
 - Log errors:
   - run directory creation failure: exit 1, no executor call;
-  - log file creation failure: the phase never calls the executor and reports `fail` with `(log error: ...)`;
-  - log write failure mid-command: the command's context is cancelled and the phase reports `fail`;
-  - in both phase cases, dependents are `blocked` and independent projects still run.
+  - log file creation failure: the section never calls the executor and reports `fail` with `(log error: ...)`;
+  - log write failure mid-command: the command's context is cancelled and the section reports `fail`;
+  - in both section cases, sections that require it, transitively, are `blocked` and other sections still run.
 - Final results and exit status.
 - `Recorder`:
-  - called in execution order for phase end and blocked, and not called for phases after an interrupt;
-  - a `PhaseEnd` error turns `done`, `skip`, or `pass` into `fail` with `(log error: ...)`;
-    dependents are `blocked` and independent projects still run;
-  - a `PhaseEnd` error never overrides `fail` or `interrupted`.
+  - called in execution order for section end and blocked, and not called for sections after an interrupt;
+  - a `SectionEnd` error turns `done` or `skip` into `fail` with `(log error: ...)`;
+    sections that require it, transitively, become `blocked`, and other sections keep running;
+  - a `SectionEnd` error never overrides `fail` or `interrupted`.
 - Wrappers:
   - no wrapper: the argv is exactly `sh -c <cmd>`, and no step file is written;
-  - with wrappers: `Prepare` gets the job's wrappers in order, outermost first;
+  - with wrappers: `Prepare` gets the section's wrappers in order, outermost first;
   - with two wrappers: the argv is `sh -c <outer wrapper with the .1 path>`, and the `.1` script is the inner wrapper
     with the `.step` path; the wrapper text is otherwise unchanged, and both scripts are mode `0700`;
   - with the real `sh`: the command runs and its exit status is recorded; `STEW_*` survive a wrapper that overwrites
@@ -1030,27 +1086,28 @@ internal/githook/    hooks-dir lookup via git, hook install
     `sh -c` parses again works; a loop runs the command twice and is caught; `{{STEW_STEP}} || true` and
     `{{STEW_STEP}}; echo post` record the failing status; `{{STEW_STEP}}; false` records 0; a backgrounded
     command has no status when the wrapper exits, and it is stopped; a command killed by SIGTERM records 143;
-  - reach count 0 or 2, or no status → `fail` with the matching cause, for `run`, pre-run `verify`, and
-    `verify after run`; a command that ran once and fails has a plain `exit N` cause, whatever the wrapper exits;
+  - reach count 0 or 2, or no status → `fail` with the matching cause, for `skip_if`, `run`, and `verify`;
+    a command that ran once and fails has a plain `exit N` cause, whatever the wrapper exits;
   - reach problem plus an interrupt → `interrupted`; reach problem plus a log error → `log error`;
   - a reach that cannot be counted: the step script exits 125 and the command does not run;
   - a stale `.reach` or `.status` is removed before the step; an unreadable status is a log error;
   - step files are removed after each step, even when reading the reach fails or `Prepare` fails partway,
     and removing one step's files leaves another step's files alone;
   - step directory: a `TMPDIR` that needs quoting is rejected; the created path matches the plain pattern;
-    step keys differ per phase.
+    step keys differ per section.
 
 ### Unit: `runlog`
 
 - Run ID format and sort order; retry with a new suffix when the directory already exists.
-- File names, including CI fallback level; both files created; step markers in both files; append order.
+- File names, colon-joined per key; both files created; step markers in both files; append order.
 - Creation and write errors are returned to the caller, never swallowed.
 - `.log`: markers once per step; both streams in write order; created with the pair or not at all.
 - `run.json`: round trip; atomic save leaves no temp file; `total_ms` only after the run-end save;
   a file without `workspace_wrapper` loads it as `""`; `project_wrapper` saved as a map, and absent when nil;
   a `project_wrapper` name not in `projects` is invalid.
 - `Latest` over several IDs; unknown ID; missing `run.json`; invalid JSON.
-- Unfinished phase: a `.log` without an entry is found; none when all logs have entries.
+- Unfinished section: a `.log` without an entry is found, its project and section split from the name at `:`;
+  none when all logs have entries; a `.log` name without `:` (a run from before sections) is never unfinished.
 - A created run is locked until `Close`; a second lock on its directory fails with `ErrRunning`.
 - `Retention.Expired`: `LastN` alone, `LastN` 0, `Since` alone including its boundary and an invalid-date ID,
   both rules as a union, no rule.
@@ -1059,18 +1116,18 @@ internal/githook/    hooks-dir lookup via git, hook install
 
 ### Unit: `report`
 
-- Plain reporter: exact bytes for every status word, fallback lines, and blocked lines.
-- Phase lines never contain anything after the status word, except ` (<duration>)` or ` by <names>`.
+- Plain reporter: exact bytes for every status word and blocked lines.
+- Section lines never contain anything after the status word, except ` (<duration>)` or ` by <key>, <key>`.
 - Duration format, table-driven: 0 → `0.0s`, 49 ms → `0.0s`, 10.46 s → `10.5s`, 59.94 s → `59.9s`,
   59.96 s → `1m0s`, 62.4 s → `1m2s`, 3600 s → `1h0m0s`, 3912 s → `1h5m12s`.
-- Duration appears on `done`, `pass`, `skip`, `fail`; never on `blocked` or `interrupted`.
+- Duration appears on `done`, `skip`, `fail`; never on `blocked` or `interrupted`.
 - Content area: step markers, missing trailing newline added, last line for exit, signal, and start error.
 - TTY reporter: a fake ticker drives frames `.` → `..` → `...` → `.`; the final redraw clears the line.
-- Summary: exact bytes for the example above, including `total:` and `logs:` lines; column widths, `-` cells,
-  fallback cells.
+- Summary: exact bytes for the worked example above, including `total:` and `logs:` lines; column widths and
+  `-` cells; a blocked section that prints has the same cell as one that does not.
 - `runs show` page: exact bytes for the Default Output example; body without a trailing newline;
-  argv shell quoting; unfinished phase, `unfinished` cell, and `total: unfinished`; no summary when regexes are given;
-  the `wrapper:` line, verbatim or `$'…'`-quoted, and absent when the wrapper is `""`;
+  argv shell quoting; unfinished section, `unfinished` cell, and `total: unfinished`; no summary when regexes are
+  given; the `wrapper:` line, verbatim or `$'…'`-quoted, and absent when the wrapper is `""`;
   `wrapper <project>:` lines after it, in the given order, verbatim or `$'…'`-quoted.
 
 ### Unit: pager
@@ -1085,18 +1142,24 @@ internal/githook/    hooks-dir lookup via git, hook install
 
 - `init`: creates the registry and `.gitignore`; rejects an existing `.stew`.
 - Run logs: a run with passing and failing commands writes every expected file with stdout and stderr separated;
-  phases that run no command have no files; the `logs:` line names the run directory.
+  sections that run no command have no files; the `logs:` line names the run directory.
 - In a git repo, `git status` does not show `.stew/runs/`.
 - Read-only `.stew/runs/`: `stew build` exits 1 and no project command runs (checked via a marker file).
 - `add`: writes the exact template; each rejection case; rollback when the registry write fails.
 - `add` with an existing `stew.toml`: registers it unchanged, named by its `name`; invalid file, `-a` mismatch,
-  self or unregistered dependency, and name clash are rejected; re-adding after `remove`; a failed registry write
-  keeps the file.
-- `list`: table and `--porcelain` output, sorted by name; empty workspace; invalid workspace.
-- `remove`: unregisters; dependents and unknown-name rejections change nothing; a dependency chain and the root
+  an unregistered `requires` project, a `requires` section the project does not define, a self cycle in the
+  project's own sections, and name clash are rejected; re-adding after `remove`; a failed registry write keeps
+  the file.
+- `list`: table and `--porcelain` output, sorted by name, with derived dependencies; empty workspace; invalid
+  workspace.
+- `remove`: unregisters; needed-by and unknown-name rejections change nothing; a `requires` chain and the root
   project removed together; `--clean`; registry write failure; `stew.toml` delete failure.
 - Walk-up discovery from a nested directory; the not-a-workspace error.
-- `build` creates a file via `run`; a second `build` reports `skip` via `verify`.
+- `stew run`: regex selection pulls in `requires` transitively; alias project-name quoting (`my.lib`); a pattern
+  that matches nothing exits 2 before anything runs (`pattern "web:build" matches no section`); an unknown
+  project name exits 2; an invalid regex exits 2; a custom `-l` level is just a section name; an empty workspace
+  exits 2 for every alias, including `stew build`.
+- `build` creates a file via `run`; a second `build` reports `skip` via `skip_if`.
 - Commands run with cwd set to the project directory.
 - A passing command's output does not appear; a failing command's output does.
 - stdin is `/dev/null`: a command that reads stdin gets EOF and does not hang.
@@ -1106,16 +1169,23 @@ internal/githook/    hooks-dir lookup via git, hook install
 - Runner unit tests: a leftover that ignores SIGTERM gets SIGKILL after the kill delay; a step with no leftovers
   adds no wait; on Linux, a stopped leftover adopted by stew is reaped at once instead of stalling the step.
 - Output under testscript is not a TTY, so it matches the plain format with no escape codes.
-- Cumulative phases and dependency selection with real `sh`.
+- Selection by `requires` and by regex across projects, with real `sh`.
 - Exit codes 0, 1, 2.
-- Run logs: `run.json` and a `.log` per phase exist after `build`.
-- A phase command that makes the run directory read-only: that phase reports `fail` with `(log error: ...)`, exit 1.
+- Run logs: `run.json` and a `.log` per section exist after `build`.
+- A section command that makes the run directory read-only: that section reports `fail` with `(log error: ...)`,
+  exit 1.
+- The worked blocking example (see Failure and Blocking): only sections that directly require a failure print a
+  line; a section whose requirements are all blocked prints nothing but still gets a `blocked` cell and
+  `run.json` record; `run.json` `blocked_by` lists every direct requirement that failed or was blocked.
 - `runs show`:
-  - `latest` and an exact ID after a failing `build`: phase lines, full bodies, summary;
-  - regex selection, several regexes OR-ed, whole-key matching (`api` does not match `webapi-build`);
+  - `latest` and an exact ID after a failing `build`: section lines, full bodies, summary;
+  - regex selection, several regexes OR-ed, whole-key matching (`api` does not match `webapi:build`);
   - `--porcelain` lines;
   - no match exits 1; invalid regex exits 2; unknown run exits 2; missing `run.json` exits 1;
+  - a blocked section asked for by name prints its line, listing its whole `blocked_by`, even when the pruned
+    default page would hide it;
   - works while a `stew.toml` is invalid;
+  - a run from before sections loads with an empty `sections` field and shows a summary of `-` cells;
   - output is not paged under testscript.
 - `runs prune`:
   - both rules as a union, oldest first; nothing to prune prints nothing; non-run entries untouched;
@@ -1132,15 +1202,16 @@ internal/githook/    hooks-dir lookup via git, hook install
   - `STEW_*` values are exact inside the command even when the wrapper overwrites them. The wrapper can read them.
   - Variable expansion: `"$STEW_ROOT"` in a wrapper.
   - A workspace whose path has a space and a `'`, with a wrapper that takes a command string: the command runs.
-  - A `TMPDIR` that needs quoting: exit 1 before any phase and before any run directory, with the step-directory error.
+  - A `TMPDIR` that needs quoting: exit 1 before any section and before any run directory, with the step-directory
+    error.
   - Wrapper stdout and stderr appear unchanged in the logs.
   - No step directory is left after a run, including after an interrupt, and no step file lands in the run directory.
-  - Every footgun fails the phase with `wrapper did not run the command (…)`, and the command does not run
+  - Every footgun fails the section with `wrapper did not run the command (…)`, and the command does not run
     (checked with a marker file): a placeholder in a comment, `echo {{STEW_STEP}}` (exit 0),
     `false && {{STEW_STEP}}`, and a missing tool (exit 127).
   - A loop runs the command twice: `wrapper ran the command 2 times (…)`.
   - `failing-tool ; {{STEW_STEP}}` semantics: the command runs, as `;` means in sh. Documented, not guarded.
-  - A pre-run `verify` whose wrapper fails → `fail`, and `run` does not run.
+  - A `skip_if` whose wrapper fails → `fail`, and `run` does not run.
   - A missing `config.toml`, no placeholder, two placeholders, a syntax error, or an unknown key → exit 2
     before anything runs. A wrapper ending in a newline is accepted and runs the command.
   - A wrapper that `exec`s and one that forks, each under Ctrl-C and SIGTERM: the command gets the signal,
@@ -1157,7 +1228,7 @@ internal/githook/    hooks-dir lookup via git, hook install
     A project without one gets only the workspace wrapper.
   - `STEW_*` values are exact inside the command even when the project wrapper overwrites them.
   - A project wrapper alone works without a workspace wrapper.
-    A project wrapper that never runs the command (`true # {{STEW_STEP}}`) fails the phase;
+    A project wrapper that never runs the command (`true # {{STEW_STEP}}`) fails the section;
     the command does not run.
   - A project wrapper `{{STEW_STEP}} || true` inside the workspace wrapper does not hide a failing command:
     `(exit 7)`.
@@ -1172,8 +1243,8 @@ internal/githook/    hooks-dir lookup via git, hook install
 - Install: hook content and mode `0755`; second install rejected; unsupported hook name rejected.
 - `git commit` runs `stew ci --level pre-commit`.
 - A failing CI command blocks the commit.
-- `git push` runs `stew ci --level pre-push`, falling back to `full`; a failing CI command blocks the push.
-- Fallback to `quick`/`full` works from the hook.
+- `git push` runs `stew ci --level pre-push`; a failing CI command blocks the push.
+- A workspace where no project defines `ci.pre-commit` (or `ci.pre-push`) fails the hook with exit 2.
 - The hook runs through the workspace wrapper, and the command gets the wrapper's environment.
 
 ### Gates

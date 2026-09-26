@@ -24,13 +24,12 @@ workspace_wrapper = ""
 projects = ["core"]
 -- core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "trap 'touch got-int' INT; trap '' TERM; touch started; i=0; while [ $i -lt 100 ]; do sleep 0.1; i=$((i+1)); done; touch survived"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]

@@ -1,22 +1,28 @@
 name = "steward"
-dependencies = []
 # Wraps every command of this project, inside the workspace wrapper.
 # {{STEW_STEP}} marks where the command goes. "" means none.
 project_wrapper = ""
 
-# Each phase: `verify` runs first; exit 0 skips `run`.
-# Otherwise `run` runs, then `verify` confirms. Empty strings are no-ops.
 [setup]
 run = "go mod tidy"
-verify = ""
 
 [build]
 run = "go build ./..."
-verify = ""
+requires = ["steward:setup"]
 
-# Levels: pre-commit falls back to quick; quick and pre-push fall back to full.
 [ci.full]
 run = "go test -race ./..."
+requires = ["steward:build"]
 
 [ci.quick]
 run = "go test ./..."
+requires = ["steward:build"]
+
+# The git hooks run these levels.
+[ci.pre-commit]
+run = ""
+requires = ["steward:ci.quick"]
+
+[ci.pre-push]
+run = ""
+requires = ["steward:ci.full"]

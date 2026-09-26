@@ -69,9 +69,10 @@ func newRootCmd(stdout io.Writer, argv []string) *cobra.Command {
 		newAddCmd(stdout),
 		newRemoveCmd(stdout),
 		newListCmd(stdout),
-		newPhaseCmd(stdout, argv, "setup", "Set up projects and their dependencies"),
-		newPhaseCmd(stdout, argv, "build", "Set up and build projects and their dependencies"),
-		newPhaseCmd(stdout, argv, "ci", "Set up and build dependencies, then run CI for projects"),
+		newRunCmd(stdout, argv),
+		newAliasCmd(stdout, argv, "setup", "Run the setup section of projects, after the sections it requires"),
+		newAliasCmd(stdout, argv, "build", "Run the build section of projects, after the sections it requires"),
+		newAliasCmd(stdout, argv, "ci", "Run the ci.<level> section of projects, after the sections it requires"),
 		newGitCmd(stdout),
 		newRunsCmd(stdout),
 	)

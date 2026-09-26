@@ -12,13 +12,12 @@ workspace_wrapper = ""
 projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = 'sleep 30 > /dev/null 2>&1 & echo $! > bg.pid'
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]

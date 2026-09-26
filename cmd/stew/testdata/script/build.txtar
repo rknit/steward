@@ -4,7 +4,7 @@ stdin $WORK/feed.txt
 exec sh -c 'stew build; echo "exit=$?"'
 cd $WORK
 
-# Phase lines in dependency order; plain format (not a TTY), no escape codes.
+# Section lines in execution order; plain format (not a TTY), no escape codes.
 stdout '^==> core: setup \.\.\. done \(\d+\.\ds\)$'
 stdout '^==> core: build \.\.\. done \(\d+\.\ds\)$'
 stdout '^==> api: setup \.\.\. skip \(\d+\.\ds\)$'
@@ -31,14 +31,14 @@ exists core/artifact
 exists core/stdin-got
 ! grep . core/stdin-got
 
-# One run dir with a stdout/stderr/log triple per phase that ran a command.
+# One run dir with a stdout/stderr/log triple per section that ran a command.
 exec sh -c 'cd .stew/runs/* && ls'
 cmp stdout want/files
-exec sh -c 'cat .stew/runs/*/api-build.stdout'
-cmp stdout want/api-build.stdout
-exec sh -c 'cat .stew/runs/*/api-build.stderr'
-cmp stdout want/api-build.stderr
-exec sh -c 'cat .stew/runs/*/api-build.log'
+exec sh -c 'cat .stew/runs/*/api:build.stdout'
+cmp stdout want/api:build.stdout
+exec sh -c 'cat .stew/runs/*/api:build.stderr'
+cmp stdout want/api:build.stderr
+exec sh -c 'cat .stew/runs/*/api:build.log'
 stdout '^--- stew: run: echo api-build-out; echo api-build-err >&2; exit 3$'
 stdout '^api-build-out$'
 stdout '^api-build-err$'
@@ -46,7 +46,7 @@ exec sh -c 'cat .stew/runs/*/run.json'
 stdout '"cause": "exit 3"'
 stdout '"total_ms": \d+'
 
-# Second run: verify passes, so core's phases skip.
+# Second run: skip_if passes, so core's sections skip.
 exec stew build core
 stdout '^==> core: setup \.\.\. skip \(\d+\.\ds\)$'
 stdout '^==> core: build \.\.\. skip \(\d+\.\ds\)$'
@@ -68,49 +68,52 @@ projects = ["api", "core"]
 runs/
 -- core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 
 [setup]
+skip_if = "test -f .setup-done"
 run = "echo core-setup-out; pwd > where; touch .setup-done"
 verify = "test -f .setup-done"
 
 [build]
+skip_if = "test -f artifact"
 run = "cat > stdin-got; echo built > artifact"
 verify = "test -f artifact"
+requires = ["core:setup"]
 
 [ci.full]
 run = ""
+requires = ["core:build"]
 -- api/stew.toml --
 name = "api"
-dependencies = ["core"]
 project_wrapper = ""
 
 [setup]
 run = ""
-verify = ""
+requires = ["core:build"]
 
 [build]
 run = "echo api-build-out; echo api-build-err >&2; exit 3"
-verify = ""
+requires = ["api:setup"]
 
 [ci.full]
 run = ""
+requires = ["api:build"]
 -- api/src/.keep --
 -- want/files --
-api-build.log
-api-build.stderr
-api-build.stdout
-core-build.log
-core-build.stderr
-core-build.stdout
-core-setup.log
-core-setup.stderr
-core-setup.stdout
+api:build.log
+api:build.stderr
+api:build.stdout
+core:build.log
+core:build.stderr
+core:build.stdout
+core:setup.log
+core:setup.stderr
+core:setup.stdout
 run.json
--- want/api-build.stdout --
+-- want/api:build.stdout --
 --- stew: run: echo api-build-out; echo api-build-err >&2; exit 3
 api-build-out
--- want/api-build.stderr --
+-- want/api:build.stderr --
 --- stew: run: echo api-build-out; echo api-build-err >&2; exit 3
 api-build-err

@@ -1,4 +1,4 @@
-// Package report renders runner events: phase lines, the progress animation, failure content, the summary,
+// Package report renders runner events: section lines, the progress animation, failure content, the summary,
 // and the stew runs show page.
 package report
 
@@ -29,26 +29,22 @@ func FormatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dm%ds", m, s)
 }
 
-// head is a phase line up to (not including) " ... ": "==> api: ci.pre-commit -> ci.quick".
-func head(project string, ph runner.Phase) string {
-	label := ph.Name
-	if ph.Used != ph.Name {
-		label += " -> " + ph.Used
-	}
-	return "==> " + project + ": " + label
+// head is a section line up to (not including) " ... ": "==> api: ci.pre-commit".
+func head(project, section string) string {
+	return "==> " + project + ": " + section
 }
 
 // statusText is the part after " ... ": "done (1.2s)" or "interrupted".
 func statusText(out runner.Outcome) string {
 	switch out.Status {
-	case runner.Done, runner.Pass, runner.Skip, runner.Fail:
+	case runner.Done, runner.Skip, runner.Fail:
 		return string(out.Status) + " (" + FormatDuration(out.Duration) + ")"
 	}
 	return string(out.Status)
 }
 
-func blockedLine(project string, ph runner.Phase, by []string) string {
-	return head(project, ph) + " ... blocked by " + strings.Join(by, ", ") + "\n"
+func blockedLine(project, section string, by []string) string {
+	return head(project, section) + " ... blocked by " + strings.Join(by, ", ") + "\n"
 }
 
 // writeContent writes the content area below a fail or interrupted line.

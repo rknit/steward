@@ -1,104 +1,145 @@
-# app -> {api, backend} -> core; lib is independent. core's setup fails.
+# The spec's worked example: api:build fails. Only sections that directly require it print a blocked line;
+# web:e2e requires only blocked sections, so it prints nothing, yet its summary cell is blocked.
 # Durations and the run ID vary, so they are normalized before comparing the whole output.
-exec sh -c 'stew build > out; echo "exit=$?"'
+exec sh -c 'stew run ''web:e2e'' ''api:test'' ''docs:build'' ''core:lint'' > out; echo "exit=$?"'
 stdout '^exit=1$'
 exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
 cmp stdout want/out
 
-# Only phases that ran a command have log files; blocked and empty phases have none.
+# Only sections that ran a command have log files; blocked sections have none.
 exec sh -c 'cd .stew/runs/* && ls'
 cmp stdout want/files
+
+# run.json records every blocked section with all its failed or blocked requirements.
+exec sh -c 'cat .stew/runs/*/run.json'
+stdout '"blocked_by": \[\s*"api:image",\s*"web:build"\s*\]'
+stdout '"blocked_by": \[\s*"api:build",\s*"api:test"\s*\]'
+
+# runs show applies the same pruning.
+exec sh -c 'stew runs show latest > out'
+exec sh -c 'sed -E -e "s/^run [^:]*:/run ID:/" -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
+cmp stdout want/show
+
+# A section asked for by name prints its line with its whole blocked_by.
+exec sh -c 'stew runs show latest ''web:e2e'' > out'
+exec sh -c 'sed -E -e "s/^run [^:]*:/run ID:/" out'
+cmp stdout want/show-e2e
 
 -- .stew/config.toml --
 workspace_wrapper = ""
 -- .stew/projects.toml --
-projects = ["api", "app", "backend", "core", "lib"]
--- core/stew.toml --
-name = "core"
-dependencies = []
-project_wrapper = ""
-[setup]
-run = "echo broken; exit 2"
-verify = ""
-[build]
-run = "echo never"
-verify = ""
-[ci.full]
-run = ""
+projects = ["api", "core", "docs", "web"]
 -- api/stew.toml --
 name = "api"
-dependencies = ["core"]
 project_wrapper = ""
 [setup]
-run = "echo never"
-verify = ""
+run = "true"
 [build]
-run = ""
-verify = ""
-[ci.full]
-run = ""
--- backend/stew.toml --
-name = "backend"
-dependencies = ["core"]
+run = "echo boom; exit 1"
+requires = ["api:setup", "core:build"]
+[test]
+run = "true"
+requires = ["api:build"]
+[image]
+run = "true"
+requires = ["api:build"]
+-- core/stew.toml --
+name = "core"
 project_wrapper = ""
 [setup]
-run = "echo never"
-verify = ""
-[build]
-run = ""
-verify = ""
-[ci.full]
-run = ""
--- app/stew.toml --
-name = "app"
-dependencies = ["backend", "api"]
-project_wrapper = ""
-[setup]
-run = "echo never"
-verify = ""
-[build]
-run = ""
-verify = ""
-[ci.full]
-run = ""
--- lib/stew.toml --
-name = "lib"
-dependencies = []
-project_wrapper = ""
-[setup]
-run = ""
-verify = ""
+run = "true"
+[lint]
+run = "true"
 [build]
 run = "true"
-verify = ""
-[ci.full]
-run = ""
+requires = ["core:setup"]
+-- docs/stew.toml --
+name = "docs"
+project_wrapper = ""
+[build]
+run = "true"
+requires = ["core:build"]
+-- web/stew.toml --
+name = "web"
+project_wrapper = ""
+[build]
+run = "true"
+requires = ["api:build", "api:test"]
+[e2e]
+run = "true"
+requires = ["api:image", "web:build"]
 -- want/out --
-==> core: setup ... fail (T)
---- stew: run: echo broken; exit 2
-broken
-(exit 2)
-==> api: setup ... blocked by core
-==> backend: setup ... blocked by core
-==> app: setup ... blocked by api, backend
-==> lib: setup ... skip (T)
-==> lib: build ... done (T)
-┌─────────┬─────────┬───────┐
-│ project │ setup   │ build │
-├─────────┼─────────┼───────┤
-│ core    │ fail    │ -     │
-│ api     │ blocked │ -     │
-│ backend │ blocked │ -     │
-│ app     │ blocked │ -     │
-│ lib     │ skip    │ done  │
-└─────────┴─────────┴───────┘
+==> api: setup ... done (T)
+==> core: lint ... done (T)
+==> core: setup ... done (T)
+==> core: build ... done (T)
+==> api: build ... fail (T)
+--- stew: run: echo boom; exit 1
+boom
+(exit 1)
+==> api: image ... blocked by api:build
+==> api: test ... blocked by api:build
+==> docs: build ... done (T)
+==> web: build ... blocked by api:build
+┌─────────┬───────┬──────┬─────────┬─────────┬─────────┬─────────┐
+│ project │ setup │ lint │ build   │ image   │ test    │ e2e     │
+├─────────┼───────┼──────┼─────────┼─────────┼─────────┼─────────┤
+│ api     │ done  │ -    │ fail    │ blocked │ blocked │ -       │
+│ core    │ done  │ done │ done    │ -       │ -       │ -       │
+│ docs    │ -     │ -    │ done    │ -       │ -       │ -       │
+│ web     │ -     │ -    │ blocked │ -       │ -       │ blocked │
+└─────────┴───────┴──────┴─────────┴─────────┴─────────┴─────────┘
 total: T
 logs: .stew/runs/ID
 -- want/files --
-core-setup.log
-core-setup.stderr
-core-setup.stdout
-lib-build.log
-lib-build.stderr
-lib-build.stdout
+api:build.log
+api:build.stderr
+api:build.stdout
+api:setup.log
+api:setup.stderr
+api:setup.stdout
+core:build.log
+core:build.stderr
+core:build.stdout
+core:lint.log
+core:lint.stderr
+core:lint.stdout
+core:setup.log
+core:setup.stderr
+core:setup.stdout
+docs:build.log
+docs:build.stderr
+docs:build.stdout
 run.json
+-- want/show --
+run ID: stew run web:e2e api:test docs:build core:lint
+==> api: setup ... done (T)
+--- stew: run: true
+==> core: lint ... done (T)
+--- stew: run: true
+==> core: setup ... done (T)
+--- stew: run: true
+==> core: build ... done (T)
+--- stew: run: true
+==> api: build ... fail (T)
+--- stew: run: echo boom; exit 1
+boom
+(exit 1)
+==> api: image ... blocked by api:build
+==> api: test ... blocked by api:build
+==> docs: build ... done (T)
+--- stew: run: true
+==> web: build ... blocked by api:build
+┌─────────┬───────┬──────┬─────────┬─────────┬─────────┬─────────┐
+│ project │ setup │ lint │ build   │ image   │ test    │ e2e     │
+├─────────┼───────┼──────┼─────────┼─────────┼─────────┼─────────┤
+│ api     │ done  │ -    │ fail    │ blocked │ blocked │ -       │
+│ core    │ done  │ done │ done    │ -       │ -       │ -       │
+│ docs    │ -     │ -    │ done    │ -       │ -       │ -       │
+│ web     │ -     │ -    │ blocked │ -       │ -       │ blocked │
+└─────────┴───────┴──────┴─────────┴─────────┴─────────┴─────────┘
+total: T
+logs: .stew/runs/ID
+-- want/show-e2e --
+run ID: stew run web:e2e api:test docs:build core:lint
+==> web: e2e ... blocked by api:image, web:build

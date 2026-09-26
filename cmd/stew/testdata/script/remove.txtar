@@ -5,7 +5,7 @@ stdout '^removed web \(apps/web\)$'
 cmp .stew/projects.toml want/projects-1.toml
 exists apps/web/stew.toml
 
-# Rejections change nothing: a remaining project still depends on a removed one (exit 1).
+# Rejections change nothing: a remaining project still requires a section of a removed one (exit 1).
 exec sh -c 'stew remove core; echo "exit=$?"'
 stdout '^exit=1$'
 stderr '^stew: cannot remove core: needed by api, tool$'
@@ -26,7 +26,7 @@ exec sh -c 'stew remove; echo "exit=$?"'
 stdout '^exit=2$'
 cmp .stew/projects.toml want/projects-1.toml
 
-# Several names, including a dependency chain and a repeated name, are removed together, sorted by name.
+# Several names, including a requires chain and a repeated name, are removed together, sorted by name.
 # --clean deletes each stew.toml after the registry is written. The root project's path is ".".
 exec stew remove tool core api steward api --clean
 cmp stdout want/clean.txt
@@ -57,61 +57,59 @@ projects = [".", "apps/web", "libs/core", "services/api", "tools/x"]
 -- libs/core/.keep --
 -- stew.toml --
 name = "steward"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["steward:setup"]
 [ci.full]
 run = ""
+requires = ["steward:build"]
 -- libs/core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]
 -- services/api/stew.toml --
 name = "api"
-dependencies = ["core"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["core:build"]
 [build]
 run = ""
-verify = ""
+requires = ["api:setup"]
 [ci.full]
 run = ""
+requires = ["api:build"]
 -- apps/web/stew.toml --
 name = "web"
-dependencies = ["api"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["api:build"]
 [build]
 run = ""
-verify = ""
+requires = ["web:setup"]
 [ci.full]
 run = ""
+requires = ["web:build"]
 -- tools/x/stew.toml --
 name = "tool"
-dependencies = ["core", "steward"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["core:build", "steward:build"]
 [build]
 run = ""
-verify = ""
+requires = ["tool:setup"]
 [ci.full]
 run = ""
+requires = ["tool:build"]

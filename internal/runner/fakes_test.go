@@ -155,7 +155,7 @@ func (f *fakeSteps) Collect(key string) (reaches, status int, finished bool, err
 	return reaches, status, finished, nil
 }
 
-// fakeLogs hands out fakeLogs by "<project>-<phase>".
+// fakeLogs hands out fakeLogs by "<project>:<section>".
 type fakeLogs struct {
 	logs    map[string]*fakeLog
 	openErr map[string]bool
@@ -166,8 +166,8 @@ func newFakeLogs() *fakeLogs {
 	return &fakeLogs{logs: map[string]*fakeLog{}, openErr: map[string]bool{}, setup: map[string]func(*fakeLog){}}
 }
 
-func (f *fakeLogs) Open(project, phase string) (PhaseLog, error) {
-	key := project + "-" + phase
+func (f *fakeLogs) Open(project, section string) (SectionLog, error) {
+	key := project + ":" + section
 	if f.openErr[key] {
 		return nil, errors.New("permission denied")
 	}
@@ -188,39 +188,39 @@ type recorder struct {
 	outcomes map[string]Outcome
 }
 
-func (r *recorder) PhaseStart(project string, ph Phase) {
-	r.events = append(r.events, fmt.Sprintf("start %s %s", project, ph.Name))
+func (r *recorder) SectionStart(s Section) {
+	r.events = append(r.events, "start "+s.Key())
 }
 
-func (r *recorder) PhaseEnd(project string, ph Phase, out Outcome) {
+func (r *recorder) SectionEnd(s Section, out Outcome) {
 	if r.outcomes == nil {
 		r.outcomes = map[string]Outcome{}
 	}
-	r.outcomes[project+" "+ph.Name] = out
-	r.events = append(r.events, fmt.Sprintf("end %s %s %s", project, ph.Name, out.Status))
+	r.outcomes[s.Key()] = out
+	r.events = append(r.events, fmt.Sprintf("end %s %s", s.Key(), out.Status))
 }
 
-func (r *recorder) Blocked(project string, ph Phase, by []string) {
-	r.events = append(r.events, fmt.Sprintf("blocked %s %s by %s", project, ph.Name, strings.Join(by, ", ")))
+func (r *recorder) Blocked(s Section, failed []string) {
+	r.events = append(r.events, fmt.Sprintf("blocked %s by %s", s.Key(), strings.Join(failed, ", ")))
 }
 
-// fakeRecord records Recorder calls. failPhase makes PhaseEnd fail for "<project> <phase>".
+// fakeRecord records Recorder calls. failSection makes SectionEnd fail for a section's key.
 type fakeRecord struct {
 	calls       []string
-	failPhase   map[string]bool
+	failSection map[string]bool
 	failBlocked bool
 }
 
-func (f *fakeRecord) PhaseEnd(project string, ph Phase, out Outcome) error {
-	f.calls = append(f.calls, fmt.Sprintf("end %s %s %s", project, ph.Name, out.Status))
-	if f.failPhase[project+" "+ph.Name] {
+func (f *fakeRecord) SectionEnd(s Section, out Outcome) error {
+	f.calls = append(f.calls, fmt.Sprintf("end %s %s", s.Key(), out.Status))
+	if f.failSection[s.Key()] {
 		return errors.New("read-only file system")
 	}
 	return nil
 }
 
-func (f *fakeRecord) Blocked(project string, ph Phase, by []string) error {
-	f.calls = append(f.calls, fmt.Sprintf("blocked %s %s by %s", project, ph.Name, strings.Join(by, ", ")))
+func (f *fakeRecord) Blocked(s Section, by []string) error {
+	f.calls = append(f.calls, fmt.Sprintf("blocked %s by %s", s.Key(), strings.Join(by, ", ")))
 	if f.failBlocked {
 		return errors.New("read-only file system")
 	}
@@ -247,7 +247,7 @@ func newHarness(script map[string][]fakeCmd) *harness {
 		steps:  steps,
 		logs:   newFakeLogs(),
 		rec:    &recorder{},
-		record: &fakeRecord{failPhase: map[string]bool{}},
+		record: &fakeRecord{failSection: map[string]bool{}},
 	}
 	h.r = &Runner{
 		Exec: h.exec, Steps: h.steps, OpenLog: h.logs.Open, Report: h.rec, Record: h.record, Now: clock.Now,

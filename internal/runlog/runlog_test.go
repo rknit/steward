@@ -138,12 +138,12 @@ func TestCreateErrors(t *testing.T) {
 	}
 }
 
-func TestPhaseLog(t *testing.T) {
+func TestSectionLog(t *testing.T) {
 	run, err := Create(t.TempDir(), now, bytes.NewReader([]byte{1, 2}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	log, err := run.OpenPhase("api", "ci.quick")
+	log, err := run.OpenSection("api", "ci.quick")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,37 +167,37 @@ func TestPhaseLog(t *testing.T) {
 		}
 		return string(data)
 	}
-	if got, want := read("api-ci.quick.stdout"), "--- stew: verify: test -f x\nout1\n--- stew: run: make\nout2\n"; got != want {
+	if got, want := read("api:ci.quick.stdout"), "--- stew: verify: test -f x\nout1\n--- stew: run: make\nout2\n"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
-	if got, want := read("api-ci.quick.stderr"), "--- stew: verify: test -f x\nerr1\n--- stew: run: make\n"; got != want {
+	if got, want := read("api:ci.quick.stderr"), "--- stew: verify: test -f x\nerr1\n--- stew: run: make\n"; got != want {
 		t.Errorf("stderr = %q, want %q", got, want)
 	}
-	if got, want := read("api-ci.quick.log"), "--- stew: verify: test -f x\nout1\nerr1\n--- stew: run: make\nout2\n"; got != want {
+	if got, want := read("api:ci.quick.log"), "--- stew: verify: test -f x\nout1\nerr1\n--- stew: run: make\nout2\n"; got != want {
 		t.Errorf("log = %q, want %q", got, want)
 	}
 
-	if _, err := run.OpenPhase("api", "ci.quick"); err == nil {
-		t.Error("reopening an existing phase log succeeded")
+	if _, err := run.OpenSection("api", "ci.quick"); err == nil {
+		t.Error("reopening an existing section log succeeded")
 	}
 }
 
-func TestOpenPhaseExistingLog(t *testing.T) {
+func TestOpenSectionExistingLog(t *testing.T) {
 	run, err := Create(t.TempDir(), now, bytes.NewReader([]byte{1, 2}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(run.Dir, "api-build.log"), nil, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(run.Dir, "api:build.log"), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := run.OpenPhase("api", "build"); err == nil {
-		t.Error("OpenPhase with an existing .log succeeded")
+	if _, err := run.OpenSection("api", "build"); err == nil {
+		t.Error("OpenSection with an existing .log succeeded")
 	}
 }
 
-func TestOpenPhaseError(t *testing.T) {
+func TestOpenSectionError(t *testing.T) {
 	run := &Run{ID: "x", Dir: filepath.Join(t.TempDir(), "gone")}
-	if _, err := run.OpenPhase("api", "build"); err == nil {
-		t.Error("OpenPhase in a missing dir succeeded")
+	if _, err := run.OpenSection("api", "build"); err == nil {
+		t.Error("OpenSection in a missing dir succeeded")
 	}
 }

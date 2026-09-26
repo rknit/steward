@@ -13,27 +13,6 @@ import (
 func ok(stdout string) fakeCmd  { return fakeCmd{stdout: stdout, took: time.Second} }
 func bad(stderr string) fakeCmd { return fakeCmd{exit: 1, stderr: stderr, took: time.Second} }
 
-func setup(run, verify string) Phase {
-	return Phase{Name: "setup", Used: "setup", Run: run, Verify: verify}
-}
-func build(run, verify string) Phase {
-	return Phase{Name: "build", Used: "build", Run: run, Verify: verify}
-}
-func ci(name, used, run string) Phase {
-	return Phase{Name: "ci." + name, Used: "ci." + used, Run: run, CI: true}
-}
-
-// runOne runs a single-phase plan for project "p" and returns its outcome.
-func runOne(t *testing.T, ph Phase, script map[string][]fakeCmd) (Outcome, *harness) {
-	t.Helper()
-	h := newHarness(script)
-	h.r.Run(context.Background(), Plan{
-		Columns: []string{ph.Name},
-		Jobs:    []Job{{Project: "p", Dir: "/w/p", Phases: []Phase{ph}}},
-	})
-	return h.rec.outcomes["p "+ph.Name], h
-}
-
 func stepNames(out Outcome) []string {
 	var s []string
 	for _, st := range out.Steps {
@@ -42,10 +21,42 @@ func stepNames(out Outcome) []string {
 	return s
 }
 
-func TestPhaseAlgorithm(t *testing.T) {
+func sec(project, name, run string, requires ...string) Section {
+	return Section{Project: project, Name: name, Dir: "/w/" + project, Run: run, Requires: requires}
+}
+
+// plan builds a plan from sections already in execution order.
+func plan(sections ...Section) Plan {
+	var p Plan
+	seenCol, seenRow := map[string]bool{}, map[string]bool{}
+	for _, s := range sections {
+		if !seenCol[s.Name] {
+			seenCol[s.Name] = true
+			p.Columns = append(p.Columns, s.Name)
+		}
+		if !seenRow[s.Project] {
+			seenRow[s.Project] = true
+			p.Projects = append(p.Projects, s.Project)
+		}
+	}
+	p.Sections = sections
+	return p
+}
+
+// runOne runs a single section "p:build" and returns its outcome.
+func runOne(t *testing.T, s Section, script map[string][]fakeCmd) (Outcome, *harness) {
+	t.Helper()
+	s.Project, s.Name, s.Dir = "p", "build", "/w/p"
+	h := newHarness(script)
+	h.r.Run(context.Background(), plan(s))
+	return h.rec.outcomes["p:build"], h
+}
+
+func TestSectionAlgorithm(t *testing.T) {
+	type S = Section
 	tests := []struct {
 		name      string
-		phase     Phase
+		s         Section
 		script    map[string][]fakeCmd
 		status    Status
 		calls     []string
@@ -53,35 +64,38 @@ func TestPhaseAlgorithm(t *testing.T) {
 		cause     string
 		wantFiles bool
 	}{
-		{"both empty", build("", ""), nil, Skip, nil, nil, "", false},
-		{"run ok", build("r", ""), map[string][]fakeCmd{"r": {ok("")}}, Done,
-			[]string{"r"}, nil, "", true},
-		{"run fails", build("r", ""), map[string][]fakeCmd{"r": {{exit: 3}}}, Fail,
+		{"all empty", S{}, nil, Skip, nil, nil, "", false},
+		{"only skip_if", S{SkipIf: "k"}, nil, Skip, nil, nil, "", false},
+		{"run ok", S{Run: "r"}, map[string][]fakeCmd{"r": {ok("")}}, Done, []string{"r"}, nil, "", true},
+		{"run fails", S{Run: "r"}, map[string][]fakeCmd{"r": {{exit: 3}}}, Fail,
 			[]string{"r"}, []string{"run"}, "exit 3", true},
-		{"verify passes", build("r", "v"), map[string][]fakeCmd{"v": {ok("")}}, Skip,
+		{"skip_if passes", S{Run: "r", SkipIf: "k"}, map[string][]fakeCmd{"k": {ok("")}}, Skip,
+			[]string{"k"}, nil, "", true},
+		{"skip_if fails, run ok", S{Run: "r", SkipIf: "k"},
+			map[string][]fakeCmd{"k": {bad("")}, "r": {ok("")}}, Done, []string{"k", "r"}, nil, "", true},
+		{"skip_if fails, run fails", S{Run: "r", SkipIf: "k"},
+			map[string][]fakeCmd{"k": {bad("")}, "r": {{exit: 2}}}, Fail,
+			[]string{"k", "r"}, []string{"run"}, "exit 2", true},
+		{"run ok, verify ok", S{Run: "r", Verify: "v"},
+			map[string][]fakeCmd{"r": {ok("")}, "v": {ok("")}}, Done, []string{"r", "v"}, nil, "", true},
+		{"verify fails", S{Run: "r", Verify: "v"},
+			map[string][]fakeCmd{"r": {ok("")}, "v": {{exit: 4}}}, Fail,
+			[]string{"r", "v"}, []string{"run", "verify"}, "exit 4", true},
+		{"run fails, verify not run", S{Run: "r", Verify: "v"},
+			map[string][]fakeCmd{"r": {{exit: 1}}}, Fail, []string{"r"}, []string{"run"}, "exit 1", true},
+		{"assertion passes", S{Verify: "v"}, map[string][]fakeCmd{"v": {ok("")}}, Done,
 			[]string{"v"}, nil, "", true},
-		{"verify fails, run ok, verify ok", build("r", "v"),
-			map[string][]fakeCmd{"v": {bad(""), ok("")}, "r": {ok("")}}, Done,
-			[]string{"v", "r", "v"}, nil, "", true},
-		{"verify fails, run fails", build("r", "v"),
-			map[string][]fakeCmd{"v": {bad("")}, "r": {{exit: 2}}}, Fail,
-			[]string{"v", "r"}, []string{"run"}, "exit 2", true},
-		{"verify fails after run", build("r", "v"),
-			map[string][]fakeCmd{"v": {bad(""), {exit: 4}}, "r": {ok("")}}, Fail,
-			[]string{"v", "r", "v"}, []string{"run", "verify after run"}, "exit 4", true},
-		{"assertion passes", build("", "v"), map[string][]fakeCmd{"v": {ok("")}}, Skip,
-			[]string{"v"}, nil, "", true},
-		{"assertion fails", build("", "v"), map[string][]fakeCmd{"v": {{exit: 1}}}, Fail,
+		{"assertion fails", S{Verify: "v"}, map[string][]fakeCmd{"v": {{exit: 1}}}, Fail,
 			[]string{"v"}, []string{"verify"}, "exit 1", true},
-		{"ci passes", ci("full", "full", "t"), map[string][]fakeCmd{"t": {ok("")}}, Pass,
-			[]string{"t"}, nil, "", true},
-		{"ci empty", ci("full", "full", ""), nil, Skip, nil, nil, "", false},
-		{"ci fails", ci("full", "full", "t"), map[string][]fakeCmd{"t": {{exit: 1}}}, Fail,
-			[]string{"t"}, []string{"run"}, "exit 1", true},
+		{"skip_if passes before assertion", S{SkipIf: "k", Verify: "v"}, map[string][]fakeCmd{"k": {ok("")}}, Skip,
+			[]string{"k"}, nil, "", true},
+		{"all three", S{SkipIf: "k", Run: "r", Verify: "v"},
+			map[string][]fakeCmd{"k": {bad("")}, "r": {ok("")}, "v": {ok("")}}, Done,
+			[]string{"k", "r", "v"}, nil, "", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, h := runOne(t, tt.phase, tt.script)
+			out, h := runOne(t, tt.s, tt.script)
 			if out.Status != tt.status {
 				t.Errorf("status = %s, want %s", out.Status, tt.status)
 			}
@@ -98,7 +112,7 @@ func TestPhaseAlgorithm(t *testing.T) {
 			if out.Cause != tt.cause {
 				t.Errorf("cause = %q, want %q", out.Cause, tt.cause)
 			}
-			if _, opened := h.logs.logs["p-"+tt.phase.Used]; opened != tt.wantFiles {
+			if _, opened := h.logs.logs["p:build"]; opened != tt.wantFiles {
 				t.Errorf("log opened = %v, want %v", opened, tt.wantFiles)
 			}
 			for key, l := range h.logs.logs {
@@ -111,14 +125,14 @@ func TestPhaseAlgorithm(t *testing.T) {
 }
 
 func TestCommandsRunInProjectDir(t *testing.T) {
-	_, h := runOne(t, build("r", ""), map[string][]fakeCmd{"r": {ok("")}})
+	_, h := runOne(t, Section{Run: "r"}, map[string][]fakeCmd{"r": {ok("")}})
 	if !slices.Equal(h.exec.calls, []string{"/w/p: r"}) {
 		t.Errorf("calls = %q", h.exec.calls)
 	}
 }
 
 func TestReplayAndLogs(t *testing.T) {
-	out, h := runOne(t, build("r", "v"), map[string][]fakeCmd{
+	out, h := runOne(t, Section{Run: "r", SkipIf: "v", Verify: "v"}, map[string][]fakeCmd{
 		"v": {{exit: 1, stdout: "pre-verify noise\n"}, {exit: 1, stdout: "vout\n", stderr: "verr\n"}},
 		"r": {{stdout: "rout\n", stderr: "rerr\n"}},
 	})
@@ -127,7 +141,7 @@ func TestReplayAndLogs(t *testing.T) {
 	}
 	want := []StepOutput{
 		{Step: "run", Cmd: "r", Output: []byte("rout\nrerr\n")},
-		{Step: "verify after run", Cmd: "v", Output: []byte("vout\nverr\n")},
+		{Step: "verify", Cmd: "v", Output: []byte("vout\nverr\n")},
 	}
 	if len(out.Steps) != len(want) {
 		t.Fatalf("steps = %+v", out.Steps)
@@ -139,9 +153,9 @@ func TestReplayAndLogs(t *testing.T) {
 		}
 	}
 
-	l := h.logs.logs["p-build"]
-	wantOut := "--- stew: verify: v\npre-verify noise\n--- stew: run: r\nrout\n--- stew: verify after run: v\nvout\n"
-	wantErr := "--- stew: verify: v\n--- stew: run: r\nrerr\n--- stew: verify after run: v\nverr\n"
+	l := h.logs.logs["p:build"]
+	wantOut := "--- stew: skip_if: v\npre-verify noise\n--- stew: run: r\nrout\n--- stew: verify: v\nvout\n"
+	wantErr := "--- stew: skip_if: v\n--- stew: run: r\nrerr\n--- stew: verify: v\nverr\n"
 	if l.stdout.String() != wantOut {
 		t.Errorf("stdout log = %q, want %q", l.stdout.String(), wantOut)
 	}
@@ -151,7 +165,7 @@ func TestReplayAndLogs(t *testing.T) {
 }
 
 func TestDurationSpansAllSteps(t *testing.T) {
-	out, _ := runOne(t, build("r", "v"), map[string][]fakeCmd{
+	out, _ := runOne(t, Section{Run: "r", SkipIf: "v", Verify: "v"}, map[string][]fakeCmd{
 		"v": {{exit: 1, took: 1 * time.Second}, {took: 3 * time.Second}},
 		"r": {{took: 2 * time.Second}},
 	})
@@ -160,139 +174,120 @@ func TestDurationSpansAllSteps(t *testing.T) {
 	}
 }
 
-func TestCILogUsesResolvedLevel(t *testing.T) {
-	out, h := runOne(t, ci("pre-commit", "quick", "lint"), map[string][]fakeCmd{"lint": {ok("")}})
-	if out.Status != Pass {
-		t.Fatalf("status = %s", out.Status)
-	}
-	if _, ok := h.logs.logs["p-ci.quick"]; !ok {
-		t.Errorf("logs = %v, want p-ci.quick", h.logs.logs)
-	}
+// example is the spec's worked example, in execution order. api:build fails.
+func example() Plan {
+	return plan(
+		sec("api", "setup", "as"),
+		sec("core", "lint", "cl"),
+		sec("core", "setup", "cs"),
+		sec("core", "build", "cb", "core:setup"),
+		sec("api", "build", "ab", "api:setup", "core:build"),
+		sec("api", "image", "ai", "api:build"),
+		sec("api", "test", "at", "api:build"),
+		sec("docs", "build", "db", "core:build"),
+		sec("web", "build", "wb", "api:build", "api:test"),
+		sec("web", "e2e", "we", "api:image", "web:build"),
+	)
 }
 
-// diamond is app -> {api, backend} -> core, plus independent lib, all running setup and build.
-func diamond() Plan {
-	job := func(name string, deps ...string) Job {
-		return Job{Project: name, Dir: "/w/" + name, Deps: deps, Phases: []Phase{
-			setup(name+"-setup", ""), build(name+"-build", ""),
-		}}
+func exampleScript() map[string][]fakeCmd {
+	script := map[string][]fakeCmd{"ab": {bad("boom\n")}}
+	for _, c := range []string{"as", "cl", "cs", "cb", "ai", "at", "db", "wb", "we"} {
+		script[c] = []fakeCmd{ok("")}
 	}
-	return Plan{
-		Columns: []string{"setup", "build"},
-		Jobs:    []Job{job("core"), job("api", "core"), job("backend", "core"), job("app", "backend", "api"), job("lib")},
-	}
+	return script
 }
 
-func okScript(names ...string) map[string][]fakeCmd {
-	s := map[string][]fakeCmd{}
-	for _, n := range names {
-		s[n+"-setup"] = []fakeCmd{ok("")}
-		s[n+"-build"] = []fakeCmd{ok("")}
+func TestBlockingIsPrunedPerSection(t *testing.T) {
+	h := newHarness(exampleScript())
+	res := h.r.Run(context.Background(), example())
+	wantEvents := []string{
+		"start api:setup", "end api:setup done",
+		"start core:lint", "end core:lint done",
+		"start core:setup", "end core:setup done",
+		"start core:build", "end core:build done",
+		"start api:build", "end api:build fail",
+		"blocked api:image by api:build",
+		"blocked api:test by api:build",
+		"start docs:build", "end docs:build done",
+		"blocked web:build by api:build",
 	}
-	return s
-}
-
-func TestBlockedByDirectDependencies(t *testing.T) {
-	script := okScript("core", "api", "backend", "app", "lib")
-	script["core-setup"] = []fakeCmd{{exit: 2}}
-	h := newHarness(script)
-	res := h.r.Run(context.Background(), diamond())
-
-	want := []string{
-		"start core setup", "end core setup fail",
-		"blocked api setup by core",
-		"blocked backend setup by core",
-		"blocked app setup by api, backend",
-		"start lib setup", "end lib setup done",
-		"start lib build", "end lib build done",
+	if !slices.Equal(h.rec.events, wantEvents) {
+		t.Errorf("events:\n%s\nwant:\n%s", strings.Join(h.rec.events, "\n"), strings.Join(wantEvents, "\n"))
 	}
-	if !slices.Equal(h.rec.events, want) {
-		t.Errorf("events:\n%s\nwant:\n%s", strings.Join(h.rec.events, "\n"), strings.Join(want, "\n"))
+	wantRecord := []string{
+		"end api:setup done", "end core:lint done", "end core:setup done", "end core:build done",
+		"end api:build fail",
+		"blocked api:image by api:build",
+		"blocked api:test by api:build",
+		"end docs:build done",
+		"blocked web:build by api:build, api:test",
+		"blocked web:e2e by api:image, web:build",
 	}
-
-	cells := map[string][]Status{}
+	if !slices.Equal(h.record.calls, wantRecord) {
+		t.Errorf("record:\n%s\nwant:\n%s", strings.Join(h.record.calls, "\n"), strings.Join(wantRecord, "\n"))
+	}
+	if !res.Failed || res.ExitCode() != 1 {
+		t.Errorf("failed = %v, exit = %d", res.Failed, res.ExitCode())
+	}
+	if !slices.Equal(res.Columns, []string{"setup", "lint", "build", "image", "test", "e2e"}) {
+		t.Errorf("columns = %q", res.Columns)
+	}
+	want := map[string][]Status{
+		"api":  {Done, "", Fail, Blocked, Blocked, ""},
+		"core": {Done, Done, Done, "", "", ""},
+		"docs": {"", "", Done, "", "", ""},
+		"web":  {"", "", Blocked, "", "", Blocked},
+	}
 	for _, row := range res.Rows {
-		for _, c := range row.Cells {
-			cells[row.Project] = append(cells[row.Project], c.Status)
+		if !slices.Equal(row.Cells, want[row.Project]) {
+			t.Errorf("%s cells = %q, want %q", row.Project, row.Cells, want[row.Project])
 		}
-	}
-	wantCells := map[string][]Status{
-		"core": {Fail, ""}, "api": {Blocked, ""}, "backend": {Blocked, ""}, "app": {Blocked, ""}, "lib": {Done, Done},
-	}
-	for p, w := range wantCells {
-		if !slices.Equal(cells[p], w) {
-			t.Errorf("cells[%s] = %q, want %q", p, cells[p], w)
-		}
-	}
-	if !res.Failed || res.Interrupted != 0 || res.ExitCode() != 1 {
-		t.Errorf("failed=%v interrupted=%v exit=%d", res.Failed, res.Interrupted, res.ExitCode())
 	}
 }
 
-func TestFailureStopsOnlyThatProject(t *testing.T) {
-	script := okScript("core", "api", "backend", "app", "lib")
-	script["api-build"] = []fakeCmd{{exit: 1}}
+func TestAllDone(t *testing.T) {
+	script := exampleScript()
+	script["ab"] = []fakeCmd{ok("")}
 	h := newHarness(script)
-	res := h.r.Run(context.Background(), diamond())
+	res := h.r.Run(context.Background(), example())
+	if res.Failed || res.ExitCode() != 0 || len(h.exec.calls) != 10 {
+		t.Errorf("failed = %v, calls = %q", res.Failed, h.exec.calls)
+	}
+}
 
-	want := []string{
-		"start core setup", "end core setup done", "start core build", "end core build done",
-		"start api setup", "end api setup done", "start api build", "end api build fail",
-		"start backend setup", "end backend setup done", "start backend build", "end backend build done",
-		"blocked app setup by api",
-		"start lib setup", "end lib setup done", "start lib build", "end lib build done",
-	}
-	if !slices.Equal(h.rec.events, want) {
-		t.Errorf("events:\n%s\nwant:\n%s", strings.Join(h.rec.events, "\n"), strings.Join(want, "\n"))
-	}
-	if res.ExitCode() != 1 {
+func TestInterruptStopsBeforeNextSection(t *testing.T) {
+	ctx, cancel := context.WithCancelCause(context.Background())
+	script := exampleScript()
+	script["cs"] = []fakeCmd{{took: time.Second, during: func() { cancel(ErrInterrupted) }}}
+	h := newHarness(script)
+	res := h.r.Run(ctx, example())
+	if res.ExitCode() != 130 {
 		t.Errorf("exit = %d", res.ExitCode())
 	}
-}
-
-func TestAllPass(t *testing.T) {
-	h := newHarness(okScript("core", "api", "backend", "app", "lib"))
-	res := h.r.Run(context.Background(), diamond())
-	if res.Failed || res.Interrupted != 0 || res.ExitCode() != 0 {
-		t.Errorf("failed=%v interrupted=%v exit=%d", res.Failed, res.Interrupted, res.ExitCode())
+	last := h.rec.events[len(h.rec.events)-1]
+	if last != "end core:setup interrupted" {
+		t.Errorf("last event = %q", last)
 	}
-	if len(h.exec.calls) != 10 {
-		t.Errorf("calls = %d, want 10", len(h.exec.calls))
-	}
-}
-
-func TestFallbackCell(t *testing.T) {
-	h := newHarness(map[string][]fakeCmd{"lint": {ok("")}})
-	res := h.r.Run(context.Background(), Plan{
-		Columns: []string{"setup", "build", "ci.pre-commit"},
-		Jobs: []Job{
-			{Project: "dep", Phases: []Phase{setup("", ""), build("", "")}},
-			{Project: "p", Deps: []string{"dep"}, Phases: []Phase{setup("", ""), build("", ""), ci("pre-commit", "quick", "lint")}},
-		},
-	})
-	if got := res.Rows[0].Cells; got[2] != (Cell{}) {
-		t.Errorf("dependency-only CI cell = %+v, want zero", got[2])
-	}
-	if got := res.Rows[1].Cells[2]; got != (Cell{Status: Pass, Fallback: "quick"}) {
-		t.Errorf("CI cell = %+v", got)
+	if len(res.Rows) != 4 {
+		t.Errorf("rows = %d, want all 4 projects", len(res.Rows))
 	}
 }
 
 func TestLogOpenFailure(t *testing.T) {
-	h := newHarness(okScript("core", "api", "backend", "app", "lib"))
-	h.logs.openErr["core-setup"] = true
-	res := h.r.Run(context.Background(), diamond())
+	script := exampleScript()
+	h := newHarness(script)
+	h.logs.openErr["api:setup"] = true
+	res := h.r.Run(context.Background(), example())
 
-	out := h.rec.outcomes["core setup"]
+	out := h.rec.outcomes["api:setup"]
 	if out.Status != Fail || out.Cause != "log error: permission denied" {
 		t.Errorf("outcome = %+v", out)
 	}
-	for _, c := range h.exec.calls {
-		if strings.HasPrefix(c, "/w/core:") {
-			t.Errorf("core command ran without a log: %s", c)
-		}
+	if !slices.Equal(h.exec.calls, notAPICalls) {
+		t.Errorf("calls = %q, want only the sections that do not need api:setup: %q", h.exec.calls, notAPICalls)
 	}
-	if !slices.Contains(h.rec.events, "blocked api setup by core") || !slices.Contains(h.rec.events, "end lib build done") {
+	if !slices.Contains(h.rec.events, "blocked api:build by api:setup") || !slices.Contains(h.rec.events, "end core:build done") {
 		t.Errorf("events = %q", h.rec.events)
 	}
 	if res.ExitCode() != 1 {
@@ -301,113 +296,115 @@ func TestLogOpenFailure(t *testing.T) {
 }
 
 func TestLogWriteFailureCancelsCommand(t *testing.T) {
-	script := okScript("core", "api", "backend", "app", "lib")
-	script["core-setup"] = []fakeCmd{{stdout: "some output\n"}}
+	script := exampleScript()
+	script["as"] = []fakeCmd{{stdout: "some output\n"}}
 	h := newHarness(script)
-	h.logs.setup["core-setup"] = func(l *fakeLog) { l.failWrite = true }
-	h.r.Run(context.Background(), diamond())
+	h.logs.setup["api:setup"] = func(l *fakeLog) { l.failWrite = true }
+	h.r.Run(context.Background(), example())
 
-	out := h.rec.outcomes["core setup"]
+	out := h.rec.outcomes["api:setup"]
 	if out.Status != Fail || out.Cause != "log error: disk full" {
 		t.Errorf("outcome = %+v", out)
 	}
-	if !slices.Equal(h.exec.cancelled, []string{"core-setup"}) {
+	if !slices.Equal(h.exec.cancelled, []string{"as"}) {
 		t.Errorf("cancelled = %q, want the running command", h.exec.cancelled)
 	}
 	if len(out.Steps) != 1 || string(out.Steps[0].Output) != "some output\n" {
 		t.Errorf("replay = %+v", out.Steps)
 	}
-	if !slices.Contains(h.rec.events, "blocked api setup by core") || !slices.Contains(h.rec.events, "end lib build done") {
+	if !slices.Contains(h.rec.events, "blocked api:build by api:setup") || !slices.Contains(h.rec.events, "end core:build done") {
 		t.Errorf("events = %q", h.rec.events)
 	}
 }
 
 func TestLogMarkerFailure(t *testing.T) {
-	h := newHarness(okScript("core", "api", "backend", "app", "lib"))
-	h.logs.setup["core-setup"] = func(l *fakeLog) { l.failMarker = true }
-	h.r.Run(context.Background(), diamond())
+	script := exampleScript()
+	h := newHarness(script)
+	h.logs.setup["api:setup"] = func(l *fakeLog) { l.failMarker = true }
+	h.r.Run(context.Background(), example())
 
-	out := h.rec.outcomes["core setup"]
+	out := h.rec.outcomes["api:setup"]
 	if out.Status != Fail || out.Cause != "log error: disk full" {
 		t.Errorf("outcome = %+v", out)
 	}
-	for _, c := range h.exec.calls {
-		if strings.HasPrefix(c, "/w/core:") {
-			t.Errorf("core command ran without a marker: %s", c)
-		}
+	if !slices.Equal(h.exec.calls, notAPICalls) {
+		t.Errorf("calls = %q, want only the sections that do not need api:setup: %q", h.exec.calls, notAPICalls)
 	}
 }
+
+// notAPICalls are the example's commands once api:setup fails before running: everything below it is blocked.
+var notAPICalls = []string{"/w/core: cl", "/w/core: cs", "/w/core: cb", "/w/docs: db"}
 
 func TestInterrupt(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	script := okScript("core", "api", "backend", "app", "lib")
-	script["api-setup"] = []fakeCmd{{stdout: "partial\n", during: func() { cancel(ErrInterrupted) }}}
+	script := exampleScript()
+	script["as"] = []fakeCmd{{stdout: "partial\n", during: func() { cancel(ErrInterrupted) }}}
 	h := newHarness(script)
-	res := h.r.Run(ctx, diamond())
+	res := h.r.Run(ctx, example())
 
-	want := []string{
-		"start core setup", "end core setup done", "start core build", "end core build done",
-		"start api setup", "end api setup interrupted",
-	}
+	want := []string{"start api:setup", "end api:setup interrupted"}
 	if !slices.Equal(h.rec.events, want) {
 		t.Errorf("events:\n%s\nwant:\n%s", strings.Join(h.rec.events, "\n"), strings.Join(want, "\n"))
 	}
-	out := h.rec.outcomes["api setup"]
+	out := h.rec.outcomes["api:setup"]
 	if out.Cause != "signal SIGINT" || len(out.Steps) != 1 || string(out.Steps[0].Output) != "partial\n" {
 		t.Errorf("outcome = %+v", out)
 	}
 	if res.Interrupted != syscall.SIGINT || res.ExitCode() != 130 {
 		t.Errorf("interrupted=%v exit=%d", res.Interrupted, res.ExitCode())
 	}
-	if len(res.Rows) != 5 {
-		t.Errorf("rows = %d, want all 5 projects", len(res.Rows))
+	if len(res.Rows) != 4 {
+		t.Errorf("rows = %d, want all 4 projects", len(res.Rows))
 	}
-	if res.Rows[1].Cells[1] != (Cell{}) || res.Rows[4].Cells[0] != (Cell{}) {
-		t.Errorf("unreached cells not empty: %+v %+v", res.Rows[1].Cells, res.Rows[4].Cells)
+	assertOnlyCells(t, res, "api:setup")
+}
+
+// assertOnlyCells fails for every summary cell that is set but not named in ended ("<project>:<column>").
+func assertOnlyCells(t *testing.T, res *Results, ended ...string) {
+	t.Helper()
+	for _, row := range res.Rows {
+		for i, c := range row.Cells {
+			key := row.Project + ":" + res.Columns[i]
+			if c != "" && !slices.Contains(ended, key) {
+				t.Errorf("%s: unreached cell = %q, want zero", key, c)
+			}
+		}
 	}
 }
 
 func TestInterruptSIGTERM(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	script := okScript("core", "api", "backend", "app", "lib")
-	script["api-setup"] = []fakeCmd{{stdout: "partial\n", during: func() { cancel(Interrupt{Signal: syscall.SIGTERM}) }}}
+	script := exampleScript()
+	script["as"] = []fakeCmd{{stdout: "partial\n", during: func() { cancel(Interrupt{Signal: syscall.SIGTERM}) }}}
 	h := newHarness(script)
-	res := h.r.Run(ctx, diamond())
+	res := h.r.Run(ctx, example())
 
-	want := []string{
-		"start core setup", "end core setup done", "start core build", "end core build done",
-		"start api setup", "end api setup interrupted",
-	}
+	want := []string{"start api:setup", "end api:setup interrupted"}
 	if !slices.Equal(h.rec.events, want) {
 		t.Errorf("events:\n%s\nwant:\n%s", strings.Join(h.rec.events, "\n"), strings.Join(want, "\n"))
 	}
-	out := h.rec.outcomes["api setup"]
+	out := h.rec.outcomes["api:setup"]
 	if out.Cause != "signal SIGTERM" || len(out.Steps) != 1 || string(out.Steps[0].Output) != "partial\n" {
 		t.Errorf("outcome = %+v", out)
 	}
 	if res.Interrupted != syscall.SIGTERM || res.ExitCode() != 143 {
 		t.Errorf("interrupted=%v exit=%d", res.Interrupted, res.ExitCode())
 	}
-	if len(res.Rows) != 5 {
-		t.Errorf("rows = %d, want all 5 projects", len(res.Rows))
-	}
-	if res.Rows[1].Cells[1] != (Cell{}) || res.Rows[4].Cells[0] != (Cell{}) {
-		t.Errorf("unreached cells not empty: %+v %+v", res.Rows[1].Cells, res.Rows[4].Cells)
-	}
+	assertOnlyCells(t, res, "api:setup")
 }
 
-func TestInterruptBetweenPhases(t *testing.T) {
+func TestInterruptBetweenSections(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	script := okScript("core", "api", "backend", "app", "lib")
+	script := exampleScript()
 	h := newHarness(script)
-	// Cancel after core's setup finished, before its build starts.
-	h.r.Report = &cancelAfter{recorder: h.rec, event: "end core setup done", cancel: func() { cancel(ErrInterrupted) }}
-	res := h.r.Run(ctx, diamond())
+	// Cancel after api:setup finished, before core:lint starts.
+	h.r.Report = &cancelAfter{recorder: h.rec, event: "end api:setup done", cancel: func() { cancel(ErrInterrupted) }}
+	res := h.r.Run(ctx, example())
 
-	if want := []string{"start core setup", "end core setup done"}; !slices.Equal(h.rec.events, want) {
+	if want := []string{"start api:setup", "end api:setup done"}; !slices.Equal(h.rec.events, want) {
 		t.Errorf("events = %q, want %q", h.rec.events, want)
 	}
 	if res.ExitCode() != 130 {
@@ -415,28 +412,26 @@ func TestInterruptBetweenPhases(t *testing.T) {
 	}
 }
 
-func TestInterruptBeforeBlockedJobs(t *testing.T) {
+func TestInterruptBeforeBlockedSections(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	script := okScript("core", "api", "backend", "app")
-	script["core-setup"] = []fakeCmd{{exit: 2}}
+	script := exampleScript()
 	h := newHarness(script)
-	// Ctrl-C lands while the failed phase is being reported; every later job would be blocked.
-	h.r.Report = &cancelAfter{recorder: h.rec, event: "end core setup fail", cancel: func() { cancel(ErrInterrupted) }}
-	plan := diamond()
-	plan.Jobs = plan.Jobs[:4]
-	res := h.r.Run(ctx, plan)
+	// Ctrl-C lands while the failed section is being reported; every later section would be blocked.
+	h.r.Report = &cancelAfter{recorder: h.rec, event: "end api:build fail", cancel: func() { cancel(ErrInterrupted) }}
+	res := h.r.Run(ctx, example())
 
-	if want := []string{"start core setup", "end core setup fail"}; !slices.Equal(h.rec.events, want) {
-		t.Errorf("events = %q, want %q", h.rec.events, want)
+	wantEvents := []string{
+		"start api:setup", "end api:setup done",
+		"start core:lint", "end core:lint done",
+		"start core:setup", "end core:setup done",
+		"start core:build", "end core:build done",
+		"start api:build", "end api:build fail",
 	}
-	for _, row := range res.Rows[1:] {
-		for _, c := range row.Cells {
-			if c != (Cell{}) {
-				t.Errorf("%s: unreached cell = %+v, want zero", row.Project, c)
-			}
-		}
+	if !slices.Equal(h.rec.events, wantEvents) {
+		t.Errorf("events = %q, want %q", h.rec.events, wantEvents)
 	}
+	assertOnlyCells(t, res, "api:setup", "api:build", "core:lint", "core:setup", "core:build")
 	if res.Interrupted != syscall.SIGINT || res.ExitCode() != 130 {
 		t.Errorf("interrupted=%v exit=%d, want true, 130", res.Interrupted, res.ExitCode())
 	}
@@ -449,8 +444,8 @@ type cancelAfter struct {
 	cancel func()
 }
 
-func (c *cancelAfter) PhaseEnd(project string, ph Phase, out Outcome) {
-	c.recorder.PhaseEnd(project, ph, out)
+func (c *cancelAfter) SectionEnd(s Section, out Outcome) {
+	c.recorder.SectionEnd(s, out)
 	if c.events[len(c.events)-1] == c.event {
 		c.cancel()
 	}
@@ -473,38 +468,37 @@ func TestResultCause(t *testing.T) {
 }
 
 func TestRecorderCalls(t *testing.T) {
-	script := okScript("core", "api", "backend", "app", "lib")
-	script["core-setup"] = []fakeCmd{{exit: 2}}
-	h := newHarness(script)
-	h.r.Run(context.Background(), diamond())
+	h := newHarness(exampleScript())
+	h.r.Run(context.Background(), example())
 
 	want := []string{
-		"end core setup fail",
-		"blocked api setup by core",
-		"blocked backend setup by core",
-		"blocked app setup by api, backend",
-		"end lib setup done",
-		"end lib build done",
+		"end api:setup done", "end core:lint done", "end core:setup done", "end core:build done",
+		"end api:build fail",
+		"blocked api:image by api:build",
+		"blocked api:test by api:build",
+		"end docs:build done",
+		"blocked web:build by api:build, api:test",
+		"blocked web:e2e by api:image, web:build",
 	}
 	if !slices.Equal(h.record.calls, want) {
 		t.Errorf("record calls:\n%s\nwant:\n%s", strings.Join(h.record.calls, "\n"), strings.Join(want, "\n"))
 	}
 }
 
-func TestRecordErrorFailsPhase(t *testing.T) {
-	h := newHarness(okScript("core", "api", "backend", "app", "lib"))
-	h.record.failPhase["core setup"] = true
-	res := h.r.Run(context.Background(), diamond())
+func TestRecordErrorFailsSection(t *testing.T) {
+	h := newHarness(exampleScript())
+	h.record.failSection["api:setup"] = true
+	res := h.r.Run(context.Background(), example())
 
-	out := h.rec.outcomes["core setup"]
+	out := h.rec.outcomes["api:setup"]
 	if out.Status != Fail || out.Cause != "log error: read-only file system" || out.Duration != time.Second {
 		t.Errorf("outcome = %+v", out)
 	}
-	if !slices.Contains(h.rec.events, "blocked api setup by core") || !slices.Contains(h.rec.events, "end lib build done") {
+	if !slices.Contains(h.rec.events, "blocked api:build by api:setup") || !slices.Contains(h.rec.events, "end core:build done") {
 		t.Errorf("events = %q", h.rec.events)
 	}
-	if slices.Contains(h.rec.events, "start core build") {
-		t.Errorf("core kept running after its record failed: %q", h.rec.events)
+	if slices.Contains(h.rec.events, "start api:build") {
+		t.Errorf("api kept running after api:setup's record failed: %q", h.rec.events)
 	}
 	if res.ExitCode() != 1 {
 		t.Errorf("exit = %d", res.ExitCode())
@@ -512,12 +506,12 @@ func TestRecordErrorFailsPhase(t *testing.T) {
 }
 
 func TestRecordErrorKeepsFailCause(t *testing.T) {
-	script := okScript("core", "api", "backend", "app", "lib")
-	script["core-setup"] = []fakeCmd{{exit: 2}}
+	script := exampleScript()
+	script["as"] = []fakeCmd{{exit: 2}}
 	h := newHarness(script)
-	h.record.failPhase["core setup"] = true
-	h.r.Run(context.Background(), diamond())
-	if out := h.rec.outcomes["core setup"]; out.Status != Fail || out.Cause != "exit 2" {
+	h.record.failSection["api:setup"] = true
+	h.r.Run(context.Background(), example())
+	if out := h.rec.outcomes["api:setup"]; out.Status != Fail || out.Cause != "exit 2" {
 		t.Errorf("outcome = %+v", out)
 	}
 }
@@ -525,35 +519,32 @@ func TestRecordErrorKeepsFailCause(t *testing.T) {
 func TestRecordErrorKeepsInterrupted(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
-	script := okScript("core", "api", "backend", "app", "lib")
-	script["core-setup"] = []fakeCmd{{during: func() { cancel(ErrInterrupted) }}}
+	script := exampleScript()
+	script["as"] = []fakeCmd{{during: func() { cancel(ErrInterrupted) }}}
 	h := newHarness(script)
-	h.record.failPhase["core setup"] = true
-	h.r.Run(ctx, diamond())
-	if out := h.rec.outcomes["core setup"]; out.Status != Interrupted {
+	h.record.failSection["api:setup"] = true
+	h.r.Run(ctx, example())
+	if out := h.rec.outcomes["api:setup"]; out.Status != Interrupted {
 		t.Errorf("outcome = %+v", out)
 	}
-	if !slices.Equal(h.record.calls, []string{"end core setup interrupted"}) {
+	if !slices.Equal(h.record.calls, []string{"end api:setup interrupted"}) {
 		t.Errorf("record calls after interrupt = %q", h.record.calls)
 	}
 }
 
 func TestStewEnv(t *testing.T) {
 	h := newHarness(map[string][]fakeCmd{"v": {bad(""), ok("")}, "r": {ok("")}, "q": {ok("")}})
-	h.r.Run(context.Background(), Plan{
-		Columns: []string{"setup", "ci.pre-commit"},
-		Jobs: []Job{{Project: "my.lib", Dir: "/w/lib", Phases: []Phase{
-			setup("r", "v"),
-			ci("pre-commit", "quick", "q"),
-		}}},
-	})
-	env := func(phase string) []string {
+	h.r.Run(context.Background(), plan(
+		Section{Project: "my.lib", Name: "setup", Dir: "/w/lib", Run: "r", SkipIf: "v", Verify: "v"},
+		Section{Project: "my.lib", Name: "ci.quick", Dir: "/w/lib", Run: "q"},
+	))
+	env := func(section string) []string {
 		return []string{
 			"STEW_RUN_ID=20260101T000000Z-abcd",
 			"STEW_ROOT=/w",
 			"STEW_PROJECT=my.lib",
-			"STEW_PHASE=" + phase,
-			"STEW_TAG=my.lib." + phase,
+			"STEW_SECTION=" + section,
+			"STEW_TAG=my.lib:" + section,
 		}
 	}
 	want := [][]string{env("setup"), env("setup"), env("setup"), env("ci.quick")}
@@ -562,28 +553,27 @@ func TestStewEnv(t *testing.T) {
 	}
 }
 
-// runWrapped runs a plan with one wrapped job "p" of phases on h and returns h's outcomes.
-func runWrapped(ctx context.Context, h *harness, phases ...Phase) map[string]Outcome {
-	var columns []string
-	for _, ph := range phases {
-		columns = append(columns, ph.Name)
+// runWrapped runs a plan with one wrapped project "p" of sections on h and returns h's outcomes.
+func runWrapped(ctx context.Context, h *harness, sections ...Section) map[string]Outcome {
+	for i := range sections {
+		sections[i].Project = "p"
+		sections[i].Dir = "/w/p"
+		sections[i].Wrappers = []string{"outer {{STEW_STEP}}", "inner {{STEW_STEP}}"}
 	}
-	h.r.Run(ctx, Plan{
-		Columns: columns,
-		Jobs:    []Job{{Project: "p", Dir: "/w/p", Wrappers: []string{"outer {{STEW_STEP}}", "inner {{STEW_STEP}}"}, Phases: phases}},
-	})
+	h.r.Run(ctx, plan(sections...))
 	return h.rec.outcomes
 }
 
-// runWrappedOne is runOne with wrappers on the job.
-func runWrappedOne(t *testing.T, ph Phase, script map[string][]fakeCmd) (Outcome, *harness) {
+// runWrappedOne is runOne with wrappers on the section.
+func runWrappedOne(t *testing.T, s Section, script map[string][]fakeCmd) (Outcome, *harness) {
 	t.Helper()
+	s.Name = "build"
 	h := newHarness(script)
-	return runWrapped(context.Background(), h, ph)["p "+ph.Name], h
+	return runWrapped(context.Background(), h, s)["p:build"], h
 }
 
 func TestNoWrappersRunsPlainShell(t *testing.T) {
-	_, h := runOne(t, build("r", ""), map[string][]fakeCmd{"r": {ok("")}})
+	_, h := runOne(t, Section{Run: "r"}, map[string][]fakeCmd{"r": {ok("")}})
 	if len(h.exec.argvs) != 1 || !slices.Equal(h.exec.argvs[0], []string{"sh", "-c", "r"}) {
 		t.Errorf("argvs = %q", h.exec.argvs)
 	}
@@ -593,7 +583,7 @@ func TestNoWrappersRunsPlainShell(t *testing.T) {
 }
 
 func TestWrappedStepRunsPreparedArgv(t *testing.T) {
-	out, h := runWrappedOne(t, build("r", ""), map[string][]fakeCmd{"r": {ok("")}})
+	out, h := runWrappedOne(t, Section{Run: "r"}, map[string][]fakeCmd{"r": {ok("")}})
 	if out.Status != Done || len(h.exec.argvs) != 1 || !slices.Equal(h.exec.argvs[0], []string{"fake-wrapped", "p-build", "r"}) {
 		t.Errorf("outcome = %+v, argvs = %q", out, h.exec.argvs)
 	}
@@ -606,24 +596,28 @@ func TestWrappedStepRunsPreparedArgv(t *testing.T) {
 func TestWrapperFailureFailsEveryStep(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		ph     Phase
+		s      Section
 		script map[string][]fakeCmd
 		want   string
 	}{
-		{"run unreached", build("r", ""), map[string][]fakeCmd{"r": {{unreached: true}}}, "wrapper did not run the command (exit 0)"},
-		{"run twice", build("r", ""), map[string][]fakeCmd{"r": {{twice: true}}}, "wrapper ran the command 2 times (exit 0)"},
-		{"verify after run unreached", build("r", "v"), map[string][]fakeCmd{"v": {bad(""), {unreached: true}}, "r": {ok("")}},
+		{"run unreached", Section{Run: "r"}, map[string][]fakeCmd{"r": {{unreached: true}}}, "wrapper did not run the command (exit 0)"},
+		{"run twice", Section{Run: "r"}, map[string][]fakeCmd{"r": {{twice: true}}}, "wrapper ran the command 2 times (exit 0)"},
+		{"verify unreached", Section{Run: "r", Verify: "v"}, map[string][]fakeCmd{"v": {{unreached: true}}, "r": {ok("")}},
 			"wrapper did not run the command (exit 0)"},
-		{"verify after run twice", build("r", "v"), map[string][]fakeCmd{"v": {bad(""), {twice: true}}, "r": {ok("")}},
+		{"verify twice", Section{Run: "r", Verify: "v"}, map[string][]fakeCmd{"v": {{twice: true}}, "r": {ok("")}},
 			"wrapper ran the command 2 times (exit 0)"},
+		{"verify unreached after skip_if", Section{Run: "r", SkipIf: "v", Verify: "v"},
+			map[string][]fakeCmd{"v": {bad(""), {unreached: true}}, "r": {ok("")}}, "wrapper did not run the command (exit 0)"},
+		{"verify twice after skip_if", Section{Run: "r", SkipIf: "v", Verify: "v"},
+			map[string][]fakeCmd{"v": {bad(""), {twice: true}}, "r": {ok("")}}, "wrapper ran the command 2 times (exit 0)"},
 	} {
-		if out, _ := runWrappedOne(t, tc.ph, tc.script); out.Status != Fail || out.Cause != tc.want {
+		if out, _ := runWrappedOne(t, tc.s, tc.script); out.Status != Fail || out.Cause != tc.want {
 			t.Errorf("%s: outcome = %+v", tc.name, out)
 		}
 	}
 }
 
-func TestWrapperFailureInPreRunVerifyFailsWithoutRun(t *testing.T) {
+func TestWrapperFailureInSkipIfFailsWithoutRun(t *testing.T) {
 	for _, tc := range []struct {
 		v    fakeCmd
 		want string
@@ -631,18 +625,18 @@ func TestWrapperFailureInPreRunVerifyFailsWithoutRun(t *testing.T) {
 		{fakeCmd{wrapperExit: 1, unreached: true}, "wrapper did not run the command (exit 1)"},
 		{fakeCmd{twice: true}, "wrapper ran the command 2 times (exit 0)"},
 	} {
-		out, h := runWrappedOne(t, build("r", "v"), map[string][]fakeCmd{"v": {tc.v}, "r": {ok("")}})
+		out, h := runWrappedOne(t, Section{Run: "r", SkipIf: "v"}, map[string][]fakeCmd{"v": {tc.v}, "r": {ok("")}})
 		if out.Status != Fail || out.Cause != tc.want {
 			t.Errorf("outcome = %+v", out)
 		}
-		if !slices.Equal(stepNames(out), []string{"verify"}) || !slices.Equal(h.exec.calls, []string{"/w/p: v"}) {
+		if !slices.Equal(stepNames(out), []string{"skip_if"}) || !slices.Equal(h.exec.calls, []string{"/w/p: v"}) {
 			t.Errorf("steps = %q, calls = %q", stepNames(out), h.exec.calls)
 		}
 	}
 }
 
 func TestReachedFailingCommandHasPlainCause(t *testing.T) {
-	out, _ := runWrappedOne(t, build("r", ""), map[string][]fakeCmd{"r": {bad("")}})
+	out, _ := runWrappedOne(t, Section{Run: "r"}, map[string][]fakeCmd{"r": {bad("")}})
 	if out.Status != Fail || out.Cause != "exit 1" {
 		t.Errorf("outcome = %+v", out)
 	}
@@ -659,7 +653,7 @@ func TestReachedStepResultIsTheCommandsStatus(t *testing.T) {
 		{"passing command, wrapper exits 1", fakeCmd{wrapperExit: 1}, Done, ""},
 		{"failing command, wrapper exits 2", fakeCmd{exit: 3, wrapperExit: 2}, Fail, "exit 3"},
 	} {
-		out, _ := runWrappedOne(t, build("r", ""), map[string][]fakeCmd{"r": {tc.r}})
+		out, _ := runWrappedOne(t, Section{Run: "r"}, map[string][]fakeCmd{"r": {tc.r}})
 		if out.Status != tc.status || out.Cause != tc.cause {
 			t.Errorf("%s: outcome = %+v", tc.name, out)
 		}
@@ -669,16 +663,19 @@ func TestReachedStepResultIsTheCommandsStatus(t *testing.T) {
 func TestUnfinishedCommandFailsEveryStep(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		ph     Phase
+		s      Section
 		script map[string][]fakeCmd
 		calls  []string
 	}{
-		{"run", build("r", ""), map[string][]fakeCmd{"r": {{unfinished: true}}}, []string{"/w/p: r"}},
-		{"pre-run verify", build("r", "v"), map[string][]fakeCmd{"v": {{unfinished: true}}, "r": {ok("")}}, []string{"/w/p: v"}},
-		{"verify after run", build("r", "v"), map[string][]fakeCmd{"v": {bad(""), {unfinished: true}}, "r": {ok("")}},
+		{"run", Section{Run: "r"}, map[string][]fakeCmd{"r": {{unfinished: true}}}, []string{"/w/p: r"}},
+		{"skip_if", Section{Run: "r", SkipIf: "v"}, map[string][]fakeCmd{"v": {{unfinished: true}}, "r": {ok("")}}, []string{"/w/p: v"}},
+		{"verify", Section{Run: "r", Verify: "v"}, map[string][]fakeCmd{"v": {{unfinished: true}}, "r": {ok("")}},
+			[]string{"/w/p: r", "/w/p: v"}},
+		{"verify after skip_if", Section{Run: "r", SkipIf: "v", Verify: "v"},
+			map[string][]fakeCmd{"v": {bad(""), {unfinished: true}}, "r": {ok("")}},
 			[]string{"/w/p: v", "/w/p: r", "/w/p: v"}},
 	} {
-		out, h := runWrappedOne(t, tc.ph, tc.script)
+		out, h := runWrappedOne(t, tc.s, tc.script)
 		if out.Status != Fail || out.Cause != "wrapper exited before the command finished (exit 0)" {
 			t.Errorf("%s: outcome = %+v", tc.name, out)
 		}
@@ -691,7 +688,7 @@ func TestUnfinishedCommandFailsEveryStep(t *testing.T) {
 func TestUnfinishedInterruptIsInterrupted(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	h := newHarness(map[string][]fakeCmd{"r": {{unfinished: true, during: func() { cancel(ErrInterrupted) }}}})
-	out := runWrapped(ctx, h, build("r", ""))["p build"]
+	out := runWrapped(ctx, h, Section{Name: "build", Run: "r"})["p:build"]
 	if out.Status != Interrupted || out.Cause != "wrapper exited before the command finished (signal SIGINT)" {
 		t.Errorf("outcome = %+v", out)
 	}
@@ -707,7 +704,7 @@ func TestStepsErrorsAreLogErrors(t *testing.T) {
 	} {
 		h := newHarness(map[string][]fakeCmd{"r": {ok("")}})
 		tt.set(h.steps)
-		if out := runWrapped(context.Background(), h, build("r", ""))["p build"]; out.Status != Fail || out.Cause != "log error: disk full" {
+		if out := runWrapped(context.Background(), h, Section{Name: "build", Run: "r"})["p:build"]; out.Status != Fail || out.Cause != "log error: disk full" {
 			t.Errorf("%s: outcome = %+v", tt.name, out)
 		}
 		if tt.name == "failPrepare" && len(h.exec.calls) != 0 {
@@ -718,8 +715,8 @@ func TestStepsErrorsAreLogErrors(t *testing.T) {
 
 func TestUnreachedLogWriteErrorIsLogError(t *testing.T) {
 	h := newHarness(map[string][]fakeCmd{"r": {{unreached: true, stdout: "x"}}})
-	h.logs.setup["p-build"] = func(l *fakeLog) { l.failWrite = true }
-	if out := runWrapped(context.Background(), h, build("r", ""))["p build"]; out.Status != Fail || out.Cause != "log error: disk full" {
+	h.logs.setup["p:build"] = func(l *fakeLog) { l.failWrite = true }
+	if out := runWrapped(context.Background(), h, Section{Name: "build", Run: "r"})["p:build"]; out.Status != Fail || out.Cause != "log error: disk full" {
 		t.Errorf("outcome = %+v", out)
 	}
 }
@@ -727,29 +724,39 @@ func TestUnreachedLogWriteErrorIsLogError(t *testing.T) {
 func TestUnreachedInterruptIsInterrupted(t *testing.T) {
 	ctx, cancel := context.WithCancelCause(context.Background())
 	h := newHarness(map[string][]fakeCmd{"r": {{unreached: true, during: func() { cancel(ErrInterrupted) }}}})
-	if out := runWrapped(ctx, h, build("r", ""))["p build"]; out.Status != Interrupted || out.Cause != "wrapper did not run the command (signal SIGINT)" {
+	if out := runWrapped(ctx, h, Section{Name: "build", Run: "r"})["p:build"]; out.Status != Interrupted || out.Cause != "wrapper did not run the command (signal SIGINT)" {
 		t.Errorf("outcome = %+v", out)
 	}
 }
 
-func TestStepKeysDifferPerPhase(t *testing.T) {
+func TestStepKeysDifferPerSection(t *testing.T) {
 	h := newHarness(map[string][]fakeCmd{"s": {ok("")}, "b": {ok("")}, "q": {ok("")}})
-	runWrapped(context.Background(), h, setup("s", ""), build("b", ""), ci("pre-commit", "quick", "q"))
+	runWrapped(context.Background(), h,
+		Section{Name: "setup", Run: "s"}, Section{Name: "build", Run: "b"}, Section{Name: "ci.quick", Run: "q"})
 	if want := []string{"p-setup", "p-build", "p-ci.quick"}; !slices.Equal(h.steps.prepared, want) {
 		t.Errorf("keys = %q, want %q", h.steps.prepared, want)
 	}
 }
 
 func TestBlockedRecordErrorChangesNothing(t *testing.T) {
-	script := okScript("core", "api", "backend", "app", "lib")
-	script["core-setup"] = []fakeCmd{{exit: 2}}
-	h := newHarness(script)
+	h := newHarness(map[string][]fakeCmd{"x": {{exit: 2}}, "y": {ok("")}})
 	h.record.failBlocked = true
-	res := h.r.Run(context.Background(), diamond())
-	if !slices.Contains(h.rec.events, "blocked app setup by api, backend") || !slices.Contains(h.rec.events, "end lib build done") {
+	res := h.r.Run(context.Background(), plan(sec("a", "build", "x"), sec("b", "build", "y", "a:build")))
+	if !slices.Contains(h.rec.events, "blocked b:build by a:build") {
 		t.Errorf("events = %q", h.rec.events)
 	}
 	if res.ExitCode() != 1 {
 		t.Errorf("exit = %d", res.ExitCode())
+	}
+	col := 0
+	for i, c := range res.Columns {
+		if c == "build" {
+			col = i
+		}
+	}
+	for _, row := range res.Rows {
+		if row.Project == "b" && row.Cells[col] != Blocked {
+			t.Errorf("b cell = %q, want Blocked", row.Cells[col])
+		}
 	}
 }

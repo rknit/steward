@@ -5,17 +5,16 @@ import (
 	"context"
 	"errors"
 	"io"
-	"slices"
 	"sync"
 	"syscall"
 	"time"
 )
 
-// Runner executes plans. Steps is required only when a job has wrappers; every other field is required.
+// Runner executes plans. Steps is required only when a section has wrappers; every other field is required.
 type Runner struct {
 	Exec    Executor
 	Steps   Steps
-	OpenLog func(project, phase string) (PhaseLog, error)
+	OpenLog func(project, section string) (SectionLog, error)
 	Report  Reporter
 	Record  Recorder
 	Now     func() time.Time
@@ -23,84 +22,80 @@ type Runner struct {
 	Root    string // workspace root, exported to commands as STEW_ROOT
 }
 
-// env is what every command of phase ph gets on top of stew's own environment.
-func (r *Runner) env(project string, ph Phase) []string {
+// env is what every command of section s gets on top of stew's own environment.
+func (r *Runner) env(s Section) []string {
 	return []string{
 		"STEW_RUN_ID=" + r.RunID,
 		"STEW_ROOT=" + r.Root,
-		"STEW_PROJECT=" + project,
-		"STEW_PHASE=" + ph.Used,
-		"STEW_TAG=" + project + "." + ph.Used,
+		"STEW_PROJECT=" + s.Project,
+		"STEW_SECTION=" + s.Name,
+		"STEW_TAG=" + s.Key(),
 	}
 }
 
-// Run executes the plan in order. It never returns early on failure: independent projects keep running.
-// After an interrupt (ctx cancelled with an Interrupt cause: Ctrl-C, SIGTERM, or SIGHUP) no new phase starts.
+// Run executes the plan in order. It never returns early on failure: sections that do not require a failed one
+// keep running. After an interrupt (ctx cancelled with an Interrupt cause: Ctrl-C, SIGTERM, or SIGHUP)
+// no new section starts.
 func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 	res := &Results{Columns: plan.Columns}
 	column := make(map[string]int, len(plan.Columns))
 	for i, c := range plan.Columns {
 		column[c] = i
 	}
-	position := make(map[string]int, len(plan.Jobs))
-	for i, job := range plan.Jobs {
-		position[job.Project] = i
+	row := make(map[string]int, len(plan.Projects))
+	for i, p := range plan.Projects {
+		row[p] = i
+		res.Rows = append(res.Rows, Row{Project: p, Cells: make([]Status, len(plan.Columns))})
 	}
-	stopped := make(map[string]bool) // projects that failed or were blocked
+	ended := make(map[string]Status) // keys of sections that failed or were blocked
 
-	for _, job := range plan.Jobs {
-		res.Rows = append(res.Rows, Row{Project: job.Project, Cells: make([]Cell, len(plan.Columns))})
-		cells := res.Rows[len(res.Rows)-1].Cells
+	for _, s := range plan.Sections {
 		if sig, ok := interruptSignal(ctx); ok {
 			res.Interrupted = sig
+			break
 		}
-		if res.Interrupted != 0 {
-			continue
-		}
+		cell := &res.Rows[row[s.Project]].Cells[column[s.Name]]
 
-		var by []string
-		for _, dep := range job.Deps {
-			if stopped[dep] {
-				by = append(by, dep)
+		var by, failed []string
+		for _, req := range s.Requires {
+			switch ended[req] {
+			case Fail:
+				by = append(by, req)
+				failed = append(failed, req)
+			case Blocked:
+				by = append(by, req)
 			}
 		}
 		if len(by) > 0 {
-			slices.SortFunc(by, func(a, b string) int { return position[a] - position[b] })
-			first := job.Phases[0]
-			_ = r.Record.Blocked(job.Project, first, by)
-			r.Report.Blocked(job.Project, first, by)
-			cells[column[first.Name]] = Cell{Status: Blocked}
-			stopped[job.Project] = true
+			_ = r.Record.Blocked(s, by)
+			if len(failed) > 0 {
+				r.Report.Blocked(s, failed)
+			}
+			*cell = Blocked
+			ended[s.Key()] = Blocked
 			res.Failed = true
 			continue
 		}
 
-		for _, ph := range job.Phases {
+		r.Report.SectionStart(s)
+		start := r.Now()
+		out := r.section(ctx, s)
+		out.Duration = r.Now().Sub(start)
+		if err := r.Record.SectionEnd(s, out); err != nil {
+			out = LogErrorOutcome(out, err)
+		}
+		r.Report.SectionEnd(s, out)
+		*cell = out.Status
+
+		switch out.Status {
+		case Interrupted:
 			if sig, ok := interruptSignal(ctx); ok {
 				res.Interrupted = sig
-				break
 			}
-			r.Report.PhaseStart(job.Project, ph)
-			start := r.Now()
-			out := r.phase(ctx, job, ph)
-			out.Duration = r.Now().Sub(start)
-			if err := r.Record.PhaseEnd(job.Project, ph, out); err != nil {
-				out = LogErrorOutcome(out, err)
-			}
-			r.Report.PhaseEnd(job.Project, ph, out)
-			cells[column[ph.Name]] = Cell{Status: out.Status, Fallback: ph.Fallback()}
-
-			if out.Status == Interrupted {
-				if sig, ok := interruptSignal(ctx); ok {
-					res.Interrupted = sig
-				}
-				break
-			}
-			if out.Status == Fail {
-				stopped[job.Project] = true
-				res.Failed = true
-				break
-			}
+			return res
+		case Fail:
+			ended[s.Key()] = Fail
+			res.Failed = true
 		}
 	}
 	return res
@@ -120,17 +115,13 @@ func interrupted(ctx context.Context) bool {
 	return ok
 }
 
-// phase runs the phase algorithm. Duration is filled in by the caller.
-func (r *Runner) phase(ctx context.Context, job Job, ph Phase) (out Outcome) {
-	success := Done
-	if ph.CI {
-		success = Pass
-	}
-	if ph.Run == "" && ph.Verify == "" {
+// section runs the section algorithm. Duration is filled in by the caller.
+func (r *Runner) section(ctx context.Context, s Section) (out Outcome) {
+	if s.Run == "" && s.Verify == "" {
 		return Outcome{Status: Skip}
 	}
 
-	log, err := r.OpenLog(job.Project, ph.Used)
+	log, err := r.OpenLog(s.Project, s.Name)
 	if err != nil {
 		return Outcome{Status: Fail, Cause: "log error: " + err.Error()}
 	}
@@ -140,12 +131,12 @@ func (r *Runner) phase(ctx context.Context, job Job, ph Phase) (out Outcome) {
 		}
 	}()
 
-	env := r.env(job.Project, ph)
-	key := job.Project + "-" + ph.Used
+	env := r.env(s)
+	key := s.Project + "-" + s.Name
 	var steps []StepOutput
-	// run executes one step. done reports that the phase ended early, with outcome end.
+	// run executes one step. done reports that the section ended early, with outcome end.
 	run := func(step, cmd string) (res Result, done bool, end Outcome) {
-		res, output, logErr := r.step(ctx, job.Dir, key, job.Wrappers, env, log, step, cmd)
+		res, output, logErr := r.step(ctx, s.Dir, key, s.Wrappers, env, log, step, cmd)
 		steps = append(steps, StepOutput{Step: step, Cmd: cmd, Output: output})
 		switch {
 		case interrupted(ctx):
@@ -156,29 +147,24 @@ func (r *Runner) phase(ctx context.Context, job Job, ph Phase) (out Outcome) {
 		return res, false, Outcome{}
 	}
 
-	if ph.Verify != "" {
-		res, done, end := run("verify", ph.Verify)
+	if s.SkipIf != "" {
+		res, done, end := run("skip_if", s.SkipIf)
 		switch {
 		case done:
 			return end
 		case res.OK():
 			return Outcome{Status: Skip}
-		case res.WrapperFailed() || ph.Run == "":
+		case res.WrapperFailed():
 			return Outcome{Status: Fail, Steps: steps, Cause: res.Cause()}
 		}
-		steps = steps[:0] // a failed pre-run verify only means "not done yet"; don't replay it
+		steps = steps[:0] // a failed skip_if only means "not done yet"; don't replay it
 	}
 
-	res, done, end := run("run", ph.Run)
-	if done {
-		return end
-	}
-	if !res.OK() {
-		return Outcome{Status: Fail, Steps: steps, Cause: res.Cause()}
-	}
-
-	if ph.Verify != "" {
-		res, done, end := run("verify after run", ph.Verify)
+	for _, st := range []struct{ name, cmd string }{{"run", s.Run}, {"verify", s.Verify}} {
+		if st.cmd == "" {
+			continue
+		}
+		res, done, end := run(st.name, st.cmd)
 		if done {
 			return end
 		}
@@ -186,12 +172,12 @@ func (r *Runner) phase(ctx context.Context, job Job, ph Phase) (out Outcome) {
 			return Outcome{Status: Fail, Steps: steps, Cause: res.Cause()}
 		}
 	}
-	return Outcome{Status: success}
+	return Outcome{Status: Done}
 }
 
 // step runs one command, writing its output to the log files and to a replay buffer.
 // A log write error cancels the command and is returned as logErr.
-func (r *Runner) step(ctx context.Context, dir, key string, wrappers, env []string, log PhaseLog, step, cmd string) (res Result, output []byte, logErr error) {
+func (r *Runner) step(ctx context.Context, dir, key string, wrappers, env []string, log SectionLog, step, cmd string) (res Result, output []byte, logErr error) {
 	if err := log.Marker(step, cmd); err != nil {
 		return Result{}, nil, err
 	}

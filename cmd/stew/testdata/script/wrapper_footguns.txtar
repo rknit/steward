@@ -1,8 +1,8 @@
-# Wrappers that skip, repeat, or chain the command: each case checks the phase result and its cause.
+# Wrappers that skip, repeat, or chain the command: each case checks the section result and its cause.
 exec chmod 755 bin/failing-tool bin/wait-finished
 env PATH=$WORK/bin:$PATH
 
-# Each wrapper below ends without running the command: the phase fails with the wrapper cause and ran never exists.
+# Each wrapper below ends without running the command: the section fails with the wrapper cause and ran never exists.
 cp cfg/comment.toml .stew/config.toml
 ! exec stew build
 stdout '^\(wrapper did not run the command \(exit 2\)\)$'
@@ -24,7 +24,7 @@ stdout '^\(wrapper did not run the command \(exit 127\)\)$'
 stdout 'no-such-tool-for-stew: .*not found'
 ! exists lib/ran
 
-# A loop runs the command twice, and the phase fails.
+# A loop runs the command twice, and the section fails.
 cp cfg/loop.toml .stew/config.toml
 cp lib/count.toml lib/stew.toml
 ! exec stew build
@@ -32,12 +32,12 @@ stdout '^\(wrapper ran the command 2 times \(exit 0\)\)$'
 exec sh -c 'wc -l < lib/count'
 stdout '^ *2$'
 
-# A pre-run verify through a failing wrapper fails the phase; run never runs.
+# A skip_if through a failing wrapper fails the section; run never runs.
 cp cfg/failing.toml .stew/config.toml
-cp lib/verify.toml lib/stew.toml
+cp lib/skip-if.toml lib/stew.toml
 ! exec stew build
 stdout '^\(wrapper did not run the command \(exit 2\)\)$'
-stdout '^--- stew: verify: test -f ran$'
+stdout '^--- stew: skip_if: test -f ran$'
 ! stdout 'stew: run: touch ran'
 ! exists lib/ran
 
@@ -75,7 +75,7 @@ stdout '^==> lib: build \.\.\. done'
 exists lib/ran
 rm lib/ran
 
-# A wrapper that backgrounds the command exits before it finishes, and the phase fails.
+# A wrapper that backgrounds the command exits before it finishes, and the section fails.
 # The command waits for lib/release, but stew stops it when the step ends, so it never finishes.
 cp cfg/background.toml .stew/config.toml
 cp lib/background.toml lib/stew.toml
@@ -93,88 +93,83 @@ workspace_wrapper = ""
 projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = "touch ran"
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]
 -- lib/plain.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = "touch ran"
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]
 -- lib/count.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = "echo x >> count"
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
--- lib/verify.toml --
+requires = ["lib:build"]
+-- lib/skip-if.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
+skip_if = "test -f ran"
 run = "touch ran"
 verify = "test -f ran"
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]
 -- lib/failing.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = "exit 3"
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]
 -- lib/exit7.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = "exit 7"
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]
 -- lib/background.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = "touch started; i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; touch finished; exit 3"
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]
 -- bin/wait-finished --
 #!/bin/sh
 i=0

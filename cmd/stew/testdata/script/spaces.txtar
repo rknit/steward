@@ -5,18 +5,17 @@ cp want/stew.toml 'apps/My App/stew.toml'
 exec stew build
 stdout '^==> my-app: build \.\.\. done'
 grep '/apps/My App$' 'apps/My App/where'
-exec sh -c 'ls .stew/runs/*/my-app-build.stdout'
+exec sh -c 'ls .stew/runs/*/my-app:build.stdout'
 
 -- apps/My App/.keep --
 -- want/stew.toml --
 name = "my-app"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = "pwd > where"
-verify = ""
+requires = ["my-app:setup"]
 [ci.full]
 run = ""
+requires = ["my-app:build"]

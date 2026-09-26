@@ -11,69 +11,44 @@ import (
 func ms(n int) time.Duration { return time.Duration(n) * time.Millisecond }
 
 func TestShowSpecExample(t *testing.T) {
-	ciFB := runner.Phase{Name: "ci.pre-commit", Used: "ci.quick", CI: true}
-	phases := []ShownPhase{
-		{Project: "core", Phase: setup, Outcome: runner.Outcome{Status: runner.Skip, Duration: ms(104)},
-			Log: []byte("--- stew: verify: test -d node_modules\n")},
-		{Project: "core", Phase: build, Outcome: runner.Outcome{Status: runner.Skip, Duration: ms(31)},
-			Log: []byte("--- stew: verify: test -f dist/index.js\n")},
-		{Project: "core", Phase: ciFB, Outcome: runner.Outcome{Status: runner.Pass, Duration: ms(8210)},
-			Log: []byte("--- stew: run: npm run lint\nlint ok\n")},
-		{Project: "api", Phase: setup, Outcome: runner.Outcome{Status: runner.Skip, Duration: ms(95)},
-			Log: []byte("--- stew: verify: test -d node_modules\n")},
-		{Project: "api", Phase: build, Outcome: runner.Outcome{Status: runner.Fail, Duration: ms(63012), Cause: "exit 1"},
-			Log: []byte("--- stew: verify: test -f dist/index.js\n--- stew: run: npm run build\n\n" +
-				"> api@1.0.0 build\n> tsc\n\n" +
-				"src/db.ts(12,5): error TS2322: Type 'string' is not assignable to type 'number'.\n" +
-				"src/api.ts(40,1): error TS2304: Cannot find name 'handler'.\ndone in 4.1s\n" +
-				"--- stew: verify after run: test -f dist/index.js\n")},
-		{Project: "web", Phase: setup, Outcome: runner.Outcome{Status: runner.Blocked}, BlockedBy: []string{"api"}},
+	sections := []ShownSection{
+		{Project: "api", Section: "setup", Outcome: runner.Outcome{Status: runner.Done, Duration: ms(3100)},
+			Log: []byte("--- stew: run: npm ci\n")},
+		{Project: "api", Section: "build", Outcome: runner.Outcome{Status: runner.Fail, Duration: ms(4200), Cause: "exit 1"},
+			Log: []byte("--- stew: run: npm run build\nsrc/db.ts(12,5): error TS2322\n")},
+		{Project: "api", Section: "test", Outcome: runner.Outcome{Status: runner.Blocked}, BlockedBy: []string{"api:build"}},
+		{Project: "web", Section: "build", Outcome: runner.Outcome{Status: runner.Blocked}, BlockedBy: []string{"api:build"}},
+		{Project: "web", Section: "e2e", Outcome: runner.Outcome{Status: runner.Blocked}},
 	}
 	res := &runner.Results{
-		Columns: []string{"setup", "build", "ci.pre-commit"},
+		Columns: []string{"setup", "build", "test", "e2e"},
 		Rows: []runner.Row{
-			{Project: "core", Cells: []runner.Cell{{Status: runner.Skip}, {Status: runner.Skip}, {Status: runner.Pass, Fallback: "quick"}}},
-			{Project: "api", Cells: []runner.Cell{{Status: runner.Skip}, {Status: runner.Fail}, {}}},
-			{Project: "web", Cells: []runner.Cell{{Status: runner.Blocked}, {}, {}}},
+			{Project: "api", Cells: []runner.Status{runner.Done, runner.Fail, runner.Blocked, ""}},
+			{Project: "web", Cells: []runner.Status{"", runner.Blocked, "", runner.Blocked}},
 		},
 	}
 	var b bytes.Buffer
 	Show(&b, "20260925T043601Z-3f9a", []string{"ci", "--level", "pre-commit"}, "tool exec . {{STEW_STEP}}",
-		[]ProjectWrapper{{"api", "other-tool run {{STEW_STEP}}"}}, phases,
+		[]ProjectWrapper{{"api", "other-tool run {{STEW_STEP}}"}}, sections,
 		&ShownSummary{Results: res, Total: ms(75004), Finished: true, Logs: ".stew/runs/20260925T043601Z-3f9a"})
 
 	want := `run 20260925T043601Z-3f9a: stew ci --level pre-commit
 wrapper: tool exec . {{STEW_STEP}}
 wrapper api: other-tool run {{STEW_STEP}}
-==> core: setup ... skip (0.1s)
---- stew: verify: test -d node_modules
-==> core: build ... skip (0.0s)
---- stew: verify: test -f dist/index.js
-==> core: ci.pre-commit -> ci.quick ... pass (8.2s)
---- stew: run: npm run lint
-lint ok
-==> api: setup ... skip (0.1s)
---- stew: verify: test -d node_modules
-==> api: build ... fail (1m3s)
---- stew: verify: test -f dist/index.js
+==> api: setup ... done (3.1s)
+--- stew: run: npm ci
+==> api: build ... fail (4.2s)
 --- stew: run: npm run build
-
-> api@1.0.0 build
-> tsc
-
-src/db.ts(12,5): error TS2322: Type 'string' is not assignable to type 'number'.
-src/api.ts(40,1): error TS2304: Cannot find name 'handler'.
-done in 4.1s
---- stew: verify after run: test -f dist/index.js
+src/db.ts(12,5): error TS2322
 (exit 1)
-==> web: setup ... blocked by api
-┌─────────┬─────────┬───────┬───────────────┐
-│ project │ setup   │ build │ ci.pre-commit │
-├─────────┼─────────┼───────┼───────────────┤
-│ core    │ skip    │ skip  │ pass (quick)  │
-│ api     │ skip    │ fail  │ -             │
-│ web     │ blocked │ -     │ -             │
-└─────────┴─────────┴───────┴───────────────┘
+==> api: test ... blocked by api:build
+==> web: build ... blocked by api:build
+┌─────────┬───────┬─────────┬─────────┬─────────┐
+│ project │ setup │ build   │ test    │ e2e     │
+├─────────┼───────┼─────────┼─────────┼─────────┤
+│ api     │ done  │ fail    │ blocked │ -       │
+│ web     │ -     │ blocked │ -       │ blocked │
+└─────────┴───────┴─────────┴─────────┴─────────┘
 total: 1m15s
 logs: .stew/runs/20260925T043601Z-3f9a
 `
@@ -83,18 +58,17 @@ logs: .stew/runs/20260925T043601Z-3f9a
 }
 
 func TestShowUnfinishedAndInterrupted(t *testing.T) {
-	ciFB := runner.Phase{Name: "ci.pre-commit", Used: "ci.quick", CI: true}
-	phases := []ShownPhase{
-		{Project: "core", Phase: build, Outcome: runner.Outcome{Status: runner.Interrupted, Cause: "signal SIGINT"},
+	sections := []ShownSection{
+		{Project: "core", Section: "build", Outcome: runner.Outcome{Status: runner.Interrupted, Cause: "signal SIGINT"},
 			Log: []byte("--- stew: run: make\nhalf")},
-		{Project: "core", Phase: ciFB, Outcome: runner.Outcome{Status: Unfinished}, Log: []byte("--- stew: run: lint\npartial")},
+		{Project: "core", Section: "ci.full", Outcome: runner.Outcome{Status: Unfinished}, Log: []byte("--- stew: run: lint\npartial")},
 	}
 	res := &runner.Results{
-		Columns: []string{"build", "ci.pre-commit"},
-		Rows:    []runner.Row{{Project: "core", Cells: []runner.Cell{{Status: runner.Interrupted}, {Status: Unfinished, Fallback: "quick"}}}},
+		Columns: []string{"build", "ci.full"},
+		Rows:    []runner.Row{{Project: "core", Cells: []runner.Status{runner.Interrupted, Unfinished}}},
 	}
 	var b bytes.Buffer
-	Show(&b, "20260101T000001Z-0001", []string{"ci", "-l", "pre-commit"}, "", nil, phases,
+	Show(&b, "20260101T000001Z-0001", []string{"ci", "-l", "pre-commit"}, "", nil, sections,
 		&ShownSummary{Results: res, Logs: ".stew/runs/20260101T000001Z-0001"})
 
 	want := `run 20260101T000001Z-0001: stew ci -l pre-commit
@@ -102,14 +76,14 @@ func TestShowUnfinishedAndInterrupted(t *testing.T) {
 --- stew: run: make
 half
 (signal SIGINT)
-==> core: ci.pre-commit -> ci.quick ... unfinished
+==> core: ci.full ... unfinished
 --- stew: run: lint
 partial
-┌─────────┬─────────────┬────────────────────┐
-│ project │ build       │ ci.pre-commit      │
-├─────────┼─────────────┼────────────────────┤
-│ core    │ interrupted │ unfinished (quick) │
-└─────────┴─────────────┴────────────────────┘
+┌─────────┬─────────────┬────────────┐
+│ project │ build       │ ci.full    │
+├─────────┼─────────────┼────────────┤
+│ core    │ interrupted │ unfinished │
+└─────────┴─────────────┴────────────┘
 total: unfinished
 logs: .stew/runs/20260101T000001Z-0001
 `
@@ -119,16 +93,28 @@ logs: .stew/runs/20260101T000001Z-0001
 }
 
 func TestShowWithoutSummaryAndNoLog(t *testing.T) {
-	phases := []ShownPhase{
-		{Project: "lib", Phase: setup, Outcome: runner.Outcome{Status: runner.Skip, Duration: ms(0)}},
-		{Project: "api", Phase: build, Outcome: runner.Outcome{Status: runner.Fail, Duration: ms(1200), Cause: "log error: disk full"}},
+	sections := []ShownSection{
+		{Project: "lib", Section: "setup", Outcome: runner.Outcome{Status: runner.Skip, Duration: ms(0)}},
+		{Project: "api", Section: "build", Outcome: runner.Outcome{Status: runner.Fail, Duration: ms(1200), Cause: "log error: disk full"}},
 	}
 	var b bytes.Buffer
-	Show(&b, "20260101T000001Z-0001", []string{"build"}, "", nil, phases, nil)
+	Show(&b, "20260101T000001Z-0001", []string{"build"}, "", nil, sections, nil)
 	want := "run 20260101T000001Z-0001: stew build\n" +
 		"==> lib: setup ... skip (0.0s)\n" +
 		"==> api: build ... fail (1.2s)\n" +
 		"(log error: disk full)\n"
+	if b.String() != want {
+		t.Errorf("got:\n%q\nwant:\n%q", b.String(), want)
+	}
+}
+
+func TestShowBlockedWithoutBlockedByIsHidden(t *testing.T) {
+	sections := []ShownSection{
+		{Project: "web", Section: "e2e", Outcome: runner.Outcome{Status: runner.Blocked}},
+	}
+	var b bytes.Buffer
+	Show(&b, "20260101T000001Z-0001", []string{"build"}, "", nil, sections, nil)
+	want := "run 20260101T000001Z-0001: stew build\n"
 	if b.String() != want {
 		t.Errorf("got:\n%q\nwant:\n%q", b.String(), want)
 	}

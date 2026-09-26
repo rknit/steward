@@ -9,14 +9,13 @@ import (
 )
 
 func TestSummary(t *testing.T) {
-	c := func(s runner.Status) runner.Cell { return runner.Cell{Status: s} }
 	res := &runner.Results{
 		Columns: []string{"setup", "build", "ci.pre-commit"},
 		Rows: []runner.Row{
-			{Project: "core", Cells: []runner.Cell{c(runner.Skip), c(runner.Done), {Status: runner.Pass, Fallback: "quick"}}},
-			{Project: "lib", Cells: []runner.Cell{c(runner.Skip), c(runner.Done), {}}},
-			{Project: "api", Cells: []runner.Cell{c(runner.Done), c(runner.Fail), {}}},
-			{Project: "web", Cells: []runner.Cell{c(runner.Blocked), {}, {}}},
+			{Project: "core", Cells: []runner.Status{runner.Skip, runner.Done, runner.Done}},
+			{Project: "lib", Cells: []runner.Status{runner.Skip, runner.Done, ""}},
+			{Project: "api", Cells: []runner.Status{runner.Done, runner.Fail, ""}},
+			{Project: "web", Cells: []runner.Status{runner.Blocked, "", ""}},
 		},
 	}
 	var b bytes.Buffer
@@ -24,7 +23,7 @@ func TestSummary(t *testing.T) {
 	want := `┌─────────┬─────────┬───────┬───────────────┐
 │ project │ setup   │ build │ ci.pre-commit │
 ├─────────┼─────────┼───────┼───────────────┤
-│ core    │ skip    │ done  │ pass (quick)  │
+│ core    │ skip    │ done  │ done          │
 │ lib     │ skip    │ done  │ -             │
 │ api     │ done    │ fail  │ -             │
 │ web     │ blocked │ -     │ -             │
@@ -40,7 +39,7 @@ logs: .stew/runs/20260925T043601Z-3f9a
 func TestSummaryWidensForLongNames(t *testing.T) {
 	res := &runner.Results{
 		Columns: []string{"setup"},
-		Rows:    []runner.Row{{Project: "a-very-long-project", Cells: []runner.Cell{{Status: runner.Interrupted}}}},
+		Rows:    []runner.Row{{Project: "a-very-long-project", Cells: []runner.Status{runner.Interrupted}}},
 	}
 	var b bytes.Buffer
 	Summary(&b, res, 0, "x")

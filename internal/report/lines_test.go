@@ -9,6 +9,11 @@ import (
 	"github.com/rknit/steward/internal/runner"
 )
 
+var (
+	_ runner.Reporter = (*Plain)(nil)
+	_ runner.Reporter = (*TTY)(nil)
+)
+
 func TestFormatDuration(t *testing.T) {
 	tests := []struct {
 		d    time.Duration
@@ -31,51 +36,48 @@ func TestFormatDuration(t *testing.T) {
 	}
 }
 
-var (
-	setup = runner.Phase{Name: "setup", Used: "setup"}
-	build = runner.Phase{Name: "build", Used: "build"}
-	ciFB  = runner.Phase{Name: "ci.pre-commit", Used: "ci.quick", CI: true}
-	ciOK  = runner.Phase{Name: "ci.full", Used: "ci.full", CI: true}
-)
-
-func TestPlainPhaseLines(t *testing.T) {
+func TestPlainSectionLines(t *testing.T) {
 	var b bytes.Buffer
 	p := &Plain{W: &b}
 	sec := func(f float64) time.Duration { return time.Duration(f * float64(time.Second)) }
 
-	p.PhaseStart("core", setup)
-	p.PhaseEnd("core", setup, runner.Outcome{Status: runner.Skip, Duration: sec(0.1)})
-	p.PhaseStart("api", build)
-	p.PhaseEnd("api", build, runner.Outcome{Status: runner.Done, Duration: sec(63)})
-	p.PhaseStart("api", ciFB)
-	p.PhaseEnd("api", ciFB, runner.Outcome{Status: runner.Pass, Duration: sec(8.2)})
-	p.PhaseStart("web", ciOK)
-	p.PhaseEnd("web", ciOK, runner.Outcome{
+	coreSetup := runner.Section{Project: "core", Name: "setup"}
+	apiBuild := runner.Section{Project: "api", Name: "build"}
+	webCiFull := runner.Section{Project: "web", Name: "ci.full"}
+	appBuild := runner.Section{Project: "app", Name: "build"}
+	libSetup := runner.Section{Project: "lib", Name: "setup"}
+	xBuild := runner.Section{Project: "x", Name: "build"}
+
+	p.SectionStart(coreSetup)
+	p.SectionEnd(coreSetup, runner.Outcome{Status: runner.Skip, Duration: sec(0.1)})
+	p.SectionStart(apiBuild)
+	p.SectionEnd(apiBuild, runner.Outcome{Status: runner.Done, Duration: sec(63)})
+	p.SectionStart(webCiFull)
+	p.SectionEnd(webCiFull, runner.Outcome{
 		Status: runner.Fail, Duration: sec(2.7), Cause: "exit 2",
 		Steps: []runner.StepOutput{
 			{Step: "run", Cmd: "npm test", Output: []byte("out\nno newline")},
-			{Step: "verify after run", Cmd: "test -f x", Output: nil},
+			{Step: "verify", Cmd: "test -f x", Output: nil},
 		},
 	})
-	p.Blocked("app", setup, []string{"api", "backend"})
-	p.PhaseStart("lib", setup)
-	p.PhaseEnd("lib", setup, runner.Outcome{Status: runner.Fail, Cause: "log error: disk full"})
-	p.PhaseStart("x", build)
-	p.PhaseEnd("x", build, runner.Outcome{
+	p.Blocked(appBuild, []string{"api:build", "backend:build"})
+	p.SectionStart(libSetup)
+	p.SectionEnd(libSetup, runner.Outcome{Status: runner.Fail, Cause: "log error: disk full"})
+	p.SectionStart(xBuild)
+	p.SectionEnd(xBuild, runner.Outcome{
 		Status: runner.Interrupted, Duration: sec(5), Cause: "signal SIGINT",
 		Steps: []runner.StepOutput{{Step: "run", Cmd: "make", Output: []byte("partial\n")}},
 	})
 
 	want := `==> core: setup ... skip (0.1s)
 ==> api: build ... done (1m3s)
-==> api: ci.pre-commit -> ci.quick ... pass (8.2s)
 ==> web: ci.full ... fail (2.7s)
 --- stew: run: npm test
 out
 no newline
---- stew: verify after run: test -f x
+--- stew: verify: test -f x
 (exit 2)
-==> app: setup ... blocked by api, backend
+==> app: build ... blocked by api:build, backend:build
 ==> lib: setup ... fail (0.0s)
 (log error: disk full)
 ==> x: build ... interrupted
@@ -97,12 +99,15 @@ func TestTTYAnimation(t *testing.T) {
 	stopped := false
 	tty := newTTY(&b, func() (<-chan time.Time, func()) { return tick, func() { stopped = true } })
 
-	tty.PhaseStart("core", setup)
+	coreSetup := runner.Section{Project: "core", Name: "setup"}
+	apiSetup := runner.Section{Project: "api", Name: "setup"}
+
+	tty.SectionStart(coreSetup)
 	for range 4 {
 		tick <- time.Time{}
 	}
-	tty.PhaseEnd("core", setup, runner.Outcome{Status: runner.Done, Duration: time.Second})
-	tty.Blocked("api", setup, []string{"core"})
+	tty.SectionEnd(coreSetup, runner.Outcome{Status: runner.Done, Duration: time.Second})
+	tty.Blocked(apiSetup, []string{"core:setup"})
 
 	const clr = "\r\x1b[K"
 	want := clr + "==> core: setup ." +
@@ -111,7 +116,7 @@ func TestTTYAnimation(t *testing.T) {
 		clr + "==> core: setup ." +
 		clr + "==> core: setup .." +
 		clr + "==> core: setup ... done (1.0s)\n" +
-		"==> api: setup ... blocked by core\n"
+		"==> api: setup ... blocked by core:setup\n"
 	if got := b.String(); got != want {
 		t.Errorf("output:\n%q\nwant:\n%q", got, want)
 	}
@@ -123,8 +128,9 @@ func TestTTYAnimation(t *testing.T) {
 func TestTTYFailureContent(t *testing.T) {
 	var b bytes.Buffer
 	tty := newTTY(&b, func() (<-chan time.Time, func()) { return nil, func() {} })
-	tty.PhaseStart("core", build)
-	tty.PhaseEnd("core", build, runner.Outcome{
+	coreBuild := runner.Section{Project: "core", Name: "build"}
+	tty.SectionStart(coreBuild)
+	tty.SectionEnd(coreBuild, runner.Outcome{
 		Status: runner.Fail, Duration: 2 * time.Second, Cause: "cannot start: no such file",
 		Steps: []runner.StepOutput{{Step: "run", Cmd: "make", Output: []byte("x\n")}},
 	})

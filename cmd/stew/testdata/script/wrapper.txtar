@@ -4,11 +4,11 @@ env PATH=$WORK/bin:$PATH
 env TMPDIR=$WORK/tmp
 mkdir tmp
 exec stew ci
-stdout '^==> lib: ci\.full \.\.\. pass'
+stdout '^==> lib: ci\.full \.\.\. done'
 cmp lib/seen want/seen
 exists wrap.log
-grep '^wrap-exec cwd='$WORK'/lib phase=setup root='$WORK'$' wrap.log
-grep '^wrap-exec cwd='$WORK'/lib phase=ci\.full root='$WORK'$' wrap.log
+grep '^wrap-exec cwd='$WORK'/lib section=setup root='$WORK'$' wrap.log
+grep '^wrap-exec cwd='$WORK'/lib section=ci\.full root='$WORK'$' wrap.log
 
 # No step directory is left after the run, and no step file lands in the run directory.
 exec sh -c 'ls -A tmp | wc -l'
@@ -17,9 +17,9 @@ exec sh -c 'ls -A .stew/runs/*/ | grep -c -e reach -e step || true'
 stdout '^0$'
 
 # Wrapper output on stdout and stderr lands in the logs unchanged.
-exec sh -c 'cat .stew/runs/*/lib-ci.full.stdout'
+exec sh -c 'cat .stew/runs/*/lib:ci.full.stdout'
 stdout '^wrap-exec says hi on stdout$'
-exec sh -c 'cat .stew/runs/*/lib-ci.full.stderr'
+exec sh -c 'cat .stew/runs/*/lib:ci.full.stderr'
 stdout '^wrap-exec says hi on stderr$'
 
 # run.json and runs show record the wrapper as written.
@@ -60,33 +60,32 @@ workspace_wrapper = 'wrap-exec "$STEW_ROOT" {{STEW_STEP}}'
 projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "true"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
-run = 'echo "WRAPPED=$WRAPPED STEW_PHASE=$STEW_PHASE STEW_PROJECT=$STEW_PROJECT" > seen'
+run = 'echo "WRAPPED=$WRAPPED STEW_SECTION=$STEW_SECTION STEW_PROJECT=$STEW_PROJECT" > seen'
+requires = ["lib:build"]
 -- lib/env.sh --
-export WRAPPED=yes STEW_PHASE=clobbered STEW_PROJECT=clobbered
+export WRAPPED=yes STEW_SECTION=clobbered STEW_PROJECT=clobbered
 -- bin/wrap-exec --
 #!/bin/sh
-echo "wrap-exec cwd=$(pwd) phase=$STEW_PHASE root=$1" >> "$STEW_ROOT/wrap.log"
+echo "wrap-exec cwd=$(pwd) section=$STEW_SECTION root=$1" >> "$STEW_ROOT/wrap.log"
 echo "wrap-exec says hi on stdout"
 echo "wrap-exec says hi on stderr" >&2
 shift
-export WRAPPED=yes STEW_PHASE=clobbered STEW_PROJECT=clobbered
+export WRAPPED=yes STEW_SECTION=clobbered STEW_PROJECT=clobbered
 exec "$@"
 -- bin/wrap-fork --
 #!/bin/sh
-export WRAPPED=yes STEW_PHASE=clobbered STEW_PROJECT=clobbered
+export WRAPPED=yes STEW_SECTION=clobbered STEW_PROJECT=clobbered
 "$@"
 exit $?
 -- want/seen --
-WRAPPED=yes STEW_PHASE=ci.full STEW_PROJECT=lib
+WRAPPED=yes STEW_SECTION=ci.full STEW_PROJECT=lib
 -- want/fork.toml --
 workspace_wrapper = "wrap-fork {{STEW_STEP}}"
 -- want/source.toml --

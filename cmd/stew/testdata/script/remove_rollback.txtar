@@ -30,13 +30,12 @@ workspace_wrapper = ""
 projects = ["libs/core"]
 -- libs/core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]

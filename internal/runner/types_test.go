@@ -33,6 +33,12 @@ func TestResultWrapped(t *testing.T) {
 	}
 }
 
+func TestSectionKey(t *testing.T) {
+	if k := (Section{Project: "my.lib", Name: "ci.full"}).Key(); k != "my.lib:ci.full" {
+		t.Errorf("Key = %q", k)
+	}
+}
+
 func TestLogErrorOutcome(t *testing.T) {
 	err := errors.New("boom")
 	tests := map[string]struct {

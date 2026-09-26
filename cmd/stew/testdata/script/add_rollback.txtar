@@ -19,25 +19,23 @@ projects = []
 -- libs/core/.keep --
 -- libs/pre/stew.toml --
 name = "pre"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["pre:setup"]
 [ci.full]
 run = ""
+requires = ["pre:build"]
 -- want/pre.toml --
 name = "pre"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["pre:setup"]
 [ci.full]
 run = ""
+requires = ["pre:build"]

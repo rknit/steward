@@ -75,6 +75,7 @@ func add(stdout io.Writer, arg, alias string) error {
 	existing := err == nil
 
 	var name string
+	var loaded *workspace.Project
 	if existing {
 		p, err := workspace.LoadProject(realRoot, rel)
 		if err != nil {
@@ -83,14 +84,7 @@ func add(stdout io.Writer, arg, alias string) error {
 		if alias != "" && alias != p.Name {
 			return rejected(fmt.Errorf("-a %s does not match name %q in %s", alias, p.Name, manifestRel))
 		}
-		for _, dep := range p.Dependencies {
-			if dep == p.Name {
-				return rejected(fmt.Errorf("%s: project %q depends on itself", manifestRel, p.Name))
-			}
-			if _, ok := ws.Project(dep); !ok {
-				return rejected(fmt.Errorf("%s: depends on unregistered project %q; add it first", manifestRel, dep))
-			}
-		}
+		loaded = p
 		name = p.Name
 	} else {
 		name = alias
@@ -103,6 +97,11 @@ func add(stdout io.Writer, arg, alias string) error {
 	}
 	if p, ok := ws.Project(name); ok {
 		return rejected(fmt.Errorf("project name %q is already used by %s", name, p.Path))
+	}
+	if loaded != nil {
+		if err := ws.CheckNewProject(loaded); err != nil {
+			return rejected(err)
+		}
 	}
 
 	if !existing {

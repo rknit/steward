@@ -13,7 +13,7 @@ const frameInterval = 300 * time.Millisecond
 
 var frames = []string{".", "..", "..."}
 
-// TTY reports to a terminal, animating the dots of the running phase's line.
+// TTY reports to a terminal, animating the dots of the running section's line.
 type TTY struct {
 	w      io.Writer
 	ticker func() (<-chan time.Time, func()) // returns the tick channel and its stop function
@@ -41,10 +41,10 @@ func (t *TTY) redraw(tail string) {
 	io.WriteString(t.w, "\r\x1b[K"+t.head+tail)
 }
 
-// PhaseStart implements runner.Reporter.
-func (t *TTY) PhaseStart(project string, ph runner.Phase) {
+// SectionStart implements runner.Reporter.
+func (t *TTY) SectionStart(s runner.Section) {
 	t.mu.Lock()
-	t.head = head(project, ph)
+	t.head = head(s.Project, s.Name)
 	t.redraw(" " + frames[0])
 	t.mu.Unlock()
 
@@ -69,8 +69,8 @@ func (t *TTY) PhaseStart(project string, ph runner.Phase) {
 	}(t.stop, t.done)
 }
 
-// PhaseEnd implements runner.Reporter.
-func (t *TTY) PhaseEnd(project string, ph runner.Phase, out runner.Outcome) {
+// SectionEnd implements runner.Reporter.
+func (t *TTY) SectionEnd(s runner.Section, out runner.Outcome) {
 	close(t.stop)
 	<-t.done
 	t.mu.Lock()
@@ -80,8 +80,8 @@ func (t *TTY) PhaseEnd(project string, ph runner.Phase, out runner.Outcome) {
 }
 
 // Blocked implements runner.Reporter.
-func (t *TTY) Blocked(project string, ph runner.Phase, by []string) {
+func (t *TTY) Blocked(s runner.Section, failed []string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	io.WriteString(t.w, blockedLine(project, ph, by))
+	io.WriteString(t.w, blockedLine(s.Project, s.Name, failed))
 }

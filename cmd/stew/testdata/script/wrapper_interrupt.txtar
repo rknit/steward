@@ -59,16 +59,15 @@ workspace_wrapper = "wrap-exec {{STEW_STEP}}"
 projects = ["core"]
 -- core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "echo $$ > cmd.pid; echo $PPID > step.pid; trap 'echo got-int; exit 1' INT; trap 'echo got-term; exit 1' TERM; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; touch survived"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]
 -- bin/wrap-exec --
 #!/bin/sh
 echo $$ > "$STEW_ROOT/wrapper.pid"

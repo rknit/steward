@@ -39,28 +39,27 @@ workspace_wrapper = "outer {{STEW_STEP}}"
 projects = ["api", "core"]
 -- api/stew.toml --
 name = "api"
-dependencies = ["core"]
 project_wrapper = "inner {{STEW_STEP}}"
 [setup]
 run = 'echo "$LAYERS $STEW_PROJECT" > seen'
-verify = ""
+requires = ["core:build"]
 [build]
 run = ""
-verify = ""
+requires = ["api:setup"]
 [ci.full]
 run = ""
+requires = ["api:build"]
 -- core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = 'echo "$LAYERS $STEW_PROJECT" > seen'
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]
 -- bin/outer --
 #!/bin/sh
 LAYERS="${LAYERS}outer;" exec "$@"
@@ -81,25 +80,25 @@ workspace_wrapper = ""
 workspace_wrapper = "outer {{STEW_STEP}}"
 -- want/api-or-true.toml --
 name = "api"
-dependencies = ["core"]
 project_wrapper = "{{STEW_STEP}} || true"
 [setup]
 run = "exit 7"
-verify = ""
+requires = ["core:build"]
 [build]
 run = ""
-verify = ""
+requires = ["api:setup"]
 [ci.full]
 run = ""
+requires = ["api:build"]
 -- want/api-true.toml --
 name = "api"
-dependencies = ["core"]
 project_wrapper = "true # {{STEW_STEP}}"
 [setup]
 run = "touch ran"
-verify = ""
+requires = ["core:build"]
 [build]
 run = ""
-verify = ""
+requires = ["api:setup"]
 [ci.full]
 run = ""
+requires = ["api:build"]

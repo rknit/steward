@@ -2,19 +2,24 @@
 cp bad/typo.toml core/stew.toml
 exec sh -c 'stew build; echo "exit=$?"'
 stdout '^exit=2$'
-stderr 'core/stew.toml: unknown key "buidl"'
+stderr 'core/stew.toml: \[build\]: unknown key "requries"'
 ! stdout '==>'
 ! exists .stew/runs
+
+cp bad/dependencies.toml core/stew.toml
+exec sh -c 'stew build; echo "exit=$?"'
+stdout '^exit=2$'
+stderr 'core/stew.toml: unknown key "dependencies"'
 
 cp bad/cycle.toml core/stew.toml
 exec sh -c 'stew build; echo "exit=$?"'
 stdout '^exit=2$'
-stderr 'dependency cycle: api -> core -> api'
+stderr 'cycle: api:build -> api:setup -> core:build -> core:setup -> api:build'
 
 cp bad/missing.toml core/stew.toml
 exec sh -c 'stew setup; echo "exit=$?"'
 stdout '^exit=2$'
-stderr 'missing key "setup.verify"'
+stderr '\[setup\]: missing key "run"'
 
 rm core/stew.toml
 exec sh -c 'stew add api; echo "exit=$?"'
@@ -27,49 +32,48 @@ workspace_wrapper = ""
 projects = ["api", "core"]
 -- api/stew.toml --
 name = "api"
-dependencies = ["core"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["core:build"]
 [build]
 run = ""
-verify = ""
+requires = ["api:setup"]
 [ci.full]
 run = ""
+requires = ["api:build"]
 -- core/.keep --
 -- bad/typo.toml --
 name = "core"
+project_wrapper = ""
+[setup]
+run = ""
+[build]
+run = ""
+requries = ["core:setup"]
+-- bad/dependencies.toml --
+name = "core"
 dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
-[buidl]
+[build]
 run = ""
-verify = ""
-[ci.full]
-run = ""
+requires = ["core:setup"]
 -- bad/cycle.toml --
 name = "core"
-dependencies = ["api"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["api:build"]
 [build]
 run = ""
-verify = ""
-[ci.full]
-run = ""
+requires = ["core:setup"]
 -- bad/missing.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
-run = ""
+skip_if = "true"
 [build]
 run = ""
-verify = ""
-[ci.full]
-run = ""
+requires = ["core:setup"]

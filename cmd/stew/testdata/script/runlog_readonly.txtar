@@ -14,13 +14,12 @@ projects = ["core"]
 -- .stew/runs/.keep --
 -- core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "touch ran"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]

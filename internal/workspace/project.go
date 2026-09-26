@@ -2,9 +2,11 @@ package workspace
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -13,60 +15,38 @@ import (
 // ManifestFile is the per-project config file name.
 const ManifestFile = "stew.toml"
 
-// Level is a CI level name.
-type Level string
-
-// CI levels.
-const (
-	LevelPreCommit Level = "pre-commit"
-	LevelPrePush   Level = "pre-push"
-	LevelQuick     Level = "quick"
-	LevelFull      Level = "full"
-)
-
-// fallback maps each level to the level used when a project does not define it. LevelFull has none.
-var fallback = map[Level]Level{
-	LevelPreCommit: LevelQuick,
-	LevelPrePush:   LevelFull,
-	LevelQuick:     LevelFull,
-}
-
-// ParseLevel returns the Level named s, or an error for an unknown name.
-func ParseLevel(s string) (Level, error) {
-	l := Level(s)
-	if _, ok := fallback[l]; ok || l == LevelFull {
-		return l, nil
-	}
-	return "", fmt.Errorf("unknown CI level %q (want full, quick, pre-commit, or pre-push)", s)
-}
-
-// Phase holds a setup or build phase's commands. An empty string means "no command".
-type Phase struct {
-	Run    string
-	Verify string
+// Section holds one section's commands and requirements. An empty command means "none".
+type Section struct {
+	Run      string
+	SkipIf   string
+	Verify   string
+	Requires []Key
 }
 
 // Project is one parsed and validated stew.toml.
 type Project struct {
-	Name         string
-	Path         string // root-relative, slash-separated, as registered
-	Dependencies []string
-	Wrapper      string // project wrapper, nested inside the workspace wrapper; "" means none
-	Setup        Phase
-	Build        Phase
-	CI           map[Level]string // run command per defined level; LevelFull is always present
+	Name     string
+	Path     string // root-relative, slash-separated, as registered
+	Wrapper  string // project wrapper, nested inside the workspace wrapper; "" means none
+	Sections map[string]*Section
 }
 
-// ResolveCI walks the fallback chain from the requested level and returns the first level the project defines.
-func (p *Project) ResolveCI(requested Level) (used Level, run string) {
-	for l := requested; ; l = fallback[l] {
-		if cmd, ok := p.CI[l]; ok {
-			return l, cmd
-		}
-		if l == LevelFull {
-			panic("workspace: project without ci.full: " + p.Name)
+// SectionNames returns the project's section names, sorted.
+func (p *Project) SectionNames() []string {
+	return slices.Sorted(maps.Keys(p.Sections))
+}
+
+// Dependencies returns the other projects named in any of the project's requires, sorted.
+func (p *Project) Dependencies() []string {
+	deps := make(map[string]bool)
+	for _, s := range p.Sections {
+		for _, k := range s.Requires {
+			if k.Project != p.Name {
+				deps[k.Project] = true
+			}
 		}
 	}
+	return slices.Sorted(maps.Keys(deps))
 }
 
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
@@ -76,94 +56,142 @@ func ValidName(name string) bool {
 	return nameRE.MatchString(name)
 }
 
-type rawPhase struct {
-	Run    string `toml:"run"`
-	Verify string `toml:"verify"`
-}
-
-type rawCI struct {
-	Run string `toml:"run"`
-}
-
-type rawProject struct {
-	Name         string           `toml:"name"`
-	Dependencies []string         `toml:"dependencies"`
-	Wrapper      string           `toml:"project_wrapper"`
-	Setup        rawPhase         `toml:"setup"`
-	Build        rawPhase         `toml:"build"`
-	CI           map[string]rawCI `toml:"ci"`
-}
+var sectionKeys = []string{"run", "skip_if", "verify", "requires"}
 
 // ParseProject parses stew.toml content. file is used only in error messages.
 func ParseProject(file string, data []byte) (*Project, error) {
-	errf := func(format string, args ...any) error {
-		return fmt.Errorf("%s: "+format, append([]any{file}, args...)...)
+	var raw map[string]any
+	if _, err := toml.Decode(string(data), &raw); err != nil {
+		return nil, fmt.Errorf("%s: %v", file, err)
 	}
-
-	var raw rawProject
-	md, err := toml.Decode(string(data), &raw)
+	p, err := parseProject(raw)
 	if err != nil {
-		return nil, errf("%v", err)
+		return nil, fmt.Errorf("%s: %w", file, err)
 	}
-	if keys := md.Undecoded(); len(keys) > 0 {
-		return nil, errf("unknown key %q", keys[0].String())
-	}
-
-	required := [][]string{
-		{"name"}, {"dependencies"}, {"project_wrapper"},
-		{"setup"}, {"setup", "run"}, {"setup", "verify"},
-		{"build"}, {"build", "run"}, {"build", "verify"},
-		{"ci", "full"},
-	}
-	for _, key := range required {
-		if !md.IsDefined(key...) {
-			return nil, errf("missing %s", describeKey(key))
-		}
-	}
-
-	ci := make(map[Level]string, len(raw.CI))
-	for name, section := range raw.CI {
-		level, err := ParseLevel(name)
-		if err != nil {
-			return nil, errf("%v", err)
-		}
-		if !md.IsDefined("ci", name, "run") {
-			return nil, errf("missing key %q", "ci."+name+".run")
-		}
-		ci[level] = section.Run
-	}
-
-	if !ValidName(raw.Name) {
-		return nil, errf("invalid name %q (want [a-z0-9][a-z0-9._-]*)", raw.Name)
-	}
-	seen := make(map[string]bool, len(raw.Dependencies))
-	for _, dep := range raw.Dependencies {
-		if seen[dep] {
-			return nil, errf("duplicate dependency %q", dep)
-		}
-		seen[dep] = true
-	}
-	if err := CheckWrapper(raw.Wrapper); err != nil {
-		return nil, errf("project_wrapper: %v", err)
-	}
-
-	return &Project{
-		Name:         raw.Name,
-		Dependencies: raw.Dependencies,
-		Wrapper:      raw.Wrapper,
-		Setup:        Phase(raw.Setup),
-		Build:        Phase(raw.Build),
-		CI:           ci,
-	}, nil
+	return p, nil
 }
 
-func describeKey(key []string) string {
-	joined := strings.Join(key, ".")
-	switch joined {
-	case "setup", "build", "ci.full":
-		return "section [" + joined + "]"
+func parseProject(raw map[string]any) (*Project, error) {
+	for _, key := range []string{"name", "project_wrapper"} {
+		if _, ok := raw[key]; !ok {
+			return nil, fmt.Errorf("missing key %q", key)
+		}
 	}
-	return fmt.Sprintf("key %q", joined)
+	name, ok := raw["name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("name: want a string")
+	}
+	wrapper, ok := raw["project_wrapper"].(string)
+	if !ok {
+		return nil, fmt.Errorf("project_wrapper: want a string")
+	}
+	if !ValidName(name) {
+		return nil, fmt.Errorf("invalid name %q (want [a-z0-9][a-z0-9._-]*)", name)
+	}
+	if err := CheckWrapper(wrapper); err != nil {
+		return nil, fmt.Errorf("project_wrapper: %v", err)
+	}
+
+	p := &Project{Name: name, Wrapper: wrapper, Sections: make(map[string]*Section)}
+	for _, key := range slices.Sorted(maps.Keys(raw)) {
+		if key == "name" || key == "project_wrapper" {
+			continue
+		}
+		if err := p.parseTable([]string{key}, raw[key]); err != nil {
+			return nil, err
+		}
+	}
+	return p, nil
+}
+
+// parseTable reads the TOML value at path: a section if it holds a section key, otherwise a namespace of tables.
+func (p *Project) parseTable(path []string, v any) error {
+	table, ok := v.(map[string]any)
+	if !ok {
+		return fmt.Errorf("unknown key %q", strings.Join(path, "."))
+	}
+	if seg := path[len(path)-1]; !segmentRE.MatchString(seg) {
+		return fmt.Errorf("invalid section name segment %q (want [a-z0-9][a-z0-9_-]*)", seg)
+	}
+	if !slices.ContainsFunc(sectionKeys, func(k string) bool { _, ok := table[k]; return ok }) {
+		for _, key := range slices.Sorted(maps.Keys(table)) {
+			if err := p.parseTable(append(slices.Clone(path), key), table[key]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	name := strings.Join(path, ".")
+	s, err := p.parseSection(name, table)
+	if err != nil {
+		return err
+	}
+	p.Sections[name] = s
+	return nil
+}
+
+func (p *Project) parseSection(name string, table map[string]any) (*Section, error) {
+	if _, ok := table["run"]; !ok {
+		return nil, fmt.Errorf("[%s]: missing key %q", name, "run")
+	}
+	s := &Section{}
+	for _, key := range slices.Sorted(maps.Keys(table)) {
+		v := table[key]
+		switch key {
+		case "run", "skip_if", "verify":
+			cmd, ok := v.(string)
+			if !ok {
+				return nil, fmt.Errorf("[%s]: %s: want a string", name, key)
+			}
+			switch key {
+			case "run":
+				s.Run = cmd
+			case "skip_if":
+				s.SkipIf = cmd
+			case "verify":
+				s.Verify = cmd
+			}
+		case "requires":
+			requires, err := p.parseRequires(name, v)
+			if err != nil {
+				return nil, err
+			}
+			s.Requires = requires
+		default:
+			if _, isTable := v.(map[string]any); isTable {
+				return nil, fmt.Errorf("[%s]: a section cannot contain sections", name)
+			}
+			return nil, fmt.Errorf("[%s]: unknown key %q", name, key)
+		}
+	}
+	return s, nil
+}
+
+func (p *Project) parseRequires(name string, v any) ([]Key, error) {
+	list, ok := v.([]any)
+	if !ok {
+		return nil, fmt.Errorf("[%s]: requires: want a list of strings", name)
+	}
+	self := Key{Project: p.Name, Section: name}
+	var keys []Key
+	for _, item := range list {
+		entry, ok := item.(string)
+		if !ok {
+			return nil, fmt.Errorf("[%s]: requires: want a list of strings", name)
+		}
+		k, ok := ParseKey(entry)
+		switch {
+		case !ok:
+			return nil, fmt.Errorf("[%s]: requires %q: want <project>:<section>", name, entry)
+		case k == self:
+			return nil, fmt.Errorf("[%s]: requires %q: section requires itself", name, entry)
+		case slices.Contains(keys, k):
+			return nil, fmt.Errorf("[%s]: duplicate requires %q", name, entry)
+		}
+		keys = append(keys, k)
+	}
+	return keys, nil
 }
 
 // LoadProject reads and parses <root>/<rel>/stew.toml.
@@ -187,24 +215,20 @@ func LoadProject(root, rel string) (*Project, error) {
 // templateLines is the stew.toml that `stew add` writes; %s is the project name.
 var templateLines = []string{
 	`name = "%s"`,
-	`dependencies = []`,
 	`# Wraps every command of this project, inside the workspace wrapper.`,
 	`# {{STEW_STEP}} marks where the command goes. "" means none.`,
 	`project_wrapper = ""`,
 	``,
-	"# Each phase: `verify` runs first; exit 0 skips `run`.",
-	"# Otherwise `run` runs, then `verify` confirms. Empty strings are no-ops.",
-	`[setup]`,
-	`run = ""`,
-	`verify = ""`,
-	``,
-	`[build]`,
-	`run = ""`,
-	`verify = ""`,
-	``,
-	`# Levels: pre-commit falls back to quick; quick and pre-push fall back to full.`,
-	`[ci.full]`,
-	`run = ""`,
+	"# Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose",
+	"# <project>:<section> key matches; `stew build` is `stew run '.*:build'`.",
+	`# skip_if exit 0 skips the section. verify runs after run and must exit 0.`,
+	`# requires lists sections that must succeed first, as "<project>:<section>".`,
+	`#`,
+	`# [build]`,
+	`# run = ""`,
+	`# skip_if = ""`,
+	`# verify = ""`,
+	`# requires = []`,
 }
 
 // Template returns the stew.toml content that `stew add` writes. name must be valid.

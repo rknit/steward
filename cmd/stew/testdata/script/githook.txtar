@@ -26,11 +26,13 @@ stdout '^exit=2$'
 stderr 'supported: pre-commit, pre-push'
 cd $WORK
 
-# A passing pre-commit CI lets the commit through; quick is used as the fallback.
+# A passing pre-commit CI lets the commit through. ci.pre-commit requires ci.quick, so ci.full does not run.
 # git sends hook output to stderr.
 exec git add -A
 exec git commit -q -m first
-stderr '^==> core: ci\.pre-commit -> ci\.quick \.\.\. pass'
+stderr '^==> core: ci\.quick \.\.\. done'
+stderr '^==> core: ci\.pre-commit \.\.\. skip'
+! stderr 'ci\.full'
 
 # Run logs stay out of git.
 exec git status --porcelain
@@ -40,9 +42,10 @@ exec git status --porcelain
 cp want/failing.toml mono/core/stew.toml
 exec git add -A
 ! exec git commit -q -m second
-stderr '^==> core: ci\.pre-commit -> ci\.quick \.\.\. fail'
+stderr '^==> core: ci\.quick \.\.\. fail'
+stderr '^==> core: ci\.pre-commit \.\.\. blocked by core:ci\.quick$'
 
-# The pre-push hook runs ci.pre-push, falling back to full; a failing CI blocks the push.
+# The pre-push hook runs ci.pre-push; a failing CI blocks the push.
 # Unlike pre-commit, git keeps pre-push hook output on stdout.
 cd mono
 exec stew git install pre-push
@@ -53,12 +56,21 @@ cmp .git/hooks/pre-push want/push-hook
 exec git init -q --bare remote.git
 cp want/push-failing.toml mono/core/stew.toml
 ! exec git push -q remote.git HEAD:refs/heads/main
-stdout '^==> core: ci\.pre-push -> ci\.full \.\.\. fail'
+stdout '^==> core: ci\.full \.\.\. fail'
+stdout '^==> core: ci\.pre-push \.\.\. blocked by core:ci\.full$'
 ! exec git --git-dir=remote.git rev-parse -q --verify refs/heads/main
 cp want/push-passing.toml mono/core/stew.toml
 exec git push -q remote.git HEAD:refs/heads/main
-stdout '^==> core: ci\.pre-push \.\.\. pass'
+stdout '^==> core: ci\.pre-push \.\.\. done'
 exec git --git-dir=remote.git rev-parse -q --verify refs/heads/main
+
+# In a workspace where no project defines the level, the hook fails with exit 2 and blocks the commit.
+cp want/no-level.toml mono/core/stew.toml
+exec git add -A
+! exec git commit -q -m third
+stderr '^stew: pattern "\.\*:ci\\\.pre-commit" matches no section$'
+exec sh -c '.git/hooks/pre-commit; echo "exit=$?"'
+stdout '^exit=2$'
 
 -- mono/.stew/config.toml --
 workspace_wrapper = ""
@@ -68,32 +80,38 @@ projects = ["core"]
 runs/
 -- mono/core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = "exit 1"
+requires = ["core:build"]
 [ci.quick]
 run = "echo quick-ok"
+requires = ["core:build"]
+[ci.pre-commit]
+run = ""
+requires = ["core:ci.quick"]
 -- want/failing.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]
 [ci.quick]
 run = "exit 1"
+requires = ["core:build"]
+[ci.pre-commit]
+run = ""
+requires = ["core:ci.quick"]
 -- want/hook --
 #!/bin/sh
 # installed by stew
@@ -104,29 +122,43 @@ cd "$(git rev-parse --show-toplevel)/mono" && exec stew ci --level pre-commit
 cd "$(git rev-parse --show-toplevel)/mono" && exec stew ci --level pre-push
 -- want/push-failing.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = "exit 1"
+requires = ["core:build"]
 [ci.quick]
 run = "echo quick-ok"
+requires = ["core:build"]
+[ci.pre-push]
+run = ""
+requires = ["core:ci.full"]
 -- want/push-passing.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = "exit 1"
+requires = ["core:build"]
 [ci.pre-push]
 run = "echo push-ok"
+requires = ["core:build"]
+-- want/no-level.toml --
+name = "core"
+project_wrapper = ""
+[setup]
+run = ""
+[build]
+run = ""
+requires = ["core:setup"]
+[ci.full]
+run = ""
+requires = ["core:build"]

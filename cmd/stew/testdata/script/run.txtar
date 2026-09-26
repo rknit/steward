@@ -1,0 +1,82 @@
+# stew run selects by regex and pulls in requires; aliases quote project names.
+# Durations and the run ID vary, so they are normalized before comparing.
+exec sh -c 'stew run api:build > out'
+exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
+cmp stdout want/api-build
+exec sh -c 'stew build my.lib > out'
+exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
+cmp stdout want/mylib-build
+exec stew run 'api:.*' '.*:build'
+stdout -count=1 '^==> api: build '
+
+# A pattern that matches nothing is exit 2 before anything runs.
+! exec stew run 'web:build'
+stderr '^stew: pattern "web:build" matches no section$'
+! exec stew ci --level pre-commit
+stderr '^stew: pattern "\.\*:ci\\\.pre-commit" matches no section$'
+! exec stew build web
+stderr '^stew: unknown project "web"$'
+exec sh -c 'stew ci -l "a b"; echo "exit=$?"'
+stdout '^exit=2$'
+stderr '^stew: invalid CI level "a b"$'
+exec sh -c 'stew run "("; echo "exit=$?"'
+stdout '^exit=2$'
+stderr '^stew: error parsing regexp'
+! exec stew run
+stderr 'requires at least 1 arg'
+
+# A custom level is just a section name.
+exec stew ci -l lint core
+stdout '^==> core: ci.lint \.\.\. done'
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+-- .stew/projects.toml --
+projects = ["api", "core", "mylib", "myxlib"]
+-- core/stew.toml --
+name = "core"
+project_wrapper = ""
+[setup]
+run = "true"
+[build]
+run = "true"
+requires = ["core:setup"]
+[ci.lint]
+run = "true"
+-- api/stew.toml --
+name = "api"
+project_wrapper = ""
+[build]
+run = "true"
+requires = ["core:build"]
+-- mylib/stew.toml --
+name = "my.lib"
+project_wrapper = ""
+[build]
+run = "true"
+-- myxlib/stew.toml --
+name = "myxlib"
+project_wrapper = ""
+[build]
+run = "true"
+-- want/api-build --
+==> core: setup ... done (T)
+==> core: build ... done (T)
+==> api: build ... done (T)
+┌─────────┬───────┬───────┐
+│ project │ setup │ build │
+├─────────┼───────┼───────┤
+│ core    │ done  │ done  │
+│ api     │ -     │ done  │
+└─────────┴───────┴───────┘
+total: T
+logs: .stew/runs/ID
+-- want/mylib-build --
+==> my.lib: build ... done (T)
+┌─────────┬───────┐
+│ project │ build │
+├─────────┼───────┤
+│ my.lib  │ done  │
+└─────────┴───────┘
+total: T
+logs: .stew/runs/ID

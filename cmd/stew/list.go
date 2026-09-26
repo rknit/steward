@@ -3,13 +3,11 @@ package main
 import (
 	"fmt"
 	"io"
-	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/rknit/steward/internal/report"
-	"github.com/rknit/steward/internal/workspace"
 )
 
 func newListCmd(stdout io.Writer) *cobra.Command {
@@ -23,24 +21,21 @@ func newListCmd(stdout io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			projects := slices.SortedFunc(slices.Values(ws.Projects), func(a, b *workspace.Project) int {
-				return strings.Compare(a.Name, b.Name)
-			})
 			if porcelain {
-				for _, p := range projects {
-					fmt.Fprintf(stdout, "%s\t%s\t%s\n", p.Name, p.Path, strings.Join(slices.Sorted(slices.Values(p.Dependencies)), ","))
+				for _, p := range ws.Projects {
+					fmt.Fprintf(stdout, "%s\t%s\t%s\n", p.Name, p.Path, strings.Join(p.Dependencies(), ","))
 				}
 				return nil
 			}
-			if len(projects) == 0 {
+			if len(ws.Projects) == 0 {
 				fmt.Fprintln(stdout, "no projects (add one with: stew add <path>)")
 				return nil
 			}
 			table := [][]string{{"project", "path", "dependencies"}}
-			for _, p := range projects {
+			for _, p := range ws.Projects {
 				deps := "-"
-				if len(p.Dependencies) > 0 {
-					deps = strings.Join(slices.Sorted(slices.Values(p.Dependencies)), ", ")
+				if d := p.Dependencies(); len(d) > 0 {
+					deps = strings.Join(d, ", ")
 				}
 				table = append(table, []string{p.Name, p.Path, deps})
 			}

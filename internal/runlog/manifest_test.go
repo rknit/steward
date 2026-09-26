@@ -39,16 +39,16 @@ func i64(v int64) *int64 { return &v }
 
 func TestManifestSaves(t *testing.T) {
 	run := newRun(t)
-	setup := runner.Phase{Name: "setup", Used: "setup"}
-	build := runner.Phase{Name: "build", Used: "build"}
-	ciFB := runner.Phase{Name: "ci.pre-commit", Used: "ci.quick", CI: true}
+	setup := runner.Section{Project: "core", Name: "setup"}
+	build := runner.Section{Project: "api", Name: "build"}
+	ci := runner.Section{Project: "core", Name: "ci.pre-commit"}
 
 	if err := run.Start([]string{"ci", "--level", "pre-commit"}, "tool exec .", map[string]string{"api": "other run {{STEW_STEP}}"},
 		[]string{"setup", "build", "ci.pre-commit"}, []string{"core", "api", "web"}); err != nil {
 		t.Fatal(err)
 	}
 	m, raw := readManifest(t, run)
-	if len(m.Phases) != 0 || !strings.Contains(raw, `"phases": []`) || strings.Contains(raw, "total_ms") {
+	if len(m.Sections) != 0 || !strings.Contains(raw, `"sections": []`) || strings.Contains(raw, "total_ms") {
 		t.Errorf("after Start: %s", raw)
 	}
 	if !strings.Contains(raw, `"workspace_wrapper": "tool exec ."`) || m.WorkspaceWrapper != "tool exec ." {
@@ -59,11 +59,11 @@ func TestManifestSaves(t *testing.T) {
 	}
 
 	steps := []error{
-		run.PhaseEnd("core", setup, runner.Outcome{Status: runner.Skip, Duration: 104 * time.Millisecond}),
-		run.PhaseEnd("core", ciFB, runner.Outcome{Status: runner.Pass, Duration: 8210 * time.Millisecond}),
-		run.PhaseEnd("api", build, runner.Outcome{Status: runner.Fail, Duration: 63012 * time.Millisecond, Cause: "exit 1"}),
-		run.Blocked("web", setup, []string{"api"}),
-		run.PhaseEnd("lib", setup, runner.Outcome{Status: runner.Interrupted, Duration: time.Second, Cause: "signal SIGINT"}),
+		run.SectionEnd(setup, runner.Outcome{Status: runner.Skip, Duration: 104 * time.Millisecond}),
+		run.SectionEnd(ci, runner.Outcome{Status: runner.Done, Duration: 8210 * time.Millisecond}),
+		run.SectionEnd(build, runner.Outcome{Status: runner.Fail, Duration: 63012 * time.Millisecond, Cause: "exit 1"}),
+		run.Blocked(runner.Section{Project: "web", Name: "setup"}, []string{"api"}),
+		run.SectionEnd(runner.Section{Project: "lib", Name: "setup"}, runner.Outcome{Status: runner.Interrupted, Duration: time.Second, Cause: "signal SIGINT"}),
 		run.Finish(75004 * time.Millisecond),
 	}
 	for i, err := range steps {
@@ -79,12 +79,12 @@ func TestManifestSaves(t *testing.T) {
 		ProjectWrapper:   map[string]string{"api": "other run {{STEW_STEP}}"},
 		Columns:          []string{"setup", "build", "ci.pre-commit"},
 		Projects:         []string{"core", "api", "web"},
-		Phases: []PhaseRecord{
-			{Project: "core", Phase: "setup", Used: "setup", Status: "skip", DurationMS: i64(104)},
-			{Project: "core", Phase: "ci.pre-commit", Used: "ci.quick", Status: "pass", DurationMS: i64(8210)},
-			{Project: "api", Phase: "build", Used: "build", Status: "fail", DurationMS: i64(63012), Cause: "exit 1"},
-			{Project: "web", Phase: "setup", Used: "setup", Status: "blocked", BlockedBy: []string{"api"}},
-			{Project: "lib", Phase: "setup", Used: "setup", Status: "interrupted", Cause: "signal SIGINT"},
+		Sections: []SectionRecord{
+			{Project: "core", Section: "setup", Status: "skip", DurationMS: i64(104)},
+			{Project: "core", Section: "ci.pre-commit", Status: "done", DurationMS: i64(8210)},
+			{Project: "api", Section: "build", Status: "fail", DurationMS: i64(63012), Cause: "exit 1"},
+			{Project: "web", Section: "setup", Status: "blocked", BlockedBy: []string{"api"}},
+			{Project: "lib", Section: "setup", Status: "interrupted", Cause: "signal SIGINT"},
 		},
 		TotalMS: i64(75004),
 	}
@@ -109,7 +109,7 @@ func TestManifestSaveErrors(t *testing.T) {
 		t.Skip("root ignores directory permissions")
 	}
 	run := newRun(t)
-	setup := runner.Phase{Name: "setup", Used: "setup"}
+	setup := runner.Section{Project: "core", Name: "setup"}
 	if err := run.Start([]string{"build"}, "", nil, []string{"setup", "build"}, []string{"core", "api", "lib"}); err != nil {
 		t.Fatal(err)
 	}
@@ -124,33 +124,33 @@ func TestManifestSaveErrors(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(run.Dir, 0o755) })
 
-	if err := run.PhaseEnd("core", setup, runner.Outcome{Status: runner.Done, Duration: 5 * time.Millisecond}); err == nil {
-		t.Fatal("PhaseEnd in a read-only run dir succeeded")
+	if err := run.SectionEnd(setup, runner.Outcome{Status: runner.Done, Duration: 5 * time.Millisecond}); err == nil {
+		t.Fatal("SectionEnd in a read-only run dir succeeded")
 	}
-	if len(run.Manifest.Phases) != 1 {
-		t.Fatalf("failed PhaseEnd dropped its record: %+v", run.Manifest.Phases)
+	if len(run.Manifest.Sections) != 1 {
+		t.Fatalf("failed SectionEnd dropped its record: %+v", run.Manifest.Sections)
 	}
-	if rec := run.Manifest.Phases[0]; rec.Status != "fail" || !strings.HasPrefix(rec.Cause, "log error: ") ||
+	if rec := run.Manifest.Sections[0]; rec.Status != "fail" || !strings.HasPrefix(rec.Cause, "log error: ") ||
 		rec.DurationMS == nil || *rec.DurationMS != 5 {
-		t.Errorf("failed PhaseEnd for a done phase kept as: %+v", rec)
+		t.Errorf("failed SectionEnd for a done section kept as: %+v", rec)
 	}
 
-	if err := run.PhaseEnd("api", setup, runner.Outcome{Status: runner.Fail, Duration: 2 * time.Millisecond, Cause: "exit 1"}); err == nil {
-		t.Fatal("PhaseEnd in a read-only run dir succeeded")
+	if err := run.SectionEnd(runner.Section{Project: "api", Name: "setup"}, runner.Outcome{Status: runner.Fail, Duration: 2 * time.Millisecond, Cause: "exit 1"}); err == nil {
+		t.Fatal("SectionEnd in a read-only run dir succeeded")
 	}
-	if len(run.Manifest.Phases) != 2 {
-		t.Fatalf("failed PhaseEnd dropped its record: %+v", run.Manifest.Phases)
+	if len(run.Manifest.Sections) != 2 {
+		t.Fatalf("failed SectionEnd dropped its record: %+v", run.Manifest.Sections)
 	}
-	if rec := run.Manifest.Phases[1]; rec.Status != "fail" || rec.Cause != "exit 1" ||
+	if rec := run.Manifest.Sections[1]; rec.Status != "fail" || rec.Cause != "exit 1" ||
 		rec.DurationMS == nil || *rec.DurationMS != 2 {
-		t.Errorf("failed PhaseEnd for an already-fail phase kept as: %+v", rec)
+		t.Errorf("failed SectionEnd for an already-fail section kept as: %+v", rec)
 	}
 
-	if err := run.Blocked("lib", setup, []string{"core"}); err == nil {
+	if err := run.Blocked(runner.Section{Project: "lib", Name: "setup"}, []string{"core"}); err == nil {
 		t.Fatal("Blocked in a read-only run dir succeeded")
 	}
-	if len(run.Manifest.Phases) != 3 {
-		t.Errorf("failed Blocked dropped its record: %+v", run.Manifest.Phases)
+	if len(run.Manifest.Sections) != 3 {
+		t.Errorf("failed Blocked dropped its record: %+v", run.Manifest.Sections)
 	}
 	if err := run.Finish(time.Second); err == nil {
 		t.Fatal("Finish in a read-only run dir succeeded")
@@ -161,14 +161,14 @@ func TestManifestSaveErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, _ := readManifest(t, run)
-	if len(m.Phases) != 3 || m.Phases[2].Status != "blocked" {
-		t.Errorf("next save did not include the blocked record: %+v", m.Phases)
+	if len(m.Sections) != 3 || m.Sections[2].Status != "blocked" {
+		t.Errorf("next save did not include the blocked record: %+v", m.Sections)
 	}
-	if m.Phases[0].Status != "fail" || !strings.HasPrefix(m.Phases[0].Cause, "log error: ") {
-		t.Errorf("next save did not include the log-error record: %+v", m.Phases[0])
+	if m.Sections[0].Status != "fail" || !strings.HasPrefix(m.Sections[0].Cause, "log error: ") {
+		t.Errorf("next save did not include the log-error record: %+v", m.Sections[0])
 	}
-	if m.Phases[1].Status != "fail" || m.Phases[1].Cause != "exit 1" {
-		t.Errorf("next save did not keep the already-fail record's cause: %+v", m.Phases[1])
+	if m.Sections[1].Status != "fail" || m.Sections[1].Cause != "exit 1" {
+		t.Errorf("next save did not keep the already-fail record's cause: %+v", m.Sections[1])
 	}
 }
 
@@ -176,7 +176,7 @@ func TestManifestWithoutWrapperField(t *testing.T) {
 	dir := t.TempDir()
 	runDir := filepath.Join(dir, "runs", "20260925T043601Z-3f9a")
 	os.MkdirAll(runDir, 0o755)
-	os.WriteFile(filepath.Join(runDir, ManifestName), []byte(`{"argv":["build"],"columns":["setup","build"],"projects":[],"phases":[]}`), 0o644)
+	os.WriteFile(filepath.Join(runDir, ManifestName), []byte(`{"argv":["build"],"columns":["setup","build"],"projects":[],"sections":[]}`), 0o644)
 	run, err := Load(dir, "20260925T043601Z-3f9a")
 	if err != nil || run.Manifest.WorkspaceWrapper != "" {
 		t.Errorf("run = %+v, err = %v", run, err)
@@ -185,10 +185,10 @@ func TestManifestWithoutWrapperField(t *testing.T) {
 
 func TestManifestResult(t *testing.T) {
 	total := int64(1)
-	phases := func(statuses ...runner.Status) []PhaseRecord {
-		var recs []PhaseRecord
+	sections := func(statuses ...runner.Status) []SectionRecord {
+		var recs []SectionRecord
 		for _, s := range statuses {
-			recs = append(recs, PhaseRecord{Status: string(s)})
+			recs = append(recs, SectionRecord{Status: string(s)})
 		}
 		return recs
 	}
@@ -197,12 +197,12 @@ func TestManifestResult(t *testing.T) {
 		m    Manifest
 		want string
 	}{
-		{"no phases", Manifest{TotalMS: &total}, "ok"},
-		{"done skip pass", Manifest{Phases: phases(runner.Done, runner.Skip, runner.Pass), TotalMS: &total}, "ok"},
-		{"fail", Manifest{Phases: phases(runner.Done, runner.Fail), TotalMS: &total}, "fail"},
-		{"blocked", Manifest{Phases: phases(runner.Pass, runner.Blocked), TotalMS: &total}, "fail"},
-		{"interrupted beats fail", Manifest{Phases: phases(runner.Fail, runner.Interrupted), TotalMS: &total}, "interrupted"},
-		{"no total", Manifest{Phases: phases(runner.Fail, runner.Interrupted)}, "unfinished"},
+		{"no sections", Manifest{TotalMS: &total}, "ok"},
+		{"done skip", Manifest{Sections: sections(runner.Done, runner.Skip), TotalMS: &total}, "ok"},
+		{"fail", Manifest{Sections: sections(runner.Done, runner.Fail), TotalMS: &total}, "fail"},
+		{"blocked", Manifest{Sections: sections(runner.Done, runner.Blocked), TotalMS: &total}, "fail"},
+		{"interrupted beats fail", Manifest{Sections: sections(runner.Fail, runner.Interrupted), TotalMS: &total}, "interrupted"},
+		{"no total", Manifest{Sections: sections(runner.Fail, runner.Interrupted)}, "unfinished"},
 	}
 	for _, tt := range tests {
 		if got := tt.m.Result(); got != tt.want {

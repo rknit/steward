@@ -69,12 +69,9 @@ func Table(w io.Writer, rows [][]string) {
 	io.WriteString(w, b.String())
 }
 
-func cellText(c runner.Cell) string {
-	if c.Status == "" {
+func cellText(s runner.Status) string {
+	if s == "" {
 		return "-"
 	}
-	if c.Fallback != "" {
-		return string(c.Status) + " (" + c.Fallback + ")"
-	}
-	return string(c.Status)
+	return string(s)
 }

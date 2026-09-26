@@ -13,7 +13,7 @@ cmp .stew/projects.toml want/projects-1.toml
 # Rejections exit 1, register nothing, and leave the file as it was.
 exec sh -c 'stew add bad; echo "exit=$?"'
 stdout '^exit=1$'
-stderr 'bad/stew.toml: missing key "setup.verify"'
+stderr 'bad/stew.toml: \[setup\]: missing key "run"'
 
 exec sh -c 'stew add apps/other -a nope; echo "exit=$?"'
 stdout '^exit=1$'
@@ -21,24 +21,29 @@ stderr '^stew: -a nope does not match name "other" in apps/other/stew.toml$'
 
 exec sh -c 'stew add apps/web; echo "exit=$?"'
 stdout '^exit=1$'
-stderr '^stew: apps/web/stew.toml: depends on unregistered project "api"; add it first$'
+stderr '^stew: apps/web/stew.toml: \[setup\]: requires "api:build": unknown project "api"; add it first$'
 
 exec sh -c 'stew add apps/self; echo "exit=$?"'
 stdout '^exit=1$'
-stderr '^stew: apps/self/stew.toml: project "self" depends on itself$'
+stderr '^stew: apps/self/stew.toml: cycle: self:build -> self:setup -> self:build$'
 
 exec sh -c 'stew add apps/dup; echo "exit=$?"'
+stdout '^exit=1$'
+stderr '^stew: project name "core" is already used by libs/core$'
+
+# A taken name is reported before the file's requires, which would resolve against the wrong project.
+exec sh -c 'stew add apps/dup-requires; echo "exit=$?"'
 stdout '^exit=1$'
 stderr '^stew: project name "core" is already used by libs/core$'
 
 cmp .stew/projects.toml want/projects-1.toml
 grep '^name = "web"$' apps/web/stew.toml
 
-# Projects removed without --clean can be added back, dependencies first.
+# Projects removed without --clean can be added back, required projects first.
 exec stew remove my-app core
 exec sh -c 'stew add "apps/My App"; echo "exit=$?"'
 stdout '^exit=1$'
-stderr 'depends on unregistered project "core"'
+stderr 'requires "core:build": unknown project "core"; add it first'
 exec stew add libs/core
 exec stew add 'apps/My App'
 cmp .stew/projects.toml want/projects-1.toml
@@ -50,108 +55,109 @@ added core (libs/core)
 projects = ["apps/My App", "apps/alias", "libs/core"]
 -- bad/stew.toml --
 name = "bad"
-dependencies = []
 project_wrapper = ""
 [setup]
-run = ""
+skip_if = ""
 [build]
 run = ""
-verify = ""
+requires = ["bad:setup"]
 [ci.full]
 run = ""
+requires = ["bad:build"]
 -- want/core.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]
 -- libs/core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]
 -- apps/My App/stew.toml --
 name = "my-app"
-dependencies = ["core"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["core:build"]
 [build]
 run = ""
-verify = ""
+requires = ["my-app:setup"]
 [ci.full]
 run = ""
+requires = ["my-app:build"]
 -- apps/alias/stew.toml --
 name = "alias-name"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["alias-name:setup"]
 [ci.full]
 run = ""
+requires = ["alias-name:build"]
 -- apps/other/stew.toml --
 name = "other"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["other:setup"]
 [ci.full]
 run = ""
+requires = ["other:build"]
 -- apps/web/stew.toml --
 name = "web"
-dependencies = ["api"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["api:build"]
 [build]
 run = ""
-verify = ""
+requires = ["web:setup"]
 [ci.full]
 run = ""
+requires = ["web:build"]
 -- apps/self/stew.toml --
 name = "self"
-dependencies = ["self"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["self:build"]
 [build]
 run = ""
-verify = ""
+requires = ["self:setup"]
 [ci.full]
 run = ""
+requires = ["self:build"]
 -- apps/dup/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]
+-- apps/dup-requires/stew.toml --
+name = "core"
+project_wrapper = ""
+[build]
+run = ""
+requires = ["core:lint"]

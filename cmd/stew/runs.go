@@ -32,14 +32,14 @@ func newRunsCmd(stdout io.Writer) *cobra.Command {
 	}
 	var porcelain, noPager bool
 	show := &cobra.Command{
-		Use:   "show <run-id> [<project-phase-regex>...]",
-		Short: "Show a run's phases and their logs (run-id may be \"latest\")",
+		Use:   "show <run-id> [<project:section-regex>...]",
+		Short: "Show a run's sections and their logs (run-id may be \"latest\")",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return showRun(stdout, cmd.ErrOrStderr(), args[0], args[1:], porcelain, noPager)
 		},
 	}
-	show.Flags().BoolVar(&porcelain, "porcelain", false, "print tab-separated project, phase, status, duration in ms, and log path")
+	show.Flags().BoolVar(&porcelain, "porcelain", false, "print tab-separated project, section, status, duration in ms, and log path")
 	show.Flags().BoolVar(&noPager, "no-pager", false, "print directly instead of through a pager")
 	var listPorcelain, listNoPager bool
 	list := &cobra.Command{
@@ -174,28 +174,28 @@ func showRun(stdout, stderr io.Writer, id string, patterns []string, porcelain, 
 		return rejected(fmt.Errorf("read run %s: %w", id, err))
 	}
 
-	phases, err := shownPhases(run)
+	sections, err := shownSections(run, len(matchers) > 0)
 	if err != nil {
 		return rejected(fmt.Errorf("read run %s: %w", id, err))
 	}
 	if len(matchers) > 0 {
-		phases = slices.DeleteFunc(phases, func(p report.ShownPhase) bool {
-			key := p.Project + "-" + p.Phase.Used
+		sections = slices.DeleteFunc(sections, func(s report.ShownSection) bool {
+			key := s.Project + ":" + s.Section
 			return !slices.ContainsFunc(matchers, func(re *regexp.Regexp) bool { return re.MatchString(key) })
 		})
-		if len(phases) == 0 {
-			return rejected(errors.New("no phase matches"))
+		if len(sections) == 0 {
+			return rejected(errors.New("no section matches"))
 		}
 	}
 
 	logsDir := path.Join(workspace.DirName, "runs", id)
 	if porcelain {
-		writePorcelain(stdout, phases, logsDir)
+		writePorcelain(stdout, sections, logsDir)
 		return nil
 	}
 	var sum *report.ShownSummary
 	if len(matchers) == 0 {
-		sum = &report.ShownSummary{Results: summaryResults(run.Manifest, phases), Finished: run.Manifest.TotalMS != nil, Logs: logsDir}
+		sum = &report.ShownSummary{Results: summaryResults(run.Manifest, sections), Finished: run.Manifest.TotalMS != nil, Logs: logsDir}
 		if sum.Finished {
 			sum.Total = time.Duration(*run.Manifest.TotalMS) * time.Millisecond
 		}
@@ -207,21 +207,18 @@ func showRun(stdout, stderr io.Writer, id string, patterns []string, porcelain, 
 		}
 	}
 	var b bytes.Buffer
-	report.Show(&b, id, run.Manifest.Argv, run.Manifest.WorkspaceWrapper, projectWrappers, phases, sum)
+	report.Show(&b, id, run.Manifest.Argv, run.Manifest.WorkspaceWrapper, projectWrappers, sections, sum)
 	if err := page(stdout, stderr, b.Bytes(), !noPager && isTerminal(stdout)); err != nil {
 		return rejected(err)
 	}
 	return nil
 }
 
-// compileKeyPatterns compiles each pattern to match a whole "<project>-<phase>" key.
+// compileKeyPatterns compiles each pattern to match a whole "<project>:<section>" key.
 func compileKeyPatterns(patterns []string) ([]*regexp.Regexp, error) {
 	var matchers []*regexp.Regexp
 	for _, p := range patterns {
-		if _, err := regexp.Compile(p); err != nil {
-			return nil, err
-		}
-		re, err := regexp.Compile("^(?:" + p + ")$")
+		re, err := workspace.CompileKeyPattern(p)
 		if err != nil {
 			return nil, err
 		}
@@ -230,58 +227,53 @@ func compileKeyPatterns(patterns []string) ([]*regexp.Regexp, error) {
 	return matchers, nil
 }
 
-// shownPhases lists recorded phases in execution order, then unfinished ones, each with its log.
-func shownPhases(run *runlog.Run) ([]report.ShownPhase, error) {
-	var phases []report.ShownPhase
-	for _, rec := range run.Manifest.Phases {
-		p := report.ShownPhase{
-			Project:   rec.Project,
-			Phase:     runner.Phase{Name: rec.Phase, Used: rec.Used},
-			Outcome:   runner.Outcome{Status: runner.Status(rec.Status), Cause: rec.Cause},
-			BlockedBy: rec.BlockedBy,
+// shownSections lists recorded sections in execution order, then unfinished ones, each with its log.
+// A blocked section's line lists the requirements that failed, or with filtered, every one in blocked_by.
+func shownSections(run *runlog.Run, filtered bool) ([]report.ShownSection, error) {
+	status := make(map[string]runner.Status, len(run.Manifest.Sections))
+	for _, rec := range run.Manifest.Sections {
+		status[rec.Project+":"+rec.Section] = runner.Status(rec.Status)
+	}
+	var sections []report.ShownSection
+	for _, rec := range run.Manifest.Sections {
+		s := report.ShownSection{
+			Project: rec.Project,
+			Section: rec.Section,
+			Outcome: runner.Outcome{Status: runner.Status(rec.Status), Cause: rec.Cause},
+		}
+		for _, req := range rec.BlockedBy {
+			if filtered || status[req] == runner.Fail {
+				s.BlockedBy = append(s.BlockedBy, req)
+			}
 		}
 		if rec.DurationMS != nil {
-			p.Outcome.Duration = time.Duration(*rec.DurationMS) * time.Millisecond
+			s.Outcome.Duration = time.Duration(*rec.DurationMS) * time.Millisecond
 		}
-		phases = append(phases, p)
+		sections = append(sections, s)
 	}
 	unfinished, err := run.Unfinished()
 	if err != nil {
 		return nil, err
 	}
 	for _, k := range unfinished {
-		phases = append(phases, report.ShownPhase{
-			Project: k.Project,
-			Phase:   runner.Phase{Name: requestedPhase(run.Manifest.Columns, k.Used), Used: k.Used},
-			Outcome: runner.Outcome{Status: report.Unfinished},
+		sections = append(sections, report.ShownSection{
+			Project: k.Project, Section: k.Section, Outcome: runner.Outcome{Status: report.Unfinished},
 		})
 	}
-	for i := range phases {
-		data, ok, err := run.ReadLog(runlog.PhaseKey{Project: phases[i].Project, Used: phases[i].Phase.Used})
+	for i := range sections {
+		data, ok, err := run.ReadLog(runlog.Key{Project: sections[i].Project, Section: sections[i].Section})
 		if err != nil {
 			return nil, err
 		}
 		if ok {
-			phases[i].Log = data
+			sections[i].Log = data
 		}
 	}
-	return phases, nil
+	return sections, nil
 }
 
-// requestedPhase maps a used CI level back to the run's CI column. Other phases keep their name.
-func requestedPhase(columns []string, used string) string {
-	if strings.HasPrefix(used, "ci.") {
-		for _, c := range columns {
-			if strings.HasPrefix(c, "ci.") {
-				return c
-			}
-		}
-	}
-	return used
-}
-
-// summaryResults rebuilds the summary table from the manifest's rows and columns and the shown phases.
-func summaryResults(m runlog.Manifest, phases []report.ShownPhase) *runner.Results {
+// summaryResults rebuilds the summary table from the manifest's rows and columns and the shown sections.
+func summaryResults(m runlog.Manifest, sections []report.ShownSection) *runner.Results {
 	res := &runner.Results{Columns: m.Columns}
 	column := make(map[string]int, len(m.Columns))
 	for i, c := range m.Columns {
@@ -290,32 +282,32 @@ func summaryResults(m runlog.Manifest, phases []report.ShownPhase) *runner.Resul
 	row := make(map[string]int, len(m.Projects))
 	for i, p := range m.Projects {
 		row[p] = i
-		res.Rows = append(res.Rows, runner.Row{Project: p, Cells: make([]runner.Cell, len(m.Columns))})
+		res.Rows = append(res.Rows, runner.Row{Project: p, Cells: make([]runner.Status, len(m.Columns))})
 	}
-	for _, p := range phases {
-		r, okRow := row[p.Project]
-		c, okCol := column[p.Phase.Name]
+	for _, s := range sections {
+		r, okRow := row[s.Project]
+		c, okCol := column[s.Section]
 		if okRow && okCol {
-			res.Rows[r].Cells[c] = runner.Cell{Status: p.Outcome.Status, Fallback: p.Phase.Fallback()}
+			res.Rows[r].Cells[c] = s.Outcome.Status
 		}
 	}
 	return res
 }
 
-// writePorcelain prints "<project>\t<phase>\t<status>\t<duration-ms>\t<log-path>" per phase.
-func writePorcelain(w io.Writer, phases []report.ShownPhase, logsDir string) {
+// writePorcelain prints "<project>\t<section>\t<status>\t<duration-ms>\t<log-path>" per section.
+func writePorcelain(w io.Writer, sections []report.ShownSection, logsDir string) {
 	var b strings.Builder
-	for _, p := range phases {
+	for _, s := range sections {
 		duration := "-"
-		switch p.Outcome.Status {
-		case runner.Done, runner.Pass, runner.Skip, runner.Fail:
-			duration = strconv.FormatInt(p.Outcome.Duration.Milliseconds(), 10)
+		switch s.Outcome.Status {
+		case runner.Done, runner.Skip, runner.Fail:
+			duration = strconv.FormatInt(s.Outcome.Duration.Milliseconds(), 10)
 		}
 		logPath := "-"
-		if p.Log != nil {
-			logPath = path.Join(logsDir, p.Project+"-"+p.Phase.Used+".log")
+		if s.Log != nil {
+			logPath = path.Join(logsDir, s.Project+":"+s.Section+".log")
 		}
-		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\n", p.Project, p.Phase.Used, p.Outcome.Status, duration, logPath)
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\n", s.Project, s.Section, s.Outcome.Status, duration, logPath)
 	}
 	io.WriteString(w, b.String())
 }

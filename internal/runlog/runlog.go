@@ -71,15 +71,15 @@ func (r *Run) Close() error {
 	return r.lock.Close()
 }
 
-// PhaseLog is the stdout, stderr, and combined log files of one project phase.
-type PhaseLog struct {
+// SectionLog is the stdout, stderr, and combined log files of one project section.
+type SectionLog struct {
 	stdout, stderr, combined *os.File
 	mu                       sync.Mutex
 }
 
-// OpenPhase creates <project>-<phase>.stdout, .stderr, and .log. None of them may exist yet.
-func (r *Run) OpenPhase(project, phase string) (*PhaseLog, error) {
-	base := filepath.Join(r.Dir, project+"-"+phase)
+// OpenSection creates <project>:<section>.stdout, .stderr, and .log. None of them may exist yet.
+func (r *Run) OpenSection(project, section string) (*SectionLog, error) {
+	base := filepath.Join(r.Dir, project+":"+section)
 	const flags = os.O_WRONLY | os.O_CREATE | os.O_EXCL | os.O_APPEND
 	var files []*os.File
 	for _, ext := range []string{".stdout", ".stderr", ".log"} {
@@ -92,18 +92,18 @@ func (r *Run) OpenPhase(project, phase string) (*PhaseLog, error) {
 		}
 		files = append(files, f)
 	}
-	return &PhaseLog{stdout: files[0], stderr: files[1], combined: files[2]}, nil
+	return &SectionLog{stdout: files[0], stderr: files[1], combined: files[2]}, nil
 }
 
-// Stdout returns the writer for the phase's stdout; it also writes to the combined log.
-func (l *PhaseLog) Stdout() io.Writer { return &streamWriter{log: l, file: l.stdout} }
+// Stdout returns the writer for the section's stdout; it also writes to the combined log.
+func (l *SectionLog) Stdout() io.Writer { return &streamWriter{log: l, file: l.stdout} }
 
-// Stderr returns the writer for the phase's stderr; it also writes to the combined log.
-func (l *PhaseLog) Stderr() io.Writer { return &streamWriter{log: l, file: l.stderr} }
+// Stderr returns the writer for the section's stderr; it also writes to the combined log.
+func (l *SectionLog) Stderr() io.Writer { return &streamWriter{log: l, file: l.stderr} }
 
 // streamWriter writes one stream to its own file and to the combined log, holding the lock so each write stays whole.
 type streamWriter struct {
-	log  *PhaseLog
+	log  *SectionLog
 	file *os.File
 }
 
@@ -117,7 +117,7 @@ func (w *streamWriter) Write(p []byte) (int, error) {
 }
 
 // Marker writes "--- stew: <step>: <cmd>" to all three files.
-func (l *PhaseLog) Marker(step, cmd string) error {
+func (l *SectionLog) Marker(step, cmd string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	line := "--- stew: " + step + ": " + cmd + "\n"
@@ -130,6 +130,6 @@ func (l *PhaseLog) Marker(step, cmd string) error {
 }
 
 // Close closes all three files and returns the errors joined.
-func (l *PhaseLog) Close() error {
+func (l *SectionLog) Close() error {
 	return errors.Join(l.stdout.Close(), l.stderr.Close(), l.combined.Close())
 }

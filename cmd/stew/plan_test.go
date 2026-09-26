@@ -10,8 +10,7 @@ import (
 	"github.com/rknit/steward/internal/workspace"
 )
 
-// testWorkspace writes a workspace with core <- api (api depends on core) and loads it.
-// wrapper, if non-empty, becomes the workspace's workspace_wrapper; apiWrapper becomes api's project_wrapper.
+// testWorkspace writes core and api, where api:build requires core:build, and loads it.
 func testWorkspace(t *testing.T, wrapper, apiWrapper string) *workspace.Workspace {
 	t.Helper()
 	root := t.TempDir()
@@ -28,30 +27,23 @@ func testWorkspace(t *testing.T, wrapper, apiWrapper string) *workspace.Workspac
 		write(".stew/config.toml", `workspace_wrapper = "`+wrapper+`"`+"\n")
 	}
 	write("core/stew.toml", `name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "cs"
-verify = "cv"
+skip_if = "ck"
 [build]
 run = "cb"
-verify = ""
-[ci.full]
-run = "core-full"
-[ci.quick]
-run = "core-quick"
+requires = ["core:setup"]
 `)
 	write("api/stew.toml", `name = "api"
-dependencies = ["core"]
 project_wrapper = "`+apiWrapper+`"
-[setup]
-run = ""
-verify = ""
 [build]
 run = "ab"
 verify = "av"
+requires = ["core:build"]
 [ci.full]
 run = "api-full"
+requires = ["api:build"]
 `)
 	ws, err := workspace.Load(root)
 	if err != nil {
@@ -60,76 +52,68 @@ run = "api-full"
 	return ws
 }
 
-func phaseNames(job runner.Job) []string {
-	var names []string
-	for _, ph := range job.Phases {
-		names = append(names, ph.Name+"="+ph.Used)
-	}
-	return names
-}
-
 func TestBuildPlan(t *testing.T) {
 	ws := testWorkspace(t, "", "")
-	tests := []struct {
-		command string
-		names   []string
-		level   workspace.Level
-		columns []string
-		jobs    map[string][]string
-	}{
-		{"setup", nil, workspace.LevelFull, []string{"setup"}, map[string][]string{
-			"core": {"setup=setup"}, "api": {"setup=setup"},
-		}},
-		{"build", []string{"api"}, workspace.LevelFull, []string{"setup", "build"}, map[string][]string{
-			"core": {"setup=setup", "build=build"}, "api": {"setup=setup", "build=build"},
-		}},
-		// Only named projects get CI; core is a dependency only.
-		{"ci", []string{"api"}, workspace.LevelQuick, []string{"setup", "build", "ci.quick"}, map[string][]string{
-			"core": {"setup=setup", "build=build"}, "api": {"setup=setup", "build=build", "ci.quick=ci.full"},
-		}},
-		// Naming both a project and its dependency runs CI for both.
-		{"ci", []string{"api", "core"}, workspace.LevelPreCommit, []string{"setup", "build", "ci.pre-commit"},
-			map[string][]string{
-				"core": {"setup=setup", "build=build", "ci.pre-commit=ci.quick"},
-				"api":  {"setup=setup", "build=build", "ci.pre-commit=ci.full"},
-			}},
+	plan, err := buildPlan(ws, []string{"api:ci.full"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		plan, err := buildPlan(ws, tt.command, tt.names, tt.level)
-		if err != nil {
-			t.Fatalf("%s %v: %v", tt.command, tt.names, err)
-		}
-		if !slices.Equal(plan.Columns, tt.columns) {
-			t.Errorf("%s %v: columns = %v, want %v", tt.command, tt.names, plan.Columns, tt.columns)
-		}
-		if len(plan.Jobs) != 2 || plan.Jobs[0].Project != "core" || plan.Jobs[1].Project != "api" {
-			t.Fatalf("%s %v: jobs = %+v", tt.command, tt.names, plan.Jobs)
-		}
-		for _, job := range plan.Jobs {
-			if got := phaseNames(job); !slices.Equal(got, tt.jobs[job.Project]) {
-				t.Errorf("%s %v: %s phases = %v, want %v", tt.command, tt.names, job.Project, got, tt.jobs[job.Project])
-			}
-			if len(job.Wrappers) != 0 {
-				t.Errorf("%s %v: %s wrappers = %v, want none", tt.command, tt.names, job.Project, job.Wrappers)
-			}
-		}
+	var keys []string
+	for _, s := range plan.Sections {
+		keys = append(keys, s.Key())
 	}
+	if !slices.Equal(keys, []string{"core:setup", "core:build", "api:build", "api:ci.full"}) {
+		t.Errorf("keys = %q", keys)
+	}
+	if !slices.Equal(plan.Columns, []string{"setup", "build", "ci.full"}) {
+		t.Errorf("columns = %q", plan.Columns)
+	}
+	if !slices.Equal(plan.Projects, []string{"core", "api"}) {
+		t.Errorf("projects = %q", plan.Projects)
+	}
+	want := runner.Section{Project: "api", Name: "build", Dir: filepath.Join(ws.Root, "api"),
+		Run: "ab", Verify: "av", Requires: []string{"core:build"}}
+	if got := plan.Sections[2]; !sectionsEqual(got, want) {
+		t.Errorf("api:build = %+v, want %+v", got, want)
+	}
+	if got := plan.Sections[0]; got.SkipIf != "ck" || got.Run != "cs" {
+		t.Errorf("core:setup = %+v", got)
+	}
+	if _, err := buildPlan(ws, []string{"web:build"}); err == nil {
+		t.Error("unmatched pattern accepted")
+	}
+}
 
-	plan, _ := buildPlan(ws, "ci", nil, workspace.LevelFull)
-	core, api := plan.Jobs[0], plan.Jobs[1]
-	if core.Phases[0] != (runner.Phase{Name: "setup", Used: "setup", Run: "cs", Verify: "cv"}) {
-		t.Errorf("core setup = %+v", core.Phases[0])
+// Requires are listed in execution order, not file order.
+func TestBuildPlanRequiresInExecutionOrder(t *testing.T) {
+	root := t.TempDir()
+	for rel, content := range map[string]string{
+		".stew/projects.toml": `projects = ["a", "b"]` + "\n",
+		".stew/config.toml":   workspace.ConfigTemplate,
+		"a/stew.toml":         "name = \"a\"\nproject_wrapper = \"\"\n[x]\nrun = \"\"\nrequires = [\"b:y\", \"a:y\"]\n[y]\nrun = \"\"\n",
+		"b/stew.toml":         "name = \"b\"\nproject_wrapper = \"\"\n[y]\nrun = \"\"\n",
+	} {
+		if err := writeFile(root, rel, content); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if api.Phases[2] != (runner.Phase{Name: "ci.full", Used: "ci.full", Run: "api-full", CI: true}) {
-		t.Errorf("api ci = %+v", api.Phases[2])
+	ws, err := workspace.Load(root)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !slices.Equal(api.Deps, []string{"core"}) || api.Dir != ws.Root+"/api" {
-		t.Errorf("api deps/dir = %v %q", api.Deps, api.Dir)
+	plan, err := buildPlan(ws, []string{"a:x"})
+	if err != nil {
+		t.Fatal(err)
 	}
+	if got := plan.Sections[2].Requires; !slices.Equal(got, []string{"a:y", "b:y"}) {
+		t.Errorf("requires = %q", got)
+	}
+}
 
-	if _, err := buildPlan(ws, "build", []string{"nope"}, workspace.LevelFull); err == nil {
-		t.Error("unknown project accepted")
-	}
+func sectionsEqual(a, b runner.Section) bool {
+	return a.Project == b.Project && a.Name == b.Name && a.Dir == b.Dir && a.Run == b.Run &&
+		a.SkipIf == b.SkipIf && a.Verify == b.Verify && slices.Equal(a.Requires, b.Requires) &&
+		slices.Equal(a.Wrappers, b.Wrappers)
 }
 
 func TestBuildPlanWrapper(t *testing.T) {
@@ -144,14 +128,41 @@ func TestBuildPlanWrapper(t *testing.T) {
 	}
 	for _, tt := range tests {
 		ws := testWorkspace(t, tt.workspace, tt.api)
-		plan, err := buildPlan(ws, "build", []string{"api"}, workspace.LevelFull)
+		plan, err := buildPlan(ws, []string{"api:build"})
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, job := range plan.Jobs {
-			if want := tt.want[job.Project]; !slices.Equal(job.Wrappers, want) {
-				t.Errorf("%q/%q: %s wrappers = %v, want %v", tt.workspace, tt.api, job.Project, job.Wrappers, want)
+		for _, s := range plan.Sections {
+			if want := tt.want[s.Project]; !slices.Equal(s.Wrappers, want) {
+				t.Errorf("%q/%q: %s wrappers = %q, want %q", tt.workspace, tt.api, s.Key(), s.Wrappers, want)
 			}
+		}
+	}
+}
+
+func TestAliasPatterns(t *testing.T) {
+	ws := testWorkspace(t, "", "")
+	tests := []struct {
+		section  string
+		projects []string
+		want     []string
+		err      string
+	}{
+		{"build", nil, []string{`.*:build`}, ""},
+		{"ci.pre-commit", nil, []string{`.*:ci\.pre-commit`}, ""},
+		{"build", []string{"api", "core"}, []string{`api:build`, `core:build`}, ""},
+		{"build", []string{"web"}, nil, `unknown project "web"`},
+	}
+	for _, tt := range tests {
+		got, err := aliasPatterns(ws, tt.section, tt.projects)
+		if tt.err != "" {
+			if err == nil || err.Error() != tt.err {
+				t.Errorf("%v: err = %v, want %q", tt.projects, err, tt.err)
+			}
+			continue
+		}
+		if err != nil || !slices.Equal(got, tt.want) {
+			t.Errorf("%s %v = %q, %v; want %q", tt.section, tt.projects, got, err, tt.want)
 		}
 	}
 }

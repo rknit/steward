@@ -53,7 +53,7 @@ func remove(stdout, stderr io.Writer, names []string, clean bool) error {
 			continue
 		}
 		kept = append(kept, p.Path)
-		for _, dep := range p.Dependencies {
+		for _, dep := range p.Dependencies() {
 			if removing[dep] != nil {
 				neededBy[dep] = append(neededBy[dep], p.Name)
 			}

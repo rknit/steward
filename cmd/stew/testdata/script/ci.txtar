@@ -1,29 +1,37 @@
-# core defines full+quick, api defines full+pre-commit+pre-push, lib defines only full (empty). api depends on core.
+# core defines full, quick, pre-commit (via quick), and pre-push (via full); api defines full, pre-commit, and
+# pre-push; lib defines only full (empty). api:setup requires core:build.
+# Durations and the run ID vary, so they are normalized before comparing.
 
-# Naming api: core is a dependency only, so it gets setup+build but no CI.
-exec stew ci api -l quick
+# Naming api: core's sections run only as requirements, so core gets no CI.
+exec stew ci api
 ! stdout '==> core: ci'
-stdout '^==> api: ci\.quick -> ci\.full \.\.\. pass \(\d+\.\ds\)$'
-stdout '^│ core    │ skip  │ skip  │ -           │$'
-stdout '^│ api     │ skip  │ skip  │ pass \(full\) │$'
+stdout '^==> api: ci\.full \.\.\. done \(\d+\.\ds\)$'
+stdout '^│ core    │ skip  │ skip  │ -       │$'
+stdout '^│ api     │ skip  │ skip  │ done    │$'
 
-# All projects, pre-commit level: each falls back along pre-commit -> quick -> full.
-exec stew ci --level pre-commit
-stdout '^==> core: ci\.pre-commit -> ci\.quick \.\.\. pass'
-stdout '^==> api: ci\.pre-commit \.\.\. pass'
-stdout '^==> lib: ci\.pre-commit -> ci\.full \.\.\. skip'
-exec sh -c 'ls .stew/runs/*/core-ci.quick.stdout'
+# A named project without the level fails its pattern; there is no fallback.
+! exec stew ci api -l quick
+stderr '^stew: pattern "api:ci\\\.quick" matches no section$'
+! stdout .
 
-# pre-push falls back straight to full, skipping quick.
+# All projects, pre-commit level: only projects that define it run, in Kahn order.
+exec sh -c 'stew ci --level pre-commit > out'
+exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
+cmp stdout want/pre-commit
+exec sh -c 'ls .stew/runs/*/core:ci.quick.stdout'
+
+# pre-push requires full, skipping quick.
 exec stew ci --level pre-push
-stdout '^==> core: ci\.pre-push -> ci\.full \.\.\. pass'
-stdout '^==> api: ci\.pre-push \.\.\. pass'
-stdout '^==> lib: ci\.pre-push -> ci\.full \.\.\. skip'
-exec sh -c 'ls .stew/runs/*/api-ci.pre-push.stdout'
+stdout '^==> core: ci\.full \.\.\. done'
+stdout '^==> core: ci\.pre-push \.\.\. skip'
+stdout '^==> api: ci\.pre-push \.\.\. done'
+! stdout 'ci\.quick'
+! stdout '==> lib'
+exec sh -c 'ls .stew/runs/*/api:ci.pre-push.stdout'
 
 # Default level is full.
 exec stew ci core
-stdout '^==> core: ci\.full \.\.\. pass'
+stdout '^==> core: ci\.full \.\.\. done'
 
 # Failing CI exits 1.
 exec sh -c 'stew ci api -l pre-commit --level pre-commit >/dev/null; echo "exit=$?"'
@@ -37,7 +45,7 @@ stdout '^exit=1$'
 # Usage errors exit 2 before anything runs.
 exec sh -c 'stew ci -l nightly; echo "exit=$?"'
 stdout '^exit=2$'
-stderr 'unknown CI level "nightly"'
+stderr '^stew: pattern "\.\*:ci\\\.nightly" matches no section$'
 exec sh -c 'stew ci nope; echo "exit=$?"'
 stdout '^exit=2$'
 stderr 'unknown project "nope"'
@@ -49,55 +57,78 @@ workspace_wrapper = ""
 projects = ["api", "core", "lib"]
 -- core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = "echo core-full"
+requires = ["core:build"]
 [ci.quick]
 run = "echo core-quick"
+requires = ["core:build"]
+[ci.pre-commit]
+run = ""
+requires = ["core:ci.quick"]
+[ci.pre-push]
+run = ""
+requires = ["core:ci.full"]
 -- api/stew.toml --
 name = "api"
-dependencies = ["core"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["core:build"]
 [build]
 run = ""
-verify = ""
+requires = ["api:setup"]
 [ci.full]
 run = "echo api-full"
+requires = ["api:build"]
 [ci.pre-commit]
 run = "echo api-pre"
+requires = ["api:build"]
 [ci.pre-push]
 run = "echo api-push"
+requires = ["api:build"]
 -- lib/stew.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]
 -- want/api-failing.toml --
 name = "api"
-dependencies = ["core"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["core:build"]
 [build]
 run = ""
-verify = ""
+requires = ["api:setup"]
 [ci.full]
 run = "exit 1"
+requires = ["api:build"]
+-- want/pre-commit --
+==> core: setup ... skip (T)
+==> core: build ... skip (T)
+==> api: setup ... skip (T)
+==> api: build ... skip (T)
+==> api: ci.pre-commit ... done (T)
+==> core: ci.quick ... done (T)
+==> core: ci.pre-commit ... skip (T)
+┌─────────┬───────┬───────┬───────────────┬──────────┐
+│ project │ setup │ build │ ci.pre-commit │ ci.quick │
+├─────────┼───────┼───────┼───────────────┼──────────┤
+│ core    │ skip  │ skip  │ skip          │ done     │
+│ api     │ skip  │ skip  │ done          │ -        │
+└─────────┴───────┴───────┴───────────────┴──────────┘
+total: T
+logs: .stew/runs/ID

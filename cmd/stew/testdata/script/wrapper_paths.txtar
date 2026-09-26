@@ -42,28 +42,26 @@ workspace_wrapper = "runstr {{STEW_STEP}}"
 projects = ["lib"]
 -- my proj's/lib/stew.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "touch ran"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]
 -- my proj's/lib/wrapped.toml --
 name = "lib"
-dependencies = []
 project_wrapper = "runstr {{STEW_STEP}}"
 [setup]
 run = "touch ran"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]
 -- bin/runstr --
 #!/bin/sh
 exec sh -c "$1"

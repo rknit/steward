@@ -35,25 +35,23 @@ workspace_wrapper = ""
 projects = ["bg", "core"]
 -- core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "touch started; i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]
 -- bg/stew.toml --
 name = "bg"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "setsid sh -c 'echo $$ > pid; i=0; while [ ! -f release ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done' > /dev/null 2>&1 & i=0; while [ ! -s pid ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["bg:setup"]
 [ci.full]
 run = ""
+requires = ["bg:build"]

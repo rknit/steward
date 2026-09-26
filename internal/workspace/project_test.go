@@ -1,30 +1,29 @@
 package workspace
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
 
 const validManifest = `name = "api"
-dependencies = ["core"]
 project_wrapper = ""
 
 [setup]
+skip_if = "test -d node_modules"
 run = "npm ci"
-verify = "test -d node_modules"
 
 [build]
 run = "npm run build"
-verify = ""
+verify = "test -f dist/index.js"
+requires = ["api:setup", "core:build"]
 
 [ci.full]
 run = "npm test"
+requires = ["api:build"]
 
 [ci.pre-commit]
-run = "npm run lint"
-
-[ci.pre-push]
-run = "npm run e2e"
+run = ""
 `
 
 func TestParseProjectValid(t *testing.T) {
@@ -32,17 +31,33 @@ func TestParseProjectValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Name != "api" || len(p.Dependencies) != 1 || p.Dependencies[0] != "core" {
-		t.Errorf("name/deps = %q %q", p.Name, p.Dependencies)
+	if p.Name != "api" || p.Wrapper != "" {
+		t.Errorf("name/wrapper = %q %q", p.Name, p.Wrapper)
 	}
-	if p.Setup != (Phase{Run: "npm ci", Verify: "test -d node_modules"}) {
-		t.Errorf("setup = %+v", p.Setup)
+	if got := p.SectionNames(); !slices.Equal(got, []string{"build", "ci.full", "ci.pre-commit", "setup"}) {
+		t.Errorf("sections = %q", got)
 	}
-	if p.Build != (Phase{Run: "npm run build", Verify: ""}) {
-		t.Errorf("build = %+v", p.Build)
+	setup := p.Sections["setup"]
+	if setup.Run != "npm ci" || setup.SkipIf != "test -d node_modules" || setup.Verify != "" || len(setup.Requires) != 0 {
+		t.Errorf("setup = %+v", setup)
 	}
-	if len(p.CI) != 3 || p.CI[LevelFull] != "npm test" || p.CI[LevelPreCommit] != "npm run lint" || p.CI[LevelPrePush] != "npm run e2e" {
-		t.Errorf("ci = %v", p.CI)
+	build := p.Sections["build"]
+	if build.Verify != "test -f dist/index.js" ||
+		!slices.Equal(build.Requires, []Key{{"api", "setup"}, {"core", "build"}}) {
+		t.Errorf("build = %+v", build)
+	}
+	if got := p.Dependencies(); !slices.Equal(got, []string{"core"}) {
+		t.Errorf("dependencies = %q", got)
+	}
+}
+
+func TestParseProjectNoSections(t *testing.T) {
+	p, err := ParseProject("stew.toml", []byte("name = \"x\"\nproject_wrapper = \"\"\n[lint]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Sections) != 0 || len(p.Dependencies()) != 0 {
+		t.Errorf("sections = %v", p.Sections)
 	}
 }
 
@@ -58,163 +73,79 @@ func TestParseProjectWrapperErrors(t *testing.T) {
 	with := func(line string) string {
 		return strings.Replace(validManifest, `project_wrapper = ""`, line, 1)
 	}
-	for _, tc := range []struct{ name, data, want string }{
-		{"missing", strings.Replace(validManifest, "project_wrapper = \"\"\n", "", 1), `stew.toml: missing key "project_wrapper"`},
-		{"syntax", with(`project_wrapper = 'tool "x {{STEW_STEP}}'`), "stew.toml: project_wrapper: sh: "},
-		{"no placeholder", with(`project_wrapper = "tool run"`),
-			"stew.toml: project_wrapper: must contain {{STEW_STEP}} exactly once (found 0)"},
-		{"type", with(`project_wrapper = ["tool"]`), "stew.toml: "},
-	} {
-		_, err := ParseProject("stew.toml", []byte(tc.data))
-		if err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("%s: err = %v, want %q", tc.name, err, tc.want)
+	tests := []struct{ data, want string }{
+		{with(`project_wrapper = "tool run"`), "stew.toml: project_wrapper: must contain {{STEW_STEP}} exactly once (found 0)"},
+		{with(`project_wrapper = "echo 'x {{STEW_STEP}}"`), "stew.toml: project_wrapper: sh: "},
+	}
+	for _, tt := range tests {
+		_, err := ParseProject("stew.toml", []byte(tt.data))
+		if err == nil || !strings.HasPrefix(err.Error(), tt.want) {
+			t.Errorf("err = %v, want prefix %q", err, tt.want)
 		}
-	}
-}
-
-func TestTemplateParses(t *testing.T) {
-	p, err := ParseProject("stew.toml", Template("my-lib.v2"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Name != "my-lib.v2" || len(p.Dependencies) != 0 || p.Setup != (Phase{}) || p.Build != (Phase{}) {
-		t.Errorf("project = %+v", p)
-	}
-	if len(p.CI) != 1 || p.CI[LevelFull] != "" {
-		t.Errorf("ci = %v", p.CI)
-	}
-	if p.Wrapper != "" {
-		t.Errorf("wrapper = %q", p.Wrapper)
-	}
-}
-
-func TestTemplateExact(t *testing.T) {
-	want := `name = "api"
-dependencies = []
-# Wraps every command of this project, inside the workspace wrapper.
-# {{STEW_STEP}} marks where the command goes. "" means none.
-project_wrapper = ""
-
-# Each phase: ` + "`verify` runs first; exit 0 skips `run`." + `
-# Otherwise ` + "`run` runs, then `verify` confirms." + ` Empty strings are no-ops.
-[setup]
-run = ""
-verify = ""
-
-[build]
-run = ""
-verify = ""
-
-# Levels: pre-commit falls back to quick; quick and pre-push fall back to full.
-[ci.full]
-run = ""
-`
-	if got := string(Template("api")); got != want {
-		t.Errorf("Template:\n%s\nwant:\n%s", got, want)
 	}
 }
 
 func TestParseProjectErrors(t *testing.T) {
-	// base builds a manifest with one line removed or appended.
-	base := func(drop string, extra string) string {
-		lines := []string{
-			`name = "api"`,
-			`dependencies = []`,
-			`project_wrapper = ""`,
-			`[setup]`, `run = ""`, `verify = ""`,
-			`[build]`, `run = "b"`, `verify = "vb"`,
-			`[ci.full]`, `run = ""`,
-		}
-		var out []string
-		dropped := false
-		for _, l := range lines {
-			if !dropped && l == drop {
-				dropped = true
-				continue
-			}
-			out = append(out, l)
-		}
-		return strings.Join(out, "\n") + "\n" + extra
-	}
-
-	tests := []struct {
-		name, content, wantErr string
-	}{
-		{"missing name", base(`name = "api"`, ""), `missing key "name"`},
-		{"missing dependencies", base(`dependencies = []`, ""), `missing key "dependencies"`},
-		{"missing project_wrapper", base(`project_wrapper = ""`, ""), `missing key "project_wrapper"`},
-		{"missing setup", strings.Replace(base("", ""), "[setup]\nrun = \"\"\nverify = \"\"\n", "", 1),
-			"missing section [setup]"},
-		{"missing setup.run", base(`run = ""`, ""), `missing key "setup.run"`},
-		{"missing setup.verify", base(`verify = ""`, ""), `missing key "setup.verify"`},
-		{"missing build.run", base(`run = "b"`, ""), `missing key "build.run"`},
-		{"missing build.verify", base(`verify = "vb"`, ""), `missing key "build.verify"`},
-		{"missing ci.full", strings.Replace(base("", ""), "[ci.full]\nrun = \"\"\n", "", 1),
-			"missing section [ci.full]"},
-		{"ci.quick without run", base("", "[ci.quick]\n"), `missing key "ci.quick.run"`},
-		{"unknown top key", "extra = 1\n" + base("", ""), `unknown key "extra"`},
-		{"unknown key in ci level", base("", "extra = 1\n"), `unknown key "ci.full.extra"`},
-		{"unknown section", base("", "[buidl]\nrun = \"\"\n"), `unknown key "buidl"`},
-		{"verify in ci", base("", "verify = \"x\"\n"), `unknown key "ci.full.verify"`},
-		{"unknown level", base("", "[ci.nightly]\nrun = \"\"\n"), `unknown CI level "nightly"`},
-		{"invalid name", strings.Replace(base("", ""), `"api"`, `"My App"`, 1), `invalid name "My App"`},
-		{"uppercase name", strings.Replace(base("", ""), `"api"`, `"Api"`, 1), `invalid name "Api"`},
-		{"duplicate dependency", strings.Replace(base("", ""), `[]`, `["a", "a"]`, 1), `duplicate dependency "a"`},
-		{"wrong type", strings.Replace(base("", ""), `name = "api"`, `name = 5`, 1), "stew.toml"},
+	const head = "name = \"api\"\nproject_wrapper = \"\"\n"
+	tests := []struct{ name, data, want string }{
+		{"missing name", "project_wrapper = \"\"\n", `stew.toml: missing key "name"`},
+		{"missing wrapper", "name = \"api\"\n", `stew.toml: missing key "project_wrapper"`},
+		{"name type", "name = 1\nproject_wrapper = \"\"\n", "stew.toml: name: want a string"},
+		{"bad name", "name = \"Api\"\nproject_wrapper = \"\"\n", `stew.toml: invalid name "Api" (want [a-z0-9][a-z0-9._-]*)`},
+		{"dependencies", head + "dependencies = []\n", `stew.toml: unknown key "dependencies"`},
+		{"missing run", head + "[build]\nverify = \"v\"\n", `stew.toml: [build]: missing key "run"`},
+		{"unknown key", head + "[build]\nrun = \"\"\nfoo = \"x\"\n", `stew.toml: [build]: unknown key "foo"`},
+		{"namespace key", head + "[ci]\nfoo = 1\n", `stew.toml: unknown key "ci.foo"`},
+		{"nested bad segment", head + "[ci.Full]\nrun = \"\"\n", `stew.toml: invalid section name segment "Full" (want [a-z0-9][a-z0-9_-]*)`},
+		{"run type", head + "[build]\nrun = 1\n", "stew.toml: [build]: run: want a string"},
+		{"requires type", head + "[build]\nrun = \"\"\nrequires = \"x\"\n", "stew.toml: [build]: requires: want a list of strings"},
+		{"requires item type", head + "[build]\nrun = \"\"\nrequires = [1]\n", "stew.toml: [build]: requires: want a list of strings"},
+		{"section in section", head + "[ci]\nrun = \"\"\n[ci.full]\nrun = \"\"\n", "stew.toml: [ci]: a section cannot contain sections"},
+		{"quoted dot", head + "[\"ci.full\"]\nrun = \"\"\n", `stew.toml: invalid section name segment "ci.full" (want [a-z0-9][a-z0-9_-]*)`},
+		{"bad segment", head + "[Build]\nrun = \"\"\n", `stew.toml: invalid section name segment "Build" (want [a-z0-9][a-z0-9_-]*)`},
+		{"no colon", head + "[build]\nrun = \"\"\nrequires = [\"core\"]\n", `stew.toml: [build]: requires "core": want <project>:<section>`},
+		{"self", head + "[build]\nrun = \"\"\nrequires = [\"api:build\"]\n", `stew.toml: [build]: requires "api:build": section requires itself`},
+		{"duplicate", head + "[build]\nrun = \"\"\nrequires = [\"core:build\", \"core:build\"]\n", `stew.toml: [build]: duplicate requires "core:build"`},
+		{"toml syntax", "name = \n", "stew.toml: "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := ParseProject("stew.toml", []byte(tt.content))
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("err = %v, want containing %q\ncontent:\n%s", err, tt.wantErr, tt.content)
+			_, err := ParseProject("stew.toml", []byte(tt.data))
+			if err == nil || !strings.HasPrefix(err.Error(), tt.want) {
+				t.Errorf("err = %v, want prefix %q", err, tt.want)
 			}
 		})
 	}
 }
 
-func TestResolveCI(t *testing.T) {
-	tests := []struct {
-		defined   []Level
-		requested Level
-		want      Level
-	}{
-		{[]Level{LevelFull}, LevelPreCommit, LevelFull},
-		{[]Level{LevelFull}, LevelQuick, LevelFull},
-		{[]Level{LevelFull}, LevelFull, LevelFull},
-		{[]Level{LevelFull, LevelQuick}, LevelPreCommit, LevelQuick},
-		{[]Level{LevelFull, LevelQuick}, LevelFull, LevelFull},
-		{[]Level{LevelFull, LevelPreCommit}, LevelQuick, LevelFull},
-		{[]Level{LevelFull, LevelPreCommit}, LevelPreCommit, LevelPreCommit},
-		{[]Level{LevelFull, LevelQuick}, LevelQuick, LevelQuick},
-		{[]Level{LevelFull, LevelPreCommit}, LevelFull, LevelFull},
-		{[]Level{LevelFull, LevelQuick, LevelPreCommit}, LevelPreCommit, LevelPreCommit},
-		{[]Level{LevelFull, LevelQuick, LevelPreCommit}, LevelQuick, LevelQuick},
-		{[]Level{LevelFull, LevelQuick, LevelPreCommit}, LevelFull, LevelFull},
-		{[]Level{LevelFull}, LevelPrePush, LevelFull},
-		{[]Level{LevelFull, LevelQuick, LevelPreCommit}, LevelPrePush, LevelFull},
-		{[]Level{LevelFull, LevelPrePush}, LevelPrePush, LevelPrePush},
-		{[]Level{LevelFull, LevelPrePush}, LevelPreCommit, LevelFull},
-		{[]Level{LevelFull, LevelPrePush}, LevelQuick, LevelFull},
+func TestTemplateParses(t *testing.T) {
+	p, err := ParseProject("stew.toml", Template("my-app"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		p := &Project{Name: "p", CI: map[Level]string{}}
-		for _, l := range tt.defined {
-			p.CI[l] = "run-" + string(l)
-		}
-		used, run := p.ResolveCI(tt.requested)
-		if used != tt.want || run != "run-"+string(tt.want) {
-			t.Errorf("defined %v, requested %s: got %s %q, want %s", tt.defined, tt.requested, used, run, tt.want)
-		}
+	if p.Name != "my-app" || len(p.Sections) != 0 {
+		t.Errorf("template project = %+v", p)
 	}
 }
 
-func TestParseLevel(t *testing.T) {
-	for _, s := range []string{"full", "quick", "pre-commit", "pre-push"} {
-		if l, err := ParseLevel(s); err != nil || string(l) != s {
-			t.Errorf("ParseLevel(%q) = %q, %v", s, l, err)
-		}
-	}
-	if _, err := ParseLevel("nightly"); err == nil {
-		t.Error("ParseLevel(nightly) succeeded")
+func TestTemplateExact(t *testing.T) {
+	want := `name = "x"
+# Wraps every command of this project, inside the workspace wrapper.
+# {{STEW_STEP}} marks where the command goes. "" means none.
+project_wrapper = ""
+
+# Sections: any [name] with a ` + "`run`" + ` key. ` + "`stew run '<regex>'`" + ` runs sections whose
+# <project>:<section> key matches; ` + "`stew build`" + ` is ` + "`stew run '.*:build'`" + `.
+# skip_if exit 0 skips the section. verify runs after run and must exit 0.
+# requires lists sections that must succeed first, as "<project>:<section>".
+#
+# [build]
+# run = ""
+# skip_if = ""
+# verify = ""
+# requires = []
+`
+	if got := string(Template("x")); got != want {
+		t.Errorf("template:\n%s\nwant:\n%s", got, want)
 	}
 }

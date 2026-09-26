@@ -6,7 +6,7 @@ exec stew git install pre-commit
 exec git add -A
 env PATH=$WORK/bin:$PATH
 exec git commit -q -m first
-stderr '^==> core: ci\.pre-commit -> ci\.full \.\.\. pass'
+stderr '^==> core: ci\.quick \.\.\. done'
 
 -- .stew/config.toml --
 workspace_wrapper = "wrap-env {{STEW_STEP}}"
@@ -16,16 +16,18 @@ runs/
 projects = ["core"]
 -- core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
-[ci.full]
+requires = ["core:setup"]
+[ci.quick]
 run = 'test "$FROM_WRAPPER" = yes'
+requires = ["core:build"]
+[ci.pre-commit]
+run = ""
+requires = ["core:ci.quick"]
 -- bin/wrap-env --
 #!/bin/sh
 FROM_WRAPPER=yes exec "$@"

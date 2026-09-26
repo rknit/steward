@@ -1,4 +1,4 @@
-// Package runner executes a plan of project phases: the phase algorithm, blocking, and interrupt handling.
+// Package runner executes a plan of sections: the section algorithm, blocking, and interrupt handling.
 // It knows nothing about TOML or terminals.
 package runner
 
@@ -10,13 +10,12 @@ import (
 	"time"
 )
 
-// Status is a phase's result word.
+// Status is a section's result word.
 type Status string
 
-// Phase statuses. The zero Status means the phase did not run.
+// Section statuses. The zero Status means the section did not run.
 const (
 	Done        Status = "done"
-	Pass        Status = "pass"
 	Skip        Status = "skip"
 	Fail        Status = "fail"
 	Blocked     Status = "blocked"
@@ -32,46 +31,36 @@ func (i Interrupt) Error() string { return "interrupted by " + signalName(i.Sign
 // ErrInterrupted is the cause for Ctrl-C.
 var ErrInterrupted = Interrupt{Signal: syscall.SIGINT}
 
-// Phase is one phase of one project, with its commands already resolved.
-type Phase struct {
-	Name   string // column and display name: "setup", "build", "ci.pre-commit"
-	Used   string // what actually runs, also the log file name: "setup", "build", "ci.quick"
-	Run    string
-	Verify string // always "" for CI phases
-	CI     bool
-}
-
-// Fallback returns the CI level that ran instead of the requested one ("quick"), or "" if none.
-func (p Phase) Fallback() string {
-	if p.Used == p.Name {
-		return ""
-	}
-	return p.Used[len("ci."):]
-}
-
-// Job is one project's work in a plan.
-type Job struct {
+// Section is one section of one project, with its commands resolved.
+type Section struct {
 	Project  string
+	Name     string   // section name, also the summary column: "build", "ci.full"
 	Dir      string   // absolute directory the commands run in
-	Deps     []string // direct dependency names
-	Phases   []Phase
 	Wrappers []string // non-empty wrappers, outermost first; each contains StepPlaceholder once
+	Run      string
+	SkipIf   string
+	Verify   string
+	Requires []string // keys of the sections it requires, in execution order
 }
+
+// Key returns "<project>:<section>".
+func (s Section) Key() string { return s.Project + ":" + s.Name }
 
 // Plan is the ordered work for one stew run.
 type Plan struct {
-	Columns []string // phase names in summary column order
-	Jobs    []Job    // dependency order
+	Columns  []string  // section names, in order of first appearance
+	Projects []string  // summary rows, in order of each project's first section
+	Sections []Section // execution order; every requirement comes before its dependents
 }
 
 // StepOutput is one step's captured stdout and stderr, in write order.
 type StepOutput struct {
-	Step   string // "verify", "run", or "verify after run"
+	Step   string // "skip_if", "run", or "verify"
 	Cmd    string
 	Output []byte
 }
 
-// Outcome is how a phase ended.
+// Outcome is how a section ended.
 type Outcome struct {
 	Status   Status
 	Duration time.Duration
@@ -79,7 +68,7 @@ type Outcome struct {
 	Cause    string       // "exit 2", "signal SIGINT", "cannot start: ...", "log error: ..."; Fail and Interrupted only
 }
 
-// LogErrorOutcome turns a Recorder save error into the outcome it makes the phase report.
+// LogErrorOutcome turns a Recorder save error into the outcome it makes the section report.
 // It returns out unchanged if its Status is already Fail or Interrupted; otherwise it returns
 // a Fail outcome with the same Duration and Cause "log error: " + err.Error().
 func LogErrorOutcome(out Outcome, err error) Outcome {
@@ -91,16 +80,18 @@ func LogErrorOutcome(out Outcome, err error) Outcome {
 
 // Reporter receives progress events.
 type Reporter interface {
-	PhaseStart(project string, ph Phase)
-	PhaseEnd(project string, ph Phase, out Outcome)
-	Blocked(project string, ph Phase, by []string)
+	SectionStart(s Section)
+	SectionEnd(s Section, out Outcome)
+	// Blocked reports a section blocked by requirements that failed. It is not called for a section
+	// whose failed-or-blocked requirements were all blocked, which keeps the output pruned.
+	Blocked(s Section, failed []string)
 }
 
-// Recorder persists phase results. It is called before the matching Reporter event.
-// A PhaseEnd error turns a phase that has not already failed or been interrupted into a log error failure.
+// Recorder persists section results. It is called before the matching Reporter event.
+// A SectionEnd error turns a section that has not already failed or been interrupted into a log error failure.
 type Recorder interface {
-	PhaseEnd(project string, ph Phase, out Outcome) error
-	Blocked(project string, ph Phase, by []string) error
+	SectionEnd(s Section, out Outcome) error
+	Blocked(s Section, by []string) error
 }
 
 // Result is how one command ended.
@@ -153,8 +144,8 @@ type Executor interface {
 	Run(ctx context.Context, dir string, env []string, argv []string, stdout, stderr io.Writer) Result
 }
 
-// PhaseLog is the on-disk log of one phase.
-type PhaseLog interface {
+// SectionLog is the on-disk log of one section.
+type SectionLog interface {
 	Stdout() io.Writer
 	Stderr() io.Writer
 	Marker(step, cmd string) error
@@ -163,7 +154,7 @@ type PhaseLog interface {
 
 // Steps prepares what a wrapped step runs, then reports how many times its command ran and how it exited.
 type Steps interface {
-	// Prepare writes the step's scripts for key ("<project>-<phase>") and returns the argv that runs cmd
+	// Prepare writes the step's scripts for key ("<project>-<section>") and returns the argv that runs cmd
 	// inside wrappers, outermost first.
 	Prepare(key string, wrappers, env []string, cmd string) ([]string, error)
 	// Collect returns how many times the step's command ran and, when its last run finished, its exit status.
@@ -171,23 +162,17 @@ type Steps interface {
 	Collect(key string) (reaches, status int, finished bool, err error)
 }
 
-// Cell is one summary table cell. The zero Cell prints as "-".
-type Cell struct {
-	Status   Status
-	Fallback string // CI level used instead of the requested one, e.g. "quick"
-}
-
-// Row is one project's summary cells, aligned with Results.Columns.
+// Row is one project's summary cells, aligned with Results.Columns. The zero Status prints as "-".
 type Row struct {
 	Project string
-	Cells   []Cell
+	Cells   []Status
 }
 
 // Results is the outcome of a whole run.
 type Results struct {
 	Columns     []string
 	Rows        []Row
-	Failed      bool           // some phase failed or was blocked
+	Failed      bool           // some section failed or was blocked
 	Interrupted syscall.Signal // 0 unless a signal stopped the run
 }
 

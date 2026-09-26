@@ -1,4 +1,4 @@
-# list prints every project as a table sorted by name, with sorted dependencies.
+# list prints every project as a table sorted by name, with the other projects its requires name, sorted.
 exec stew list
 cmp stdout want/table.txt
 ! stderr .
@@ -48,37 +48,36 @@ workspace_wrapper = ""
 projects = []
 -- libs/core/stew.toml --
 name = "core"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["core:setup"]
 [ci.full]
 run = ""
+requires = ["core:build"]
 -- services/api/stew.toml --
 name = "api"
-dependencies = ["core"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["core:build"]
 [build]
 run = ""
-verify = ""
+requires = ["api:setup"]
 [ci.full]
 run = ""
+requires = ["api:build"]
 -- apps/web/stew.toml --
 name = "web"
-dependencies = ["core", "api"]
 project_wrapper = ""
 [setup]
 run = ""
-verify = ""
+requires = ["core:build", "api:build"]
 [build]
 run = ""
-verify = ""
+requires = ["web:setup"]
 [ci.full]
 run = ""
+requires = ["web:build"]

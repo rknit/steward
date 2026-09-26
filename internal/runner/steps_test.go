@@ -80,10 +80,10 @@ func TestWrappedCommandRunsOnceWithExactEnv(t *testing.T) {
 	d := testStepDir(t)
 	root := t.TempDir() + "/it's a \"root\" $HOME"
 	project := "two\nlines \\ and \\n"
-	env := []string{"STEW_PHASE=build", "STEW_ROOT=" + root, "STEW_PROJECT=" + project}
+	env := []string{"STEW_SECTION=build", "STEW_ROOT=" + root, "STEW_PROJECT=" + project}
 	res, out, c := runStep(t, d, t.TempDir(),
-		[]string{`export OUTER=o STEW_PHASE=clobbered STEW_ROOT=x STEW_PROJECT=y && {{STEW_STEP}}`},
-		env, `printf '%s|%s|%s|%s\n' "$OUTER" "$STEW_PHASE" "$STEW_ROOT" "$STEW_PROJECT"; exit 3`)
+		[]string{`export OUTER=o STEW_SECTION=clobbered STEW_ROOT=x STEW_PROJECT=y && {{STEW_STEP}}`},
+		env, `printf '%s|%s|%s|%s\n' "$OUTER" "$STEW_SECTION" "$STEW_ROOT" "$STEW_PROJECT"; exit 3`)
 	if c != (collected{1, 3, true}) || res != (Result{ExitCode: 3}) || out != "o|build|"+root+"|"+project+"\n" {
 		t.Errorf("c=%+v res=%+v out=%q", c, res, out)
 	}
@@ -101,7 +101,7 @@ func TestTwoLevelsNestOuterFirst(t *testing.T) {
 func TestPrepareWritesWrapperTextUnchanged(t *testing.T) {
 	d := testStepDir(t)
 	outer, inner := "a 'x' \"$Y\" {{STEW_STEP}} ; b", "c\n{{STEW_STEP}} # d"
-	argv, err := d.Prepare("p-build", []string{outer, inner}, []string{"STEW_PHASE=build"}, "make")
+	argv, err := d.Prepare("p-build", []string{outer, inner}, []string{"STEW_SECTION=build"}, "make")
 	if err != nil {
 		t.Fatal(err)
 	}

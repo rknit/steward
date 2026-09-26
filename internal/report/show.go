@@ -13,16 +13,16 @@ import (
 	"github.com/rknit/steward/internal/runner"
 )
 
-// Unfinished is the status of a phase that started but has no result: the run is still going or stew was killed.
+// Unfinished is the status of a section that started but has no result: the run is still going or stew was killed.
 const Unfinished runner.Status = "unfinished"
 
-// ShownPhase is one phase on the stew runs show page.
-type ShownPhase struct {
+// ShownSection is one section on the stew runs show page.
+type ShownSection struct {
 	Project   string
-	Phase     runner.Phase   // Name and Used
+	Section   string
 	Outcome   runner.Outcome // Status, Duration, and Cause
-	BlockedBy []string
-	Log       []byte // the combined log; nil when the phase ran no command
+	BlockedBy []string       // keys on the blocked line; empty hides a blocked section's line
+	Log       []byte         // the combined log; nil when the section ran no command
 }
 
 // ShownSummary is the summary block of the stew runs show page.
@@ -39,9 +39,9 @@ type ProjectWrapper struct {
 	Wrapper string
 }
 
-// Show writes the stew runs show page: a header, each phase line with its whole log, then the summary if sum is set.
+// Show writes the stew runs show page: a header, each section line with its whole log, then the summary if sum is set.
 func Show(w io.Writer, id string, argv []string, workspaceWrapper string, projectWrappers []ProjectWrapper,
-	phases []ShownPhase, sum *ShownSummary) {
+	sections []ShownSection, sum *ShownSummary) {
 	var b bytes.Buffer
 	b.WriteString("run " + id + ": " + Command(argv) + "\n")
 	if workspaceWrapper != "" {
@@ -51,18 +51,20 @@ func Show(w io.Writer, id string, argv []string, workspaceWrapper string, projec
 		b.WriteString("wrapper " + pw.Project + ": " + displayWrapper(pw.Wrapper) + "\n")
 	}
 
-	for _, p := range phases {
-		if p.Outcome.Status == runner.Blocked {
-			b.WriteString(blockedLine(p.Project, p.Phase, p.BlockedBy))
+	for _, s := range sections {
+		if s.Outcome.Status == runner.Blocked {
+			if len(s.BlockedBy) > 0 {
+				b.WriteString(blockedLine(s.Project, s.Section, s.BlockedBy))
+			}
 			continue
 		}
-		b.WriteString(head(p.Project, p.Phase) + " ... " + statusText(p.Outcome) + "\n")
-		b.Write(p.Log)
-		if len(p.Log) > 0 && p.Log[len(p.Log)-1] != '\n' {
+		b.WriteString(head(s.Project, s.Section) + " ... " + statusText(s.Outcome) + "\n")
+		b.Write(s.Log)
+		if len(s.Log) > 0 && s.Log[len(s.Log)-1] != '\n' {
 			b.WriteByte('\n')
 		}
-		if p.Outcome.Status == runner.Fail || p.Outcome.Status == runner.Interrupted {
-			b.WriteString("(" + p.Outcome.Cause + ")\n")
+		if s.Outcome.Status == runner.Fail || s.Outcome.Status == runner.Interrupted {
+			b.WriteString("(" + s.Outcome.Cause + ")\n")
 		}
 	}
 

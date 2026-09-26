@@ -53,12 +53,12 @@ func TestShellStdinIsDevNull(t *testing.T) {
 }
 
 func TestShellEnvOverridesInherited(t *testing.T) {
-	t.Setenv("STEW_TAG", "parent.build")
+	t.Setenv("STEW_TAG", "parent:build")
 	t.Setenv("STEW_TEST_KEPT", "kept")
 	var stdout, stderr bytes.Buffer
-	res := Shell{KillDelay: slowKillDelay}.Run(context.Background(), t.TempDir(), []string{"STEW_TAG=child.setup"},
+	res := Shell{KillDelay: slowKillDelay}.Run(context.Background(), t.TempDir(), []string{"STEW_TAG=child:setup"},
 		[]string{"sh", "-c", `env | grep -c '^STEW_TAG='; echo "$STEW_TAG $STEW_TEST_KEPT"`}, &stdout, &stderr)
-	if !res.OK() || stdout.String() != "1\nchild.setup kept\n" {
+	if !res.OK() || stdout.String() != "1\nchild:setup kept\n" {
 		t.Errorf("result = %+v, stdout = %q, stderr = %q", res, stdout.String(), stderr.String())
 	}
 }

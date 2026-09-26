@@ -20,15 +20,14 @@ type Manifest struct {
 	ProjectWrapper   map[string]string `json:"project_wrapper,omitempty"`
 	Columns          []string          `json:"columns"`
 	Projects         []string          `json:"projects"`
-	Phases           []PhaseRecord     `json:"phases"`
+	Sections         []SectionRecord   `json:"sections"`
 	TotalMS          *int64            `json:"total_ms,omitempty"`
 }
 
-// PhaseRecord is one phase that ended or was blocked.
-type PhaseRecord struct {
+// SectionRecord is one section that ended or was blocked.
+type SectionRecord struct {
 	Project    string   `json:"project"`
-	Phase      string   `json:"phase"`
-	Used       string   `json:"used"`
+	Section    string   `json:"section"`
 	Status     string   `json:"status"`
 	DurationMS *int64   `json:"duration_ms,omitempty"`
 	Cause      string   `json:"cause,omitempty"`
@@ -38,25 +37,23 @@ type PhaseRecord struct {
 // Start records the command line, the wrappers, and the plan, then saves run.json.
 func (r *Run) Start(argv []string, workspaceWrapper string, projectWrapper map[string]string, columns, projects []string) error {
 	r.Manifest = Manifest{Argv: argv, WorkspaceWrapper: workspaceWrapper, ProjectWrapper: projectWrapper,
-		Columns: columns, Projects: projects, Phases: []PhaseRecord{}}
+		Columns: columns, Projects: projects, Sections: []SectionRecord{}}
 	return r.save()
 }
 
-// PhaseEnd implements runner.Recorder. If the save fails, the record is kept in memory as
+// SectionEnd implements runner.Recorder. If the save fails, the record is kept in memory as
 // runner.LogErrorOutcome makes the runner report it, for the next successful save to include.
-func (r *Run) PhaseEnd(project string, ph runner.Phase, out runner.Outcome) error {
-	r.Manifest.Phases = append(r.Manifest.Phases, phaseRecord(project, ph, out))
+func (r *Run) SectionEnd(s runner.Section, out runner.Outcome) error {
+	r.Manifest.Sections = append(r.Manifest.Sections, sectionRecord(s, out))
 	if err := r.save(); err != nil {
-		last := len(r.Manifest.Phases) - 1
-		r.Manifest.Phases[last] = phaseRecord(project, ph, runner.LogErrorOutcome(out, err))
+		r.Manifest.Sections[len(r.Manifest.Sections)-1] = sectionRecord(s, runner.LogErrorOutcome(out, err))
 		return err
 	}
 	return nil
 }
 
-// phaseRecord builds the record PhaseEnd saves for a phase's outcome.
-func phaseRecord(project string, ph runner.Phase, out runner.Outcome) PhaseRecord {
-	rec := PhaseRecord{Project: project, Phase: ph.Name, Used: ph.Used, Status: string(out.Status)}
+func sectionRecord(s runner.Section, out runner.Outcome) SectionRecord {
+	rec := SectionRecord{Project: s.Project, Section: s.Name, Status: string(out.Status)}
 	if out.Status == runner.Fail || out.Status == runner.Interrupted {
 		rec.Cause = out.Cause
 	}
@@ -67,9 +64,9 @@ func phaseRecord(project string, ph runner.Phase, out runner.Outcome) PhaseRecor
 }
 
 // Blocked implements runner.Recorder. If the save fails, the record stays for the next save.
-func (r *Run) Blocked(project string, ph runner.Phase, by []string) error {
-	r.Manifest.Phases = append(r.Manifest.Phases, PhaseRecord{
-		Project: project, Phase: ph.Name, Used: ph.Used, Status: string(runner.Blocked), BlockedBy: by,
+func (r *Run) Blocked(s runner.Section, by []string) error {
+	r.Manifest.Sections = append(r.Manifest.Sections, SectionRecord{
+		Project: s.Project, Section: s.Name, Status: string(runner.Blocked), BlockedBy: by,
 	})
 	return r.save()
 }
@@ -107,13 +104,13 @@ func (r *Run) save() error {
 }
 
 // Result is the run's outcome for stew runs list: "unfinished" without a total, then "interrupted",
-// "fail" for a failed or blocked phase, and "ok" otherwise.
+// "fail" for a failed or blocked section, and "ok" otherwise.
 func (m Manifest) Result() string {
 	if m.TotalMS == nil {
 		return "unfinished"
 	}
 	has := func(statuses ...runner.Status) bool {
-		return slices.ContainsFunc(m.Phases, func(p PhaseRecord) bool { return slices.Contains(statuses, runner.Status(p.Status)) })
+		return slices.ContainsFunc(m.Sections, func(s SectionRecord) bool { return slices.Contains(statuses, runner.Status(s.Status)) })
 	}
 	switch {
 	case has(runner.Interrupted):

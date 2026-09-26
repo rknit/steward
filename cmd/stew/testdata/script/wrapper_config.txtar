@@ -44,16 +44,15 @@ workspace_wrapper = ""
 projects = ["lib"]
 -- lib/stew.toml --
 name = "lib"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "touch ran"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["lib:setup"]
 [ci.full]
 run = ""
+requires = ["lib:build"]
 -- bin/wrap --
 #!/bin/sh
 exec "$@"

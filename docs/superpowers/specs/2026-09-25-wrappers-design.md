@@ -13,7 +13,7 @@ It works the same from a shell with that environment loaded, a bare shell, an ID
 - Tool-agnostic. stew knows no environment tool and special-cases none.
 - The user writes where the command goes. stew appends nothing and adds no options, variables, or shell settings
   to the wrapper. Anything like quieter logs or `set -e` is the user's to write.
-- A wrapper that does not run the command exactly once fails the phase loudly. A command never passes without running.
+- A wrapper that does not run the command exactly once fails the section loudly. A command never passes without running.
 
 ## Why
 
@@ -52,11 +52,10 @@ workspace_wrapper = ""
 
 ### `stew.toml`
 
-Required top-level key `project_wrapper`, after `dependencies`:
+Required top-level key `project_wrapper`, after `name`:
 
 ```toml
 name = "api"
-dependencies = ["core"]
 project_wrapper = ""
 ```
 
@@ -64,7 +63,7 @@ project_wrapper = ""
 | ----------------- | -------- | ------------------------------ |
 | `project_wrapper` | yes      | String. `""` means no wrapper. |
 
-The `stew add` template has, after `dependencies = []`:
+The `stew add` template has, after `name = "<name>"`:
 
 ```toml
 # Wraps every command of this project, inside the workspace wrapper.
@@ -103,8 +102,8 @@ Examples of the shape (not a supported-tools list):
 - The path starts with `/`, so a tool that parses options never reads it as an option.
 - The wrapper runs with cwd set to the project directory, like commands.
 - It is shell code: `$STEW_*`, `$HOME`, and other variables expand.
-- It applies to every step of every phase: `setup`, `build`, `ci.*`, `run` and `verify`.
-- The wrapper also runs `setup`'s commands, so it must work before `setup` has run.
+- It applies to every step of every section: `skip_if`, `run`, and `verify`.
+- No section is special, so the wrapper must work for any section that might run first.
 - It keeps normal `sh` meaning. `<tool> ; {{STEW_STEP}}` runs the command even when `<tool>` fails.
   Use `&&`, or `set -e;`, to stop on failure.
 
@@ -121,19 +120,19 @@ plus the step script. For a project with both wrappers:
 
 | File                          | Content                                                                         |
 | ----------------------------- | ------------------------------------------------------------------------------- |
-| `<project>-<phase>.1`         | `#!/bin/sh`, then the project wrapper with `{{STEW_STEP}}` → the `.step` path    |
-| `<project>-<phase>.step`      | `#!/bin/sh`, then: count one reach, export every `STEW_*`, run `sh -c <cmd>`,    |
-|                               | write its exit status to `<project>-<phase>.status`, and exit with that status  |
+| `<project>-<section>.1`       | `#!/bin/sh`, then the project wrapper with `{{STEW_STEP}}` → the `.step` path    |
+| `<project>-<section>.step`    | `#!/bin/sh`, then: count one reach, export every `STEW_*`, run `sh -c <cmd>`,    |
+|                               | write its exit status to `<project>-<section>.status`, and exit with that status |
 
 The step script is, with every value shell-quoted:
 
 ```sh
 #!/bin/sh
-echo >> '<step dir>/<key>.reach' || exit 125
+echo >> '<step dir>/<project>-<section>.reach' || exit 125
 export 'STEW_RUN_ID=…' 'STEW_ROOT=…' …
 sh -c '<cmd>'
 code=$?
-echo "$code" > '<step dir>/<key>.status' || exit 125
+echo "$code" > '<step dir>/<project>-<section>.status' || exit 125
 exit "$code"
 ```
 
@@ -157,20 +156,20 @@ With only one wrapper, there is no `.1` file, and that wrapper's placeholder poi
 - Created at run start, before the run directory, only when a project in the run has a workspace or project wrapper:
   `os.MkdirTemp` in `$TMPDIR` (made absolute), or `/tmp` when it is unset. The name starts with `stew-`.
 - Its full path must match `[A-Za-z0-9/._-]+`, so no file in it ever needs quoting, however many times a tool
-  parses it. Otherwise the run exits 1 before any phase:
+  parses it. Otherwise the run exits 1 before any section:
   `cannot create step directory: <path> needs shell quoting; set TMPDIR to a path of letters, digits, and /._-`.
 - It sits outside the workspace, so a workspace path with spaces or quotes never reaches a wrapper.
-- A failure to create it exits 1 before any phase and before any run directory exists.
+- A failure to create it exits 1 before any section and before any run directory exists.
 - The temp directory must allow executing files. On a `noexec` mount, every wrapped step fails with
   `wrapper did not run the command (exit 126)`. Set `TMPDIR` to a plain path that allows executing files.
 - It is removed when the run ends. A killed stew leaves it for the OS to clean up.
-- File names use the phase key, so they are unique among steps running at the same time,
-  including under future phase parallelism.
+- File names use a `:`-free rendering of the section's key. Two keys can map to the same name (`a-b:c`, `a:b-c`),
+  which is harmless: steps run one at a time, and a step's files are removed after it.
 
 ### Reach Count
 
-The step script appends one line to `<project>-<phase>.reach` each time it runs.
-When the command finishes, the step script writes the command's exit status to `<project>-<phase>.status`.
+The step script appends one line to `<project>-<section>.reach` each time it runs.
+When the command finishes, the step script writes the command's exit status to `<project>-<section>.status`.
 
 - stew removes the step's `.reach` and `.status` files before every step, and all the step's files after it.
 - After a wrapped step exits, stew counts the lines and reads the status.
@@ -185,8 +184,8 @@ When the command finishes, the step script writes the command's exit status to `
 
 - The command's status wins both ways. `{{STEW_STEP}} || true` and `{{STEW_STEP}}; echo post` fail when the command
   fails. `{{STEW_STEP}}; false` passes when the command passes.
-- A wrapper failure (a reach count other than 1, or no status) fails the phase for every step, including a pre-run
-  `verify`. A wrapper failure is not "not done yet".
+- A wrapper failure (a reach count other than 1, or no status) fails the section for every step, including a
+  failed `skip_if`. A wrapper failure is not "not done yet".
 - Precedence is unchanged: an interrupt gives `interrupted`, and a log error gives `log error: …`,
   before the reach check. An interrupt may stop the step script before the command finishes.
   The cause is then `wrapper exited before the command finished (signal S)`.
@@ -255,8 +254,8 @@ wrapper api: other-tool run {{STEW_STEP}}
 | `workspace/project.go` | `project_wrapper` key, template, `Project.Wrapper`.                                          |
 | `workspace/wrapper.go` | `CheckWrapper`: placeholder count and `sh -n`. The only place `workspace` runs a process.    |
 | `cmd/stew/init.go`     | Write `config.toml`.                                                                         |
-| `cmd/stew/plan.go`     | `Job.Wrappers = []string{workspace, project}`, empty ones dropped.                           |
-| `cmd/stew/phase.go`    | Create and remove the step directory when a job has wrappers.                               |
+| `cmd/stew/plan.go`     | `Section.Wrappers = []string{workspace, project}`, empty ones dropped.                       |
+| `cmd/stew/run.go`      | Create and remove the step directory when a section has wrappers.                           |
 | `runner/steps.go`      | `StepPlaceholder`, the step directory, writing step files, collecting reaches and statuses.  |
 | `runner`               | Wrapped steps run through the step files; reach count and status checked. `Executor.Run` takes argv. |
 | `runlog`               | The manifest fields.                                                                         |
@@ -290,12 +289,12 @@ Smoke tests with real tools come on top.
 - With the real `sh`: `{{STEW_STEP}} || true` and `{{STEW_STEP}}; echo post` record the failing status, also as
   the inner level; `{{STEW_STEP}}; false` records 0; a backgrounded command has no status when the wrapper exits;
   a command killed by SIGTERM records 143.
-- Reach count 0 or 2, or no status → `fail` with the matching cause, for `run`, pre-run `verify`, and
-  `verify after run`. With one reach and a status, the command's status is the result, whatever the wrapper exits.
+- Reach count 0 or 2, or no status → `fail` with the matching cause, for `skip_if`, `run`, and `verify`.
+  With one reach and a status, the command's status is the result, whatever the wrapper exits.
 - A failed `Prepare` (a level script that cannot be written) removes the step script and forgets the key.
 - Reach problem plus an interrupt → `interrupted`. Reach problem plus a log error → `log error`.
 - Step directory: a `TMPDIR` that needs quoting is rejected; the created path matches the plain pattern;
-  file names differ per phase.
+  file names differ per section.
 
 ### Integration: testscript
 
@@ -309,16 +308,16 @@ in an environment: one `exec`s, one forks and waits, one sources a file, one tak
 - `STEW_*` values are exact inside the command even when a wrapper overwrites them. A wrapper can read them.
 - Variable expansion: `"$STEW_ROOT"` in a wrapper.
 - A workspace whose path has a space and a `'`, with a wrapper that takes a command string: the command runs.
-- A `TMPDIR` that needs quoting: exit 1 before any phase, with the step-directory error.
+- A `TMPDIR` that needs quoting: exit 1 before any section, with the step-directory error.
 - Wrapper output (stdout and stderr) appears unchanged in the logs.
-- Every footgun fails the phase with the reach cause, and the command does not run (checked with a marker file):
+- Every footgun fails the section with the reach cause, and the command does not run (checked with a marker file):
   - placeholder in a comment (`tool # {{STEW_STEP}}`)
   - `echo {{STEW_STEP}}` (exit 0)
   - `false && {{STEW_STEP}}`
   - missing tool (exit 127)
 - A loop runs the command twice: `wrapper ran the command 2 times`.
 - `failing-tool ; {{STEW_STEP}}` semantics: the command runs, as `;` means in sh. Documented, not guarded.
-- A pre-run `verify` whose wrapper fails → `fail`, and `run` does not run.
+- A `skip_if` whose wrapper fails → `fail`, and `run` does not run.
 - Missing placeholder, doubled placeholder, or a syntax error in either file → exit 2 before anything runs.
 - A wrapper that `exec`s and one that forks, under SIGINT and SIGTERM: exit codes 130 and 143, and neither the
   command, the step script, nor the wrapper is still running after stew exits.
@@ -378,7 +377,7 @@ Three standalone commits on main:
 
 ## Out of Scope
 
-- Per-phase wrappers.
+- Per-section wrappers.
 - Caching a wrapper's environment between steps. Each step runs the wrapper again.
 - Showing wrappers in `stew list`.
 - A literal `{{STEW_STEP}}` in a wrapper for any other purpose.

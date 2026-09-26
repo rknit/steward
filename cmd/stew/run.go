@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"syscall"
 	"time"
@@ -24,35 +25,71 @@ import (
 // killDelay is how long a stopped command gets between SIGTERM and SIGKILL.
 const killDelay = 5 * time.Second
 
-func newPhaseCmd(stdout io.Writer, argv []string, command, short string) *cobra.Command {
-	var level string
-	cmd := &cobra.Command{
-		Use:   command + " [name...]",
-		Short: short,
+func newRunCmd(stdout io.Writer, argv []string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "run <regex>...",
+		Short: "Run sections whose <project>:<section> key matches, after the sections they require",
+		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPhases(stdout, argv, command, args, level)
+			_, ws, err := loadWorkspace()
+			if err != nil {
+				return err
+			}
+			return runSections(stdout, argv, ws, args)
 		},
 	}
-	if command == "ci" {
-		cmd.Flags().StringVarP(&level, "level", "l", "full", "CI level: full, quick, pre-commit, or pre-push")
+}
+
+// newAliasCmd returns a command that runs one section in the named projects, or in every project that has it.
+// For "ci" the section is ci.<level>.
+func newAliasCmd(stdout io.Writer, argv []string, section, short string) *cobra.Command {
+	var level string
+	cmd := &cobra.Command{
+		Use:   section + " [project...]",
+		Short: short,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := section
+			if section == "ci" {
+				name = "ci." + level
+				if !workspace.ValidSectionName(name) {
+					return invalid(fmt.Errorf("invalid CI level %q", level))
+				}
+			}
+			_, ws, err := loadWorkspace()
+			if err != nil {
+				return err
+			}
+			patterns, err := aliasPatterns(ws, name, args)
+			if err != nil {
+				return invalid(err)
+			}
+			return runSections(stdout, argv, ws, patterns)
+		},
+	}
+	if section == "ci" {
+		cmd.Flags().StringVarP(&level, "level", "l", "full", "run section ci.<level>")
 	}
 	return cmd
 }
 
-func runPhases(stdout io.Writer, argv []string, command string, names []string, levelFlag string) error {
-	level := workspace.LevelFull
-	if command == "ci" {
-		l, err := workspace.ParseLevel(levelFlag)
-		if err != nil {
-			return invalid(err)
+// aliasPatterns returns patterns that match section in the named projects, or in every project when none are named.
+func aliasPatterns(ws *workspace.Workspace, section string, projects []string) ([]string, error) {
+	quoted := regexp.QuoteMeta(section)
+	if len(projects) == 0 {
+		return []string{".*:" + quoted}, nil
+	}
+	patterns := make([]string, len(projects))
+	for i, name := range projects {
+		if _, ok := ws.Project(name); !ok {
+			return nil, fmt.Errorf("unknown project %q", name)
 		}
-		level = l
+		patterns[i] = regexp.QuoteMeta(name) + ":" + quoted
 	}
-	_, ws, err := loadWorkspace()
-	if err != nil {
-		return err
-	}
-	plan, err := buildPlan(ws, command, names, level)
+	return patterns, nil
+}
+
+func runSections(stdout io.Writer, argv []string, ws *workspace.Workspace, patterns []string) error {
+	plan, err := buildPlan(ws, patterns)
 	if err != nil {
 		return invalid(err)
 	}
@@ -84,7 +121,7 @@ func runPhases(stdout io.Writer, argv []string, command string, names []string, 
 		return rejected(fmt.Errorf("cannot adopt orphaned processes: %w", err))
 	}
 	var steps runner.Steps
-	if slices.ContainsFunc(plan.Jobs, func(j runner.Job) bool { return len(j.Wrappers) > 0 }) {
+	if slices.ContainsFunc(plan.Sections, func(s runner.Section) bool { return len(s.Wrappers) > 0 }) {
 		d, err := runner.NewStepDir()
 		if err != nil {
 			return rejected(fmt.Errorf("cannot create step directory: %w", err))
@@ -99,30 +136,28 @@ func runPhases(stdout io.Writer, argv []string, command string, names []string, 
 	}
 	defer logs.Close()
 	start := time.Now()
-	projects := make([]string, len(plan.Jobs))
 	projectWrapper := map[string]string{}
-	for i, job := range plan.Jobs {
-		projects[i] = job.Project
-		p, ok := ws.Project(job.Project)
+	for _, name := range plan.Projects {
+		p, ok := ws.Project(name)
 		if !ok {
-			panic("stew: plan job for unregistered project " + job.Project)
+			panic("stew: plan section for unregistered project " + name)
 		}
 		if p.Wrapper != "" {
-			projectWrapper[p.Name] = p.Wrapper
+			projectWrapper[name] = p.Wrapper
 		}
 	}
 	if len(projectWrapper) == 0 {
 		projectWrapper = nil
 	}
-	if err := logs.Start(argv, ws.Wrapper, projectWrapper, plan.Columns, projects); err != nil {
+	if err := logs.Start(argv, ws.Wrapper, projectWrapper, plan.Columns, plan.Projects); err != nil {
 		return rejected(fmt.Errorf("log error: %w", err))
 	}
 
 	r := &runner.Runner{
 		Exec:  runner.Shell{KillDelay: killDelay, Force: force},
 		Steps: steps,
-		OpenLog: func(project, phase string) (runner.PhaseLog, error) {
-			l, err := logs.OpenPhase(project, phase)
+		OpenLog: func(project, section string) (runner.SectionLog, error) {
+			l, err := logs.OpenSection(project, section)
 			if err != nil {
 				return nil, err
 			}

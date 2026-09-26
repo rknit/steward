@@ -8,81 +8,113 @@ import (
 	"testing"
 )
 
-// proj builds an in-memory project with the given dependencies.
-func proj(name string, deps ...string) *Project {
-	return &Project{Name: name, Path: name, Dependencies: deps, CI: map[Level]string{LevelFull: ""}}
+// proj builds a project; each section spec is "name" or "name<-a:b,c:d".
+func proj(name string, sections ...string) *Project {
+	p := &Project{Name: name, Path: name, Sections: map[string]*Section{}}
+	for _, spec := range sections {
+		sec, reqs, _ := strings.Cut(spec, "<-")
+		s := &Section{Run: name + "-" + sec}
+		if reqs != "" {
+			for _, r := range strings.Split(reqs, ",") {
+				k, _ := ParseKey(r)
+				s.Requires = append(s.Requires, k)
+			}
+		}
+		p.Sections[sec] = s
+	}
+	return p
 }
 
-func names(ps []*Project) []string {
+func keys(nodes []Node) []string {
 	var out []string
-	for _, p := range ps {
-		out = append(out, p.Name)
+	for _, n := range nodes {
+		out = append(out, n.Key.String())
 	}
 	return out
 }
 
-func TestTopologicalOrderWithNameTieBreak(t *testing.T) {
-	// app -> {api, backend} -> core; lib has no deps; web -> api.
-	ws, err := newWorkspace("/r", []*Project{
-		proj("web", "api"),
-		proj("app", "backend", "api"),
-		proj("lib"),
-		proj("backend", "core"),
-		proj("core"),
-		proj("api", "core"),
+// example is the spec's worked example graph.
+func example(t *testing.T) *Workspace {
+	t.Helper()
+	ws, err := newWorkspace("/w", []*Project{
+		proj("web", "build<-api:build,api:test", "e2e<-api:image,web:build"),
+		proj("core", "setup", "lint", "build<-core:setup"),
+		proj("docs", "build<-core:build"),
+		proj("api", "setup", "build<-api:setup,core:build", "test<-api:build", "image<-api:build"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"core", "api", "backend", "app", "lib", "web"}
-	if got := names(ws.Projects); !slices.Equal(got, want) {
-		t.Errorf("order = %v, want %v", got, want)
+	return ws
+}
+
+func TestSelectOrderAndTieBreak(t *testing.T) {
+	ws := example(t)
+	got, err := ws.Select([]string{"web:e2e", "api:test", "docs:build", "core:lint"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"api:setup", "core:lint", "core:setup", "core:build", "api:build", "api:image", "api:test",
+		"docs:build", "web:build", "web:e2e"}
+	if !slices.Equal(keys(got), want) {
+		t.Errorf("order = %q\nwant    %q", keys(got), want)
+	}
+	if got[0].Project.Name != "api" || got[0].Section.Run != "api-setup" {
+		t.Errorf("node 0 = %+v", got[0])
 	}
 }
 
 func TestSelect(t *testing.T) {
-	ws, err := newWorkspace("/r", []*Project{
-		proj("app", "api", "backend"),
-		proj("api", "core"),
-		proj("backend", "core"),
-		proj("core"),
-		proj("lib"),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	ws := example(t)
 	tests := []struct {
-		args      []string
-		wantOrder []string
-		wantNamed []string
+		patterns []string
+		want     []string
 	}{
-		{nil, []string{"core", "api", "backend", "app", "lib"}, []string{"app", "api", "backend", "core", "lib"}},
-		{[]string{"api"}, []string{"core", "api"}, []string{"api"}},
-		{[]string{"app"}, []string{"core", "api", "backend", "app"}, []string{"app"}},
-		{[]string{"lib", "api", "api"}, []string{"core", "api", "lib"}, []string{"api", "lib"}},
+		{[]string{"core:build"}, []string{"core:setup", "core:build"}},
+		{[]string{".*:setup"}, []string{"api:setup", "core:setup"}},
+		// Overlapping patterns select a section once.
+		{[]string{"api:.*", ".*:build"}, []string{"api:setup", "core:setup", "core:build", "api:build",
+			"api:image", "api:test", "docs:build", "web:build"}},
+		// A pattern must match the whole key.
+		{[]string{"a.*:setup"}, []string{"api:setup"}},
 	}
 	for _, tt := range tests {
-		sel, named, err := ws.Select(tt.args)
+		got, err := ws.Select(tt.patterns)
 		if err != nil {
-			t.Fatalf("Select(%v): %v", tt.args, err)
+			t.Fatalf("%q: %v", tt.patterns, err)
 		}
-		if got := names(sel); !slices.Equal(got, tt.wantOrder) {
-			t.Errorf("Select(%v) order = %v, want %v", tt.args, got, tt.wantOrder)
-		}
-		var gotNamed []string
-		for n := range named {
-			gotNamed = append(gotNamed, n)
-		}
-		slices.Sort(gotNamed)
-		slices.Sort(tt.wantNamed)
-		if !slices.Equal(gotNamed, tt.wantNamed) {
-			t.Errorf("Select(%v) named = %v, want %v", tt.args, gotNamed, tt.wantNamed)
+		if !slices.Equal(keys(got), tt.want) {
+			t.Errorf("%q = %q, want %q", tt.patterns, keys(got), tt.want)
 		}
 	}
+}
 
-	if _, _, err := ws.Select([]string{"api", "nope"}); err == nil || !strings.Contains(err.Error(), `unknown project "nope"`) {
-		t.Errorf("unknown name: err = %v", err)
+func TestSelectErrors(t *testing.T) {
+	ws := example(t)
+	tests := []struct {
+		patterns []string
+		want     string
+	}{
+		{[]string{"web:setup"}, `pattern "web:setup" matches no section`},
+		{[]string{"api:build", `.*:ci\.pre-commit`}, `pattern ".*:ci\.pre-commit" matches no section`},
+		{[]string{"api"}, `pattern "api" matches no section`},
+		{[]string{"("}, "error parsing regexp"},
+	}
+	for _, tt := range tests {
+		_, err := ws.Select(tt.patterns)
+		if err == nil || !strings.HasPrefix(err.Error(), tt.want) {
+			t.Errorf("%q: err = %v, want prefix %q", tt.patterns, err, tt.want)
+		}
+	}
+}
+
+func TestProjectsSortedByName(t *testing.T) {
+	var names []string
+	for _, p := range example(t).Projects {
+		names = append(names, p.Name)
+	}
+	if !slices.Equal(names, []string{"api", "core", "docs", "web"}) {
+		t.Errorf("projects = %q", names)
 	}
 }
 
@@ -90,21 +122,48 @@ func TestValidationErrors(t *testing.T) {
 	tests := []struct {
 		name     string
 		projects []*Project
-		wantErr  string
+		want     string
 	}{
-		{"duplicate name", []*Project{proj("a"), {Name: "a", Path: "other"}}, `duplicate project name "a" (a and other)`},
-		{"self dependency", []*Project{proj("a", "a")}, `a/stew.toml: project "a" depends on itself`},
-		{"unknown dependency", []*Project{proj("a", "b")}, `a/stew.toml: project "a" depends on unknown project "b"`},
-		{"cycle", []*Project{proj("a", "b"), proj("b", "c"), proj("c", "a")}, "dependency cycle: a -> b -> c -> a"},
-		{"cycle off the root", []*Project{proj("a", "b"), proj("b", "c"), proj("c", "b")}, "dependency cycle: b -> c -> b"},
+		{"duplicate name", []*Project{proj("a"), {Name: "a", Path: "other", Sections: map[string]*Section{}}},
+			`duplicate project name "a" (a and other)`},
+		{"unknown project", []*Project{proj("a", "build<-core:build")},
+			`a/stew.toml: [build]: requires "core:build": unknown project "core"`},
+		{"unknown section", []*Project{proj("a", "build<-b:build"), proj("b", "setup")},
+			`a/stew.toml: [build]: requires "b:build": b has no section "build"`},
+		{"cycle", []*Project{proj("api", "build<-core:build"), proj("core", "build<-api:build")},
+			"cycle: api:build -> core:build -> api:build"},
+		{"cycle in one project", []*Project{proj("a", "x<-a:y", "y<-a:x")},
+			"cycle: a:x -> a:y -> a:x"},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := newWorkspace("/r", tt.projects)
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
-			}
-		})
+		_, err := newWorkspace("/w", tt.projects)
+		if err == nil || err.Error() != tt.want {
+			t.Errorf("%s: err = %v, want %q", tt.name, err, tt.want)
+		}
+	}
+}
+
+func TestCheckNewProject(t *testing.T) {
+	ws := example(t)
+	tests := []struct {
+		p    *Project
+		want string
+	}{
+		{proj("new", "build<-core:build", "test<-new:build"), ""},
+		{proj("new", "build<-lib:build"), `new/stew.toml: [build]: requires "lib:build": unknown project "lib"; add it first`},
+		{proj("new", "build<-core:test"), `new/stew.toml: [build]: requires "core:test": core has no section "test"`},
+		{proj("new", "build<-new:setup"), `new/stew.toml: [build]: requires "new:setup": new has no section "setup"`},
+		{proj("new", "build<-new:setup", "setup<-new:build"), `new/stew.toml: cycle: new:build -> new:setup -> new:build`},
+		{proj("new", "build<-new:setup,core:build", "setup"), ""},
+	}
+	for _, tt := range tests {
+		got := ""
+		if err := ws.CheckNewProject(tt.p); err != nil {
+			got = err.Error()
+		}
+		if got != tt.want {
+			t.Errorf("err = %q, want %q", got, tt.want)
+		}
 	}
 }
 
@@ -119,8 +178,8 @@ func TestLoad(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("libs/core", string(Template("core")))
-	write("services/api", strings.Replace(string(Template("api")), "dependencies = []", `dependencies = ["core"]`, 1))
+	write("libs/core", "name = \"core\"\nproject_wrapper = \"\"\n[build]\nrun = \"b\"\n")
+	write("services/api", "name = \"api\"\nproject_wrapper = \"\"\n[build]\nrun = \"b\"\nrequires = [\"core:build\"]\n")
 	if err := SaveRegistry(root, []string{"services/api", "libs/core"}); err != nil {
 		t.Fatal(err)
 	}
@@ -132,11 +191,12 @@ func TestLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ws.Wrapper != "" {
-		t.Errorf("Wrapper = %q, want empty", ws.Wrapper)
+	var names []string
+	for _, p := range ws.Projects {
+		names = append(names, p.Name)
 	}
-	if got := names(ws.Projects); !slices.Equal(got, []string{"core", "api"}) {
-		t.Errorf("order = %v", got)
+	if !slices.Equal(names, []string{"api", "core"}) {
+		t.Errorf("projects = %q", names)
 	}
 	if p, ok := ws.Project("api"); !ok || p.Path != "services/api" {
 		t.Errorf("Project(api) = %+v, %v", p, ok)
@@ -148,7 +208,7 @@ func TestLoad(t *testing.T) {
 	if ws, err := Load(root); err != nil {
 		t.Fatal(err)
 	} else if ws.Wrapper != "tool exec . {{STEW_STEP}}" {
-		t.Errorf("Wrapper = %q, want %q", ws.Wrapper, "tool exec . {{STEW_STEP}}")
+		t.Errorf("Wrapper = %q", ws.Wrapper)
 	}
 
 	if err := SaveRegistry(root, []string{"libs/core", "missing"}); err != nil {

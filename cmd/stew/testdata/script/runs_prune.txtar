@@ -26,7 +26,7 @@ cmp stdout want/first
 ! exists .stew/runs/20000101T000000Z-0000
 ! exists .stew/runs/20000102T000000Z-0001
 ! exists .stew/runs/20000103T000000Z-0002
-exists .stew/runs/20261399T000000Z-0003/core-setup.log
+exists .stew/runs/20261399T000000Z-0003/core:setup.log
 exists .stew/runs/29990101T000000Z-0004/run.json
 
 # Nothing left to prune prints nothing.
@@ -44,7 +44,7 @@ stdout '^pruned 29990101T000000Z-0004$'
 exec stew runs list
 stdout '^no runs$'
 exists .stew/runs/notes
-exists .stew/runs/tmp/core-setup.log
+exists .stew/runs/tmp/core:setup.log
 exists .stew/runs/20000104T000000Z-0005
 
 -- .stew/config.toml --
@@ -53,20 +53,20 @@ workspace_wrapper = ""
 this is not valid toml [
 -- .stew/runs/notes --
 not a run
--- .stew/runs/tmp/core-setup.log --
+-- .stew/runs/tmp/core:setup.log --
 not a run
 -- .stew/runs/20000104T000000Z-0005 --
 a file named like a run
 -- .stew/runs/20000101T000000Z-0000/run.json --
-{"argv":["build"],"columns":["setup"],"projects":["core"],"phases":[],"total_ms":5}
+{"argv":["build"],"columns":["setup"],"projects":["core"],"sections":[],"total_ms":5}
 -- .stew/runs/20000102T000000Z-0001/run.json --
-{"argv":["build"],"columns":["setup"],"projects":["core"],"phases":[]}
--- .stew/runs/20000103T000000Z-0002/core-setup.log --
+{"argv":["build"],"columns":["setup"],"projects":["core"],"sections":[]}
+-- .stew/runs/20000103T000000Z-0002/core:setup.log --
 no manifest
--- .stew/runs/20261399T000000Z-0003/core-setup.log --
+-- .stew/runs/20261399T000000Z-0003/core:setup.log --
 bad date
 -- .stew/runs/29990101T000000Z-0004/run.json --
-{"argv":["build"],"columns":["setup"],"projects":["core"],"phases":[],"total_ms":5}
+{"argv":["build"],"columns":["setup"],"projects":["core"],"sections":[],"total_ms":5}
 -- want/first --
 pruned 20000101T000000Z-0000
 pruned 20000102T000000Z-0001

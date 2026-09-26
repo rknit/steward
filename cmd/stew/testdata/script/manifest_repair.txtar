@@ -1,11 +1,11 @@
-# A phase-end save error keeps the record in memory as a log-error fail; the next successful
+# A section-end save error keeps the record in memory as a log-error fail; the next successful
 # save writes it. a's setup replaces run.json with a directory; b's setup removes it again.
 exec sh -c 'stew build; echo "exit=$?"'
 stdout '^exit=1$'
 
 exec stew runs show latest --porcelain
-stdout '^a\tsetup\tfail\t\d+\t\.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}/a-setup\.log$'
-stdout '^b\tsetup\tdone\t\d+\t\.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}/b-setup\.log$'
+stdout '^a\tsetup\tfail\t\d+\t\.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}/a:setup\.log$'
+stdout '^b\tsetup\tdone\t\d+\t\.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}/b:setup\.log$'
 
 exec stew runs show latest
 stdout '^==> a: setup \.\.\. fail \('
@@ -18,25 +18,23 @@ workspace_wrapper = ""
 projects = ["a", "b"]
 -- a/stew.toml --
 name = "a"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "cd ../.stew/runs/* && rm -f run.json && mkdir run.json"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["a:setup"]
 [ci.full]
 run = ""
+requires = ["a:build"]
 -- b/stew.toml --
 name = "b"
-dependencies = []
 project_wrapper = ""
 [setup]
 run = "cd ../.stew/runs/* && rmdir run.json"
-verify = ""
 [build]
 run = ""
-verify = ""
+requires = ["b:setup"]
 [ci.full]
 run = ""
+requires = ["b:build"]
