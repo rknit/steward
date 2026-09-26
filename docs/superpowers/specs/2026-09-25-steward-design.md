@@ -25,10 +25,10 @@ stew init
 stew add <path> [-a/--alias <name>]
 stew remove <name>... [--clean]
 stew list [--porcelain]
-stew run <regex>...
-stew setup [project...]
-stew build [project...]
-stew ci [project...] [-l/--level <name>]
+stew run <regex>... [--dry-run]
+stew setup [project...] [--dry-run]
+stew build [project...] [--dry-run]
+stew ci [project...] [-l/--level <name>] [--dry-run]
 stew git install pre-commit|pre-push
 stew runs show <run-id> [<project:section-regex>...] [--porcelain] [--no-pager]
 stew runs list [--porcelain] [--no-pager]
@@ -385,7 +385,7 @@ and comma-separated, or `-` when there are none.
 - A project whose `stew.toml` is missing cannot be removed by name, because the workspace does not load.
   Edit `.stew/projects.toml` by hand.
 
-### `stew run <regex>...`
+### `stew run <regex>... [--dry-run]`
 
 - At least one regex. Each is Go RE2 and must match a whole key, as in `stew runs show`.
 - Every regex must match at least one defined section. Otherwise exit 2 before anything runs:
@@ -395,11 +395,11 @@ and comma-separated, or `-` when there are none.
 
 ### Aliases
 
-| Alias                                    | Runs                                                        |
-| ----------------------------------------- | ----------------------------------------------------------- |
-| `stew setup [project...]`                | `stew run '<project>:setup'...`, or `'.*:setup'` with none. |
-| `stew build [project...]`                | Same with `build`.                                           |
-| `stew ci [project...] [-l <level>]`      | Same with `ci.<level>`. `--level` defaults to `full`.        |
+| Alias                                            | Runs                                                        |
+| ------------------------------------------------- | ----------------------------------------------------------- |
+| `stew setup [project...] [--dry-run]`            | `stew run '<project>:setup'...`, or `'.*:setup'` with none. |
+| `stew build [project...] [--dry-run]`            | Same with `build`.                                           |
+| `stew ci [project...] [-l <level>] [--dry-run]`  | Same with `ci.<level>`. `--level` defaults to `full`.        |
 
 - Project names and the section name are regex-quoted, so `my.lib` matches only `my.lib`.
 - A named project without the section fails its pattern: `pattern "web:build" matches no section` (exit 2).
@@ -419,6 +419,29 @@ and comma-separated, or `-` when there are none.
 - Order: topological over selected sections (Kahn). Among ready sections, the smallest project name goes first,
   then the smallest section name. The order is identical on every run.
 - Execution is sequential, one section at a time.
+
+### `--dry-run`
+
+Prints the execution order and each section's direct `requires`, then exits. Available on `run` and every alias.
+
+```
+┌───┬──────────────┬───────────────────────┐
+│ # │ key          │ requires              │
+├───┼──────────────┼───────────────────────┤
+│ 1 │ api:setup    │ -                     │
+│ 2 │ core:setup   │ -                     │
+│ 3 │ core:build   │ core:setup            │
+│ 4 │ api:build    │ api:setup, core:build │
+│ 5 │ api:ci.full* │ api:build             │
+└───┴──────────────┴───────────────────────┘
+* matched by a pattern; others are pulled in by requires
+```
+
+- `*` marks sections a pattern matched. The footer line prints only when some row is not matched.
+- `requires` lists direct requirements in execution order, or `-`.
+- Runs nothing. Creates no run directory, step directory, or log. Adopts no orphans.
+- Load, validation, and pattern errors are the same as a real run (exit 2). Otherwise exit 0.
+- Same bordered table style as `stew list`. No `--porcelain`.
 
 ## Section Algorithm
 

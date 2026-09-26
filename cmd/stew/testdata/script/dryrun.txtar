@@ -1,0 +1,50 @@
+# --dry-run prints the order and requires, and runs nothing.
+exec stew run --dry-run 'api:ci.full'
+cmp stdout want/plan
+! exists .stew/runs
+! exists core/ran
+! exists api/ran
+exec stew ci --dry-run api
+cmp stdout want/plan
+! exists .stew/runs
+! exists core/ran
+! exists api/ran
+! exec stew build --dry-run web
+stderr '^stew: unknown project "web"$'
+! exec stew run --dry-run 'x:y'
+stderr '^stew: pattern "x:y" matches no section$'
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+-- .stew/projects.toml --
+projects = ["api", "core"]
+-- core/stew.toml --
+name = "core"
+project_wrapper = ""
+[setup]
+run = "touch ran"
+[build]
+run = "touch ran"
+requires = ["core:setup"]
+-- api/stew.toml --
+name = "api"
+project_wrapper = ""
+[setup]
+run = "touch ran"
+[build]
+run = "touch ran"
+requires = ["api:setup", "core:build"]
+[ci.full]
+run = "touch ran"
+requires = ["api:build"]
+-- want/plan --
+┌───┬──────────────┬───────────────────────┐
+│ # │ key          │ requires              │
+├───┼──────────────┼───────────────────────┤
+│ 1 │ api:setup    │ -                     │
+│ 2 │ core:setup   │ -                     │
+│ 3 │ core:build   │ core:setup            │
+│ 4 │ api:build    │ api:setup, core:build │
+│ 5 │ api:ci.full* │ api:build             │
+└───┴──────────────┴───────────────────────┘
+* matched by a pattern; others are pulled in by requires

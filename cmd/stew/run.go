@@ -26,7 +26,8 @@ import (
 const killDelay = 5 * time.Second
 
 func newRunCmd(stdout io.Writer, argv []string) *cobra.Command {
-	return &cobra.Command{
+	var dryRun bool
+	cmd := &cobra.Command{
 		Use:   "run <regex>...",
 		Short: "Run sections whose <project>:<section> key matches, after the sections they require",
 		Args:  cobra.MinimumNArgs(1),
@@ -35,15 +36,18 @@ func newRunCmd(stdout io.Writer, argv []string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runSections(stdout, argv, ws, args)
+			return runSections(stdout, argv, ws, args, dryRun)
 		},
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would run, in order, without running it")
+	return cmd
 }
 
 // newAliasCmd returns a command that runs one section in the named projects, or in every project that has it.
 // For "ci" the section is ci.<level>.
 func newAliasCmd(stdout io.Writer, argv []string, section, short string) *cobra.Command {
 	var level string
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   section + " [project...]",
 		Short: short,
@@ -63,12 +67,13 @@ func newAliasCmd(stdout io.Writer, argv []string, section, short string) *cobra.
 			if err != nil {
 				return invalid(err)
 			}
-			return runSections(stdout, argv, ws, patterns)
+			return runSections(stdout, argv, ws, patterns, dryRun)
 		},
 	}
 	if section == "ci" {
 		cmd.Flags().StringVarP(&level, "level", "l", "full", "run section ci.<level>")
 	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would run, in order, without running it")
 	return cmd
 }
 
@@ -88,10 +93,14 @@ func aliasPatterns(ws *workspace.Workspace, section string, projects []string) (
 	return patterns, nil
 }
 
-func runSections(stdout io.Writer, argv []string, ws *workspace.Workspace, patterns []string) error {
-	plan, err := buildPlan(ws, patterns)
+func runSections(stdout io.Writer, argv []string, ws *workspace.Workspace, patterns []string, dryRun bool) error {
+	plan, matched, err := buildPlan(ws, patterns)
 	if err != nil {
 		return invalid(err)
+	}
+	if dryRun {
+		report.DryRun(stdout, plan, matched)
+		return nil
 	}
 
 	// The first stop signal interrupts the run; a second one force-kills the command stew is waiting for.

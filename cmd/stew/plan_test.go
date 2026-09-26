@@ -54,7 +54,7 @@ requires = ["api:build"]
 
 func TestBuildPlan(t *testing.T) {
 	ws := testWorkspace(t, "", "")
-	plan, err := buildPlan(ws, []string{"api:ci.full"})
+	plan, _, err := buildPlan(ws, []string{"api:ci.full"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +79,12 @@ func TestBuildPlan(t *testing.T) {
 	if got := plan.Sections[0]; got.SkipIf != "ck" || got.Run != "cs" {
 		t.Errorf("core:setup = %+v", got)
 	}
-	if _, err := buildPlan(ws, []string{"web:build"}); err == nil {
+	if _, _, err := buildPlan(ws, []string{"web:build"}); err == nil {
 		t.Error("unmatched pattern accepted")
+	}
+	_, matched, _ := buildPlan(ws, []string{"api:ci.full"})
+	if len(matched) != 1 || !matched["api:ci.full"] {
+		t.Errorf("matched = %v", matched)
 	}
 }
 
@@ -101,7 +105,7 @@ func TestBuildPlanRequiresInExecutionOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan, err := buildPlan(ws, []string{"a:x"})
+	plan, _, err := buildPlan(ws, []string{"a:x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +132,7 @@ func TestBuildPlanWrapper(t *testing.T) {
 	}
 	for _, tt := range tests {
 		ws := testWorkspace(t, tt.workspace, tt.api)
-		plan, err := buildPlan(ws, []string{"api:build"})
+		plan, _, err := buildPlan(ws, []string{"api:build"})
 		if err != nil {
 			t.Fatal(err)
 		}

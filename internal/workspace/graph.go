@@ -133,6 +133,7 @@ type Node struct {
 	Key     Key
 	Project *Project
 	Section *Section
+	Matched bool // a pattern matched it; otherwise requires pulled it in
 }
 
 // Select returns the sections whose key matches a pattern, plus their requires transitively, in execution order:
@@ -191,7 +192,7 @@ func (w *Workspace) Select(patterns []string) ([]Node, error) {
 	order := make([]Node, 0, len(include))
 	for ready.Len() > 0 {
 		k := heap.Pop(ready).(Key)
-		order = append(order, Node{Key: k, Project: w.byName[k.Project], Section: w.section(k)})
+		order = append(order, Node{Key: k, Project: w.byName[k.Project], Section: w.section(k), Matched: matched[k]})
 		for _, d := range dependents[k] {
 			pending[d]--
 			if pending[d] == 0 {

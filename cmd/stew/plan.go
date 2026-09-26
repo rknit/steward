@@ -9,15 +9,20 @@ import (
 )
 
 // buildPlan selects the sections matching patterns, plus the sections they require, into a runner plan.
-func buildPlan(ws *workspace.Workspace, patterns []string) (runner.Plan, error) {
+// matched holds the key of every node a pattern matched directly.
+func buildPlan(ws *workspace.Workspace, patterns []string) (runner.Plan, map[string]bool, error) {
 	nodes, err := ws.Select(patterns)
 	if err != nil {
-		return runner.Plan{}, err
+		return runner.Plan{}, nil, err
 	}
 	var plan runner.Plan
+	matched := make(map[string]bool)
 	position := make(map[workspace.Key]int, len(nodes))
 	for i, n := range nodes {
 		position[n.Key] = i
+		if n.Matched {
+			matched[n.Key.String()] = true
+		}
 		if !slices.Contains(plan.Columns, n.Key.Section) {
 			plan.Columns = append(plan.Columns, n.Key.Section)
 		}
@@ -42,7 +47,7 @@ func buildPlan(ws *workspace.Workspace, patterns []string) (runner.Plan, error) 
 			Requires: requires,
 		})
 	}
-	return plan, nil
+	return plan, matched, nil
 }
 
 // wrappers returns the non-empty wrappers, outermost first.

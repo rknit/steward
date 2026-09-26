@@ -28,7 +28,11 @@ func proj(name string, sections ...string) *Project {
 func keys(nodes []Node) []string {
 	var out []string
 	for _, n := range nodes {
-		out = append(out, n.Key.String())
+		k := n.Key.String()
+		if n.Matched {
+			k += "*"
+		}
+		out = append(out, k)
 	}
 	return out
 }
@@ -54,8 +58,8 @@ func TestSelectOrderAndTieBreak(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"api:setup", "core:lint", "core:setup", "core:build", "api:build", "api:image", "api:test",
-		"docs:build", "web:build", "web:e2e"}
+	want := []string{"api:setup", "core:lint*", "core:setup", "core:build", "api:build", "api:image", "api:test*",
+		"docs:build*", "web:build", "web:e2e*"}
 	if !slices.Equal(keys(got), want) {
 		t.Errorf("order = %q\nwant    %q", keys(got), want)
 	}
@@ -70,13 +74,13 @@ func TestSelect(t *testing.T) {
 		patterns []string
 		want     []string
 	}{
-		{[]string{"core:build"}, []string{"core:setup", "core:build"}},
-		{[]string{".*:setup"}, []string{"api:setup", "core:setup"}},
+		{[]string{"core:build"}, []string{"core:setup", "core:build*"}},
+		{[]string{".*:setup"}, []string{"api:setup*", "core:setup*"}},
 		// Overlapping patterns select a section once.
-		{[]string{"api:.*", ".*:build"}, []string{"api:setup", "core:setup", "core:build", "api:build",
-			"api:image", "api:test", "docs:build", "web:build"}},
+		{[]string{"api:.*", ".*:build"}, []string{"api:setup*", "core:setup", "core:build*", "api:build*",
+			"api:image*", "api:test*", "docs:build*", "web:build*"}},
 		// A pattern must match the whole key.
-		{[]string{"a.*:setup"}, []string{"api:setup"}},
+		{[]string{"a.*:setup"}, []string{"api:setup*"}},
 	}
 	for _, tt := range tests {
 		got, err := ws.Select(tt.patterns)
