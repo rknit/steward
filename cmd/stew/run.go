@@ -131,7 +131,7 @@ func runSections(stdout io.Writer, argv []string, ws *workspace.Workspace, patte
 	}
 	var steps runner.Steps
 	if slices.ContainsFunc(plan.Sections, func(s runner.Section) bool { return len(s.Wrappers) > 0 }) {
-		d, err := runner.NewStepDir()
+		d, err := runner.NewStepDir(os.TempDir())
 		if err != nil {
 			return rejected(fmt.Errorf("cannot create step directory: %w", err))
 		}
@@ -163,7 +163,7 @@ func runSections(stdout io.Writer, argv []string, ws *workspace.Workspace, patte
 	}
 
 	r := &runner.Runner{
-		Exec:  runner.Shell{KillDelay: killDelay, Force: force},
+		Exec:  runner.Shell{KillDelay: killDelay, Force: force, Environ: os.Environ()},
 		Steps: steps,
 		OpenLog: func(project, section string) (runner.SectionLog, error) {
 			l, err := logs.OpenSection(project, section)

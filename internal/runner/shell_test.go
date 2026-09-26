@@ -26,7 +26,7 @@ const (
 func runShell(t *testing.T, ctx context.Context, killDelay time.Duration, dir, cmd string) (Result, string, string) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
-	res := Shell{KillDelay: killDelay}.Run(ctx, dir, nil, []string{"sh", "-c", cmd}, &stdout, &stderr)
+	res := Shell{Environ: os.Environ(), KillDelay: killDelay}.Run(ctx, dir, nil, []string{"sh", "-c", cmd}, &stdout, &stderr)
 	return res, stdout.String(), stderr.String()
 }
 
@@ -53,11 +53,9 @@ func TestShellStdinIsDevNull(t *testing.T) {
 }
 
 func TestShellEnvOverridesInherited(t *testing.T) {
-	t.Setenv("STEW_TAG", "parent:build")
-	t.Setenv("STEW_TEST_KEPT", "kept")
 	var stdout, stderr bytes.Buffer
-	res := Shell{KillDelay: slowKillDelay}.Run(context.Background(), t.TempDir(), []string{"STEW_TAG=child:setup"},
-		[]string{"sh", "-c", `env | grep -c '^STEW_TAG='; echo "$STEW_TAG $STEW_TEST_KEPT"`}, &stdout, &stderr)
+	s := Shell{Environ: append(os.Environ(), "STEW_TAG=parent:build", "STEW_TEST_KEPT=kept"), KillDelay: slowKillDelay}
+	res := s.Run(context.Background(), t.TempDir(), []string{"STEW_TAG=child:setup"}, []string{"sh", "-c", `env | grep -c '^STEW_TAG='; echo "$STEW_TAG $STEW_TEST_KEPT"`}, &stdout, &stderr)
 	if !res.OK() || stdout.String() != "1\nchild:setup kept\n" {
 		t.Errorf("result = %+v, stdout = %q, stderr = %q", res, stdout.String(), stderr.String())
 	}
@@ -190,7 +188,7 @@ func TestShellForceKillsAfterInterrupt(t *testing.T) {
 	}()
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	res := Shell{KillDelay: slowKillDelay, Force: force}.Run(ctx, dir, nil,
+	res := Shell{Environ: os.Environ(), KillDelay: slowKillDelay, Force: force}.Run(ctx, dir, nil,
 		[]string{"sh", "-c", "trap 'touch got-int' INT; touch started; " + boundedLoop}, &stdout, &stderr)
 	if res.Signal != "SIGKILL" {
 		t.Errorf("result = %+v, want SIGKILL", res)
@@ -214,7 +212,7 @@ func TestShellForceSkipsKillDelay(t *testing.T) {
 	}()
 	var stdout, stderr bytes.Buffer
 	start := time.Now()
-	res := Shell{KillDelay: slowKillDelay, Force: force}.Run(ctx, dir, nil,
+	res := Shell{Environ: os.Environ(), KillDelay: slowKillDelay, Force: force}.Run(ctx, dir, nil,
 		[]string{"sh", "-c", "trap 'touch got-term' TERM; touch started; " + boundedLoop}, &stdout, &stderr)
 	if res.Signal != "SIGKILL" {
 		t.Errorf("result = %+v, want SIGKILL", res)

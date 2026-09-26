@@ -27,7 +27,7 @@ func runStep(t *testing.T, d *StepDir, dir string, wrappers, env []string, cmd s
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	res := Shell{KillDelay: slowKillDelay}.Run(context.Background(), dir, env, argv, &stdout, &stderr)
+	res := Shell{Environ: os.Environ(), KillDelay: slowKillDelay}.Run(context.Background(), dir, env, argv, &stdout, &stderr)
 	var c collected
 	if c.reaches, c.status, c.finished, err = d.Collect("p-build"); err != nil {
 		t.Fatal(err)
@@ -37,8 +37,7 @@ func runStep(t *testing.T, d *StepDir, dir string, wrappers, env []string, cmd s
 
 func testStepDir(t *testing.T) *StepDir {
 	t.Helper()
-	t.Setenv("TMPDIR", t.TempDir())
-	d, err := NewStepDir()
+	d, err := NewStepDir(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,8 +65,7 @@ func TestStepDirPathIsPlain(t *testing.T) {
 func TestStepDirRejectsTMPDIRNeedingQuotes(t *testing.T) {
 	tmp := filepath.Join(t.TempDir(), "my tmp")
 	os.Mkdir(tmp, 0o755)
-	t.Setenv("TMPDIR", tmp)
-	_, err := NewStepDir()
+	_, err := NewStepDir(tmp)
 	if err == nil || !strings.Contains(err.Error(), "needs shell quoting; set TMPDIR to a path of letters, digits, and /._-") {
 		t.Errorf("err = %v", err)
 	}
@@ -253,7 +251,7 @@ func TestUncountableReachDoesNotRunCommand(t *testing.T) {
 	}
 	dir := t.TempDir()
 	var out bytes.Buffer
-	res := Shell{KillDelay: slowKillDelay}.Run(context.Background(), dir, nil, argv, &out, &out)
+	res := Shell{Environ: os.Environ(), KillDelay: slowKillDelay}.Run(context.Background(), dir, nil, argv, &out, &out)
 	if res != (Result{ExitCode: 125}) {
 		t.Errorf("res = %+v, out = %q", res, out.String())
 	}
@@ -281,7 +279,7 @@ func TestUnexecutableStepScriptIsExit126(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	res := Shell{KillDelay: slowKillDelay}.Run(context.Background(), t.TempDir(), nil, argv, &out, &out)
+	res := Shell{Environ: os.Environ(), KillDelay: slowKillDelay}.Run(context.Background(), t.TempDir(), nil, argv, &out, &out)
 	n, _, finished, err := d.Collect("p-build")
 	if err != nil || n != 0 || finished || res != (Result{ExitCode: 126}) {
 		t.Errorf("n=%d res=%+v err=%v out=%q", n, res, err, out.String())

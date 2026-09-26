@@ -56,7 +56,7 @@ func execJob(cwd, wrapDir string, wraps, env []string, command string) error {
 		return statusError(exitStatus(status))
 	}
 
-	d, err := runner.NewStepDir()
+	d, err := runner.NewStepDir(os.TempDir())
 	if err != nil {
 		return rejected(fmt.Errorf("cannot create step directory: %w", err))
 	}

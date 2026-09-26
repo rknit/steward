@@ -27,9 +27,9 @@ type StepDir struct {
 
 var plainPath = regexp.MustCompile(`^[A-Za-z0-9/._-]+$`)
 
-// NewStepDir creates a stew-* directory in $TMPDIR, or /tmp when it is unset.
-func NewStepDir() (*StepDir, error) {
-	base, err := filepath.Abs(os.TempDir())
+// NewStepDir creates a stew-* directory in tmp, which is stew's $TMPDIR or /tmp.
+func NewStepDir(tmp string) (*StepDir, error) {
+	base, err := filepath.Abs(tmp)
 	if err != nil {
 		return nil, err
 	}

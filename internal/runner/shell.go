@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"syscall"
 	"time"
@@ -20,6 +21,8 @@ type Shell struct {
 	// Force, when closed, SIGKILLs the running command's process group at once. stew closes it on a second stop
 	// signal (Ctrl-C, SIGTERM, or SIGHUP) while it waits for an interrupted command. A nil Force never fires.
 	Force <-chan struct{}
+	// Environ is the environment every command starts with, before the env passed to Run.
+	Environ []string
 }
 
 // Run implements Executor.
@@ -29,7 +32,7 @@ func (s Shell) Run(ctx context.Context, dir string, env []string, argv []string,
 	}
 	c := exec.Command(argv[0], argv[1:]...)
 	c.Dir = dir
-	c.Env = append(os.Environ(), env...)
+	c.Env = append(slices.Clip(s.Environ), env...)
 	c.Stdout = stdout
 	c.Stderr = stderr
 	// c.Stdin stays nil: the command reads from /dev/null.
