@@ -3,7 +3,7 @@ exec chmod 755 bin/wrap-exec bin/wrap-fork
 env PATH=$WORK/bin:$PATH
 env TMPDIR=$WORK/tmp
 mkdir tmp
-exec stew ci
+stew ci
 stdout '^==> lib: ci\.full \.\.\. done'
 cmp lib/seen want/seen
 exists wrap.log
@@ -25,19 +25,19 @@ stdout '^wrap-exec says hi on stderr$'
 # run.json and runs show record the wrapper as written.
 exec sh -c 'cat .stew/runs/*/run.json'
 stdout '"workspace_wrapper": "wrap-exec \\"\$STEW_ROOT\\" \{\{STEW_STEP\}\}"'
-exec stew runs show latest
+stew runs show latest
 stdout '^wrapper: wrap-exec "\$STEW_ROOT" \{\{STEW_STEP\}\}$'
 
 # A forking wrapper works the same.
 cp want/fork.toml .stew/config.toml
 rm lib/seen
-exec stew ci
+stew ci
 cmp lib/seen want/seen
 
 # A wrapper that sources a file from the project directory works the same.
 cp want/source.toml .stew/config.toml
 rm lib/seen
-exec stew ci
+stew ci
 cmp lib/seen want/seen
 exec sh -c 'ls -A tmp | wc -l'
 stdout '^0$'
@@ -46,10 +46,10 @@ stdout '^0$'
 # Runs in the same second sort by random suffix, so clear old runs to make latest this one.
 cp want/none.toml .stew/config.toml
 rm .stew/runs
-exec stew ci
+stew ci
 exec sh -c 'cat .stew/runs/*/run.json'
 stdout '"workspace_wrapper": ""'
-exec stew runs show latest
+stew runs show latest
 ! stdout '^wrapper'
 exec sh -c 'ls -A tmp | wc -l'
 stdout '^0$'

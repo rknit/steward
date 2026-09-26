@@ -1,48 +1,48 @@
 # Commands outside a workspace fail with exit 2.
-exec sh -c 'stew add libs/core; echo "exit=$?"'
-stdout '^exit=2$'
+! stew add libs/core
+status 2
 stderr 'not a stew workspace'
 
-exec stew init
+stew init
 
 # add writes the template and registers the path.
-exec stew add libs/core
+stew add libs/core
 stdout '^added core \(libs/core\)$'
 cmp libs/core/stew.toml want/core.toml
 cmp .stew/projects.toml want/projects-1.toml
 
 # The alias sets the name. Paths resolve against cwd, even from a nested dir.
 cd libs
-exec stew add ../apps/Web -a web
+stew add ../apps/Web -a web
 stdout '^added web \(apps/Web\)$'
 cd $WORK
 grep '^name = "web"$' apps/Web/stew.toml
 cmp .stew/projects.toml want/projects-2.toml
 
 # Rejections exit 1 and change nothing.
-exec sh -c 'stew add libs/core; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add libs/core
+status 1
 stderr 'libs/core is already registered as "core"'
 
-exec stew add -a web2 apps/Web2
+stew add -a web2 apps/Web2
 
-exec sh -c 'stew add "apps/My App"; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add 'apps/My App'
+status 1
 stderr 'invalid project name "My App".*pick one with -a'
 
-exec sh -c 'stew add apps/dup -a core; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add apps/dup -a core
+status 1
 stderr 'project name "core" is already used by libs/core'
 
-exec sh -c 'stew add ..; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add ..
+status 1
 stderr 'outside the workspace root'
 
-exec sh -c 'stew add missing; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add missing
+status 1
 
-exec sh -c 'stew add file.txt; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add file.txt
+status 1
 stderr 'not a directory'
 
 ! exists 'apps/My App/stew.toml'

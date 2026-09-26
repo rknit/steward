@@ -1,29 +1,29 @@
 # list prints every project as a table sorted by name, with the other projects its requires name, sorted.
-exec stew list
+stew list
 cmp stdout want/table.txt
 ! stderr .
 
 # --porcelain prints name, path, and comma-separated dependencies, tab-separated.
-exec stew list --porcelain
+stew list --porcelain
 cmp stdout want/porcelain.txt
 
 # An empty workspace prints a hint; --porcelain prints nothing.
 cd empty
-exec stew list
+stew list
 stdout '^no projects \(add one with: stew add <path>\)$'
-exec stew list --porcelain
+stew list --porcelain
 ! stdout .
 cd $WORK
 
 # Outside a workspace or with an invalid workspace, list exits 2.
 cd /
-exec sh -c 'stew list; echo "exit=$?"'
-stdout '^exit=2$'
+! stew list
+status 2
 stderr '^stew: not a stew workspace$'
 cd $WORK
 rm libs/core/stew.toml
-exec sh -c 'stew list; echo "exit=$?"'
-stdout '^exit=2$'
+! stew list
+status 2
 stderr '^stew: project "libs/core": missing stew.toml$'
 
 -- want/table.txt --

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -13,7 +15,42 @@ import (
 )
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	dir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "stew: %v\n", err)
+		os.Exit(1)
+	}
+	proc := process{dir: dir, env: os.Environ(), loc: time.Local, stdout: os.Stdout, stderr: os.Stderr}
+	os.Exit(run(proc, os.Args[1:]))
+}
+
+// process is the process state a command reads: its working directory, environment, time zone, and output.
+// main passes stew's own, and tests run commands in-process with a test script's.
+// stew exec and stop signals still use the real process.
+type process struct {
+	dir            string
+	env            []string
+	loc            *time.Location
+	stdout, stderr io.Writer
+}
+
+// getenv returns the value of key in proc's environment.
+func (proc process) getenv(key string) (string, bool) {
+	value, ok := "", false
+	for _, kv := range proc.env {
+		if k, v, _ := strings.Cut(kv, "="); k == key {
+			value, ok = v, true
+		}
+	}
+	return value, ok
+}
+
+// tempDir is $TMPDIR, or /tmp when it is empty.
+func (proc process) tempDir() string {
+	if dir, _ := proc.getenv("TMPDIR"); dir != "" {
+		return dir
+	}
+	return "/tmp"
 }
 
 // exitError carries an exit code. A nil err means the command already reported its failure.
@@ -37,11 +74,11 @@ func invalid(err error) error { return &exitError{code: 2, err: err} }
 
 // run executes stew with args and returns the exit code. Errors not wrapped in exitError come from
 // cobra (unknown command, bad flag, wrong argument count) and are usage errors.
-func run(args []string, stdout, stderr io.Writer) int {
-	root := newRootCmd(stdout, args)
+func run(proc process, args []string) int {
+	root := newRootCmd(proc, args)
 	root.SetArgs(args)
-	root.SetOut(stdout)
-	root.SetErr(stderr)
+	root.SetOut(proc.stdout)
+	root.SetErr(proc.stderr)
 	err := root.Execute()
 	if err == nil {
 		return 0
@@ -51,12 +88,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		ee = &exitError{code: 2, err: err}
 	}
 	if ee.err != nil {
-		fmt.Fprintf(stderr, "stew: %v\n", ee.err)
+		fmt.Fprintf(proc.stderr, "stew: %v\n", ee.err)
 	}
 	return ee.code
 }
 
-func newRootCmd(stdout io.Writer, argv []string) *cobra.Command {
+func newRootCmd(proc process, argv []string) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "stew",
 		Short:         "Stack-agnostic monorepo orchestrator",
@@ -65,34 +102,30 @@ func newRootCmd(stdout io.Writer, argv []string) *cobra.Command {
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.AddCommand(
-		newInitCmd(stdout),
-		newAddCmd(stdout),
-		newRemoveCmd(stdout),
-		newListCmd(stdout),
-		newRunCmd(stdout, argv),
-		newAliasCmd(stdout, argv, "setup", "Run the setup section of projects, after the sections it requires"),
-		newAliasCmd(stdout, argv, "build", "Run the build section of projects, after the sections it requires"),
-		newAliasCmd(stdout, argv, "ci", "Run the ci.<level> section of projects, after the sections it requires"),
-		newGitCmd(stdout),
-		newRunsCmd(stdout),
-		newExecCmd(),
+		newInitCmd(proc),
+		newAddCmd(proc),
+		newRemoveCmd(proc),
+		newListCmd(proc),
+		newRunCmd(proc, argv),
+		newAliasCmd(proc, argv, "setup", "Run the setup section of projects, after the sections it requires"),
+		newAliasCmd(proc, argv, "build", "Run the build section of projects, after the sections it requires"),
+		newAliasCmd(proc, argv, "ci", "Run the ci.<level> section of projects, after the sections it requires"),
+		newGitCmd(proc),
+		newRunsCmd(proc),
+		newExecCmd(proc),
 	)
 	return root
 }
 
-// loadWorkspace finds the workspace root above cwd and loads it.
-func loadWorkspace() (cwd string, ws *workspace.Workspace, err error) {
-	cwd, err = os.Getwd()
+// loadWorkspace finds the workspace root above dir and loads it.
+func loadWorkspace(dir string) (*workspace.Workspace, error) {
+	root, err := workspace.FindRoot(dir)
 	if err != nil {
-		return "", nil, rejected(err)
+		return nil, invalid(err)
 	}
-	root, err := workspace.FindRoot(cwd)
+	ws, err := workspace.Load(root)
 	if err != nil {
-		return "", nil, invalid(err)
+		return nil, invalid(err)
 	}
-	ws, err = workspace.Load(root)
-	if err != nil {
-		return "", nil, invalid(err)
-	}
-	return cwd, ws, nil
+	return ws, nil
 }

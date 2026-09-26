@@ -2,25 +2,25 @@
 env TZ=Asia/Bangkok
 
 # At least one keep rule is required. Bad values and arguments are usage errors, and nothing is deleted.
-exec sh -c 'stew runs prune; echo "exit=$?"'
-stdout '^exit=2$'
+! stew runs prune
+status 2
 stderr '^stew: at least one of --keep-since or --keep-last-n is required$'
-exec sh -c 'stew runs prune --keep-since 7y; echo "exit=$?"'
-stdout '^exit=2$'
+! stew runs prune --keep-since 7y
+status 2
 stderr '^stew: invalid --keep-since "7y": '
-exec sh -c 'stew runs prune --keep-since 9999999999999w; echo "exit=$?"'
-stdout '^exit=2$'
+! stew runs prune --keep-since 9999999999999w
+status 2
 stderr 'duration too long'
-exec sh -c 'stew runs prune --keep-last-n -1; echo "exit=$?"'
-stdout '^exit=2$'
+! stew runs prune --keep-last-n -1
+status 2
 stderr '^stew: invalid --keep-last-n -1: must be 0 or more$'
-exec sh -c 'stew runs prune --keep-last-n 1 extra; echo "exit=$?"'
-stdout '^exit=2$'
+! stew runs prune --keep-last-n 1 extra
+status 2
 exists .stew/runs/20000101T000000Z-0000/run.json
 
 # Both rules keep the union: the 2 newest by ID, and every run since a week ago.
 # run.json is never read: finished, unfinished, and unreadable runs are all pruned.
-exec stew runs prune --keep-since 1w --keep-last-n 2
+stew runs prune --keep-since 1w --keep-last-n 2
 cmp stdout want/first
 ! stderr .
 ! exists .stew/runs/20000101T000000Z-0000
@@ -30,18 +30,18 @@ exists .stew/runs/20261399T000000Z-0003/core:setup.log
 exists .stew/runs/29990101T000000Z-0004/run.json
 
 # Nothing left to prune prints nothing.
-exec stew runs prune --keep-since 1w --keep-last-n 2
+stew runs prune --keep-since 1w --keep-last-n 2
 ! stdout .
 
 # A run ID with no valid date is never kept by --keep-since.
-exec stew runs prune --keep-since 2026-01-01
+stew runs prune --keep-since 2026-01-01
 stdout '^pruned 20261399T000000Z-0003$'
 ! stdout 29990101
 
 # --keep-last-n 0 deletes every run. Entries that are not run directories are never touched.
-exec stew runs prune --keep-last-n 0
+stew runs prune --keep-last-n 0
 stdout '^pruned 29990101T000000Z-0004$'
-exec stew runs list
+stew runs list
 stdout '^no runs$'
 exists .stew/runs/notes
 exists .stew/runs/tmp/core:setup.log

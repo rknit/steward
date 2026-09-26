@@ -1,20 +1,20 @@
 # stew runs list shows every run, newest first, with its local start time. Only root discovery is needed.
 env TZ=Asia/Bangkok
-exec stew runs list
+stew runs list
 cmp stdout want/table
 ! stderr .
 
 # Porcelain: tab-separated, RFC 3339 local start time first, command last.
-exec stew runs list --porcelain
+stew runs list --porcelain
 cmp stdout want/porcelain
 
 # --no-pager is accepted; without a terminal, output is never paged.
-exec stew runs list --no-pager
+stew runs list --no-pager
 cmp stdout want/table
 
 # Arguments are usage errors.
-exec sh -c 'stew runs list latest; echo "exit=$?"'
-stdout '^exit=2$'
+! stew runs list latest
+status 2
 
 -- .stew/config.toml --
 workspace_wrapper = ""

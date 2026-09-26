@@ -2,7 +2,7 @@
 [!exec:git] skip 'git not installed'
 exec chmod 755 bin/wrap-env
 exec git init -q
-exec stew git install pre-commit
+stew git install pre-commit
 exec git add -A
 env PATH=$WORK/bin:$PATH
 exec git commit -q -m first

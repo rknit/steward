@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -17,22 +16,22 @@ import (
 	"github.com/rknit/steward/internal/workspace"
 )
 
-func newRemoveCmd(stdout io.Writer) *cobra.Command {
+func newRemoveCmd(proc process) *cobra.Command {
 	var clean bool
 	cmd := &cobra.Command{
 		Use:   "remove <name>...",
 		Short: "Unregister projects",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return remove(stdout, cmd.ErrOrStderr(), args, clean)
+			return remove(proc, args, clean)
 		},
 	}
 	cmd.Flags().BoolVar(&clean, "clean", false, "also delete each project's stew.toml")
 	return cmd
 }
 
-func remove(stdout, stderr io.Writer, names []string, clean bool) error {
-	_, ws, err := loadWorkspace()
+func remove(proc process, names []string, clean bool) error {
+	ws, err := loadWorkspace(proc.dir)
 	if err != nil {
 		return err
 	}
@@ -62,7 +61,7 @@ func remove(stdout, stderr io.Writer, names []string, clean bool) error {
 	if len(neededBy) > 0 {
 		for _, name := range slices.Sorted(maps.Keys(neededBy)) {
 			slices.Sort(neededBy[name])
-			fmt.Fprintf(stderr, "stew: cannot remove %s: needed by %s\n", name, strings.Join(neededBy[name], ", "))
+			fmt.Fprintf(proc.stderr, "stew: cannot remove %s: needed by %s\n", name, strings.Join(neededBy[name], ", "))
 		}
 		return &exitError{code: 1}
 	}
@@ -78,7 +77,7 @@ func remove(stdout, stderr io.Writer, names []string, clean bool) error {
 		return rejected(fmt.Errorf("unregister %s: %w", strings.Join(paths, ", "), err))
 	}
 	for _, p := range removed {
-		fmt.Fprintf(stdout, "removed %s (%s)\n", p.Name, p.Path)
+		fmt.Fprintf(proc.stdout, "removed %s (%s)\n", p.Name, p.Path)
 	}
 	if !clean {
 		return nil
@@ -92,11 +91,11 @@ func remove(stdout, stderr io.Writer, names []string, clean bool) error {
 			if errors.As(err, &pe) {
 				err = pe.Err
 			}
-			fmt.Fprintf(stderr, "stew: delete %s: %v\n", manifest, err)
+			fmt.Fprintf(proc.stderr, "stew: delete %s: %v\n", manifest, err)
 			failed = true
 			continue
 		}
-		fmt.Fprintf(stdout, "deleted %s\n", manifest)
+		fmt.Fprintf(proc.stdout, "deleted %s\n", manifest)
 	}
 	if failed {
 		return &exitError{code: 1}

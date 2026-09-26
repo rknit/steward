@@ -1,34 +1,34 @@
 # remove unregisters projects by name and keeps their stew.toml.
-exec stew remove web
+stew remove web
 stdout '^removed web \(apps/web\)$'
 ! stderr .
 cmp .stew/projects.toml want/projects-1.toml
 exists apps/web/stew.toml
 
 # Rejections change nothing: a remaining project still requires a section of a removed one (exit 1).
-exec sh -c 'stew remove core; echo "exit=$?"'
-stdout '^exit=1$'
+! stew remove core
+status 1
 stderr '^stew: cannot remove core: needed by api, tool$'
-exec sh -c 'stew remove core api; echo "exit=$?"'
-stdout '^exit=1$'
+! stew remove core api
+status 1
 stderr '^stew: cannot remove core: needed by tool$'
 ! stderr 'cannot remove api'
-exec sh -c 'stew remove core steward; echo "exit=$?"'
-stdout '^exit=1$'
+! stew remove core steward
+status 1
 stderr '^stew: cannot remove core: needed by api, tool$'
 stderr '^stew: cannot remove steward: needed by tool$'
 
 # Unknown names and missing names are usage errors (exit 2).
-exec sh -c 'stew remove api cor; echo "exit=$?"'
-stdout '^exit=2$'
+! stew remove api cor
+status 2
 stderr '^stew: unknown project "cor"$'
-exec sh -c 'stew remove; echo "exit=$?"'
-stdout '^exit=2$'
+! stew remove
+status 2
 cmp .stew/projects.toml want/projects-1.toml
 
 # Several names, including a requires chain and a repeated name, are removed together, sorted by name.
 # --clean deletes each stew.toml after the registry is written. The root project's path is ".".
-exec stew remove tool core api steward api --clean
+stew remove tool core api steward api --clean
 cmp stdout want/clean.txt
 cmp .stew/projects.toml want/projects-2.toml
 ! exists libs/core/stew.toml

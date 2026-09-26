@@ -1,20 +1,20 @@
 # init creates the registry, the config, and the .gitignore.
-exec stew init
+stew init
 stdout 'initialized .*/\.stew$'
 cmp .stew/projects.toml want/projects.toml
 cmp .stew/config.toml want/config.toml
 cmp .stew/.gitignore want/gitignore
 
 # A second init is rejected with exit 1.
-exec sh -c 'stew init; echo "exit=$?"'
-stdout '^exit=1$'
+! stew init
+status 1
 stderr 'already exists'
 
 # Unknown commands and bad arguments are usage errors (exit 2).
-exec sh -c 'stew frobnicate; echo "exit=$?"'
-stdout '^exit=2$'
-exec sh -c 'stew init extra; echo "exit=$?"'
-stdout '^exit=2$'
+! stew frobnicate
+status 2
+! stew init extra
+status 2
 
 -- want/projects.toml --
 projects = []

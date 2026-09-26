@@ -1,11 +1,11 @@
 # Reaching the workspace through a symlink still records the real root-relative path.
 [!symlink] skip 'symlinks unsupported'
 cd real
-exec stew init
+stew init
 cd $WORK
 symlink link -> real
 cd link/libs
-exec stew add core
+stew add core
 stdout '^added core \(libs/core\)$'
 cmp $WORK/real/.stew/projects.toml $WORK/want/projects.toml
 

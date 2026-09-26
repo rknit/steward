@@ -1,9 +1,9 @@
 # If the registry cannot be written, remove changes nothing and deletes no stew.toml.
 [root] skip 'root ignores directory permissions'
 chmod 0555 .stew
-exec sh -c 'stew remove core --clean; echo "exit=$?"'
+! stew remove core --clean
 chmod 0755 .stew
-stdout '^exit=1$'
+status 1
 ! stdout removed
 stderr '^stew: unregister libs/core: '
 exists libs/core/stew.toml
@@ -11,10 +11,10 @@ cmp .stew/projects.toml want/projects.toml
 
 # If a stew.toml cannot be deleted, the project stays unregistered and the error exits 1.
 chmod 0555 libs/core
-exec sh -c 'stew remove core --clean; echo "exit=$?"'
+! stew remove core --clean
 chmod 0755 libs/core
 stdout '^removed core \(libs/core\)$'
-stdout '^exit=1$'
+status 1
 ! stdout deleted
 stderr '^stew: delete libs/core/stew.toml: permission denied$'
 exists libs/core/stew.toml

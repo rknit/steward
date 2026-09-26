@@ -1,8 +1,8 @@
 # An unknown subcommand of a command group is a usage error; bare "git" prints help and exits 0.
-exec sh -c 'stew git instal pre-commit; echo "exit=$?"'
-stdout '^exit=2$'
+! stew git instal pre-commit
+status 2
 stderr '^stew: unknown command "instal" for "stew git"$'
-exec stew git
+stew git
 stdout '^Usage:$'
 
 # The stew root is a subdirectory of the git repo.
@@ -10,7 +10,7 @@ stdout '^Usage:$'
 exec git init -q
 
 cd mono
-exec stew git install pre-commit
+stew git install pre-commit
 stdout '^installed .*/\.git/hooks/pre-commit$'
 cd $WORK
 exec test -x .git/hooks/pre-commit
@@ -18,11 +18,11 @@ cmp .git/hooks/pre-commit want/hook
 
 # Reinstalling is rejected (exit 1); unsupported hooks are usage errors (exit 2).
 cd mono
-exec sh -c 'stew git install pre-commit; echo "exit=$?"'
-stdout '^exit=1$'
+! stew git install pre-commit
+status 1
 stderr 'hook already exists'
-exec sh -c 'stew git install post-merge; echo "exit=$?"'
-stdout '^exit=2$'
+! stew git install post-merge
+status 2
 stderr 'supported: pre-commit, pre-push'
 cd $WORK
 
@@ -48,7 +48,7 @@ stderr '^==> core: ci\.pre-commit \.\.\. blocked by core:ci\.quick$'
 # The pre-push hook runs ci.pre-push; a failing CI blocks the push.
 # Unlike pre-commit, git keeps pre-push hook output on stdout.
 cd mono
-exec stew git install pre-push
+stew git install pre-push
 stdout '^installed .*/\.git/hooks/pre-push$'
 cd $WORK
 exec test -x .git/hooks/pre-push

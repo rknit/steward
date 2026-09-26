@@ -25,18 +25,18 @@ import (
 // killDelay is how long a stopped command gets between SIGTERM and SIGKILL.
 const killDelay = 5 * time.Second
 
-func newRunCmd(stdout io.Writer, argv []string) *cobra.Command {
+func newRunCmd(proc process, argv []string) *cobra.Command {
 	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "run <regex>...",
 		Short: "Run sections whose <project>:<section> key matches, after the sections they require",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			_, ws, err := loadWorkspace()
+			ws, err := loadWorkspace(proc.dir)
 			if err != nil {
 				return err
 			}
-			return runSections(stdout, argv, ws, args, dryRun)
+			return runSections(proc, argv, ws, args, dryRun)
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would run, in order, without running it")
@@ -45,7 +45,7 @@ func newRunCmd(stdout io.Writer, argv []string) *cobra.Command {
 
 // newAliasCmd returns a command that runs one section in the named projects, or in every project that has it.
 // For "ci" the section is ci.<level>.
-func newAliasCmd(stdout io.Writer, argv []string, section, short string) *cobra.Command {
+func newAliasCmd(proc process, argv []string, section, short string) *cobra.Command {
 	var level string
 	var dryRun bool
 	cmd := &cobra.Command{
@@ -59,7 +59,7 @@ func newAliasCmd(stdout io.Writer, argv []string, section, short string) *cobra.
 					return invalid(fmt.Errorf("invalid CI level %q", level))
 				}
 			}
-			_, ws, err := loadWorkspace()
+			ws, err := loadWorkspace(proc.dir)
 			if err != nil {
 				return err
 			}
@@ -67,7 +67,7 @@ func newAliasCmd(stdout io.Writer, argv []string, section, short string) *cobra.
 			if err != nil {
 				return invalid(err)
 			}
-			return runSections(stdout, argv, ws, patterns, dryRun)
+			return runSections(proc, argv, ws, patterns, dryRun)
 		},
 	}
 	if section == "ci" {
@@ -93,13 +93,13 @@ func aliasPatterns(ws *workspace.Workspace, section string, projects []string) (
 	return patterns, nil
 }
 
-func runSections(stdout io.Writer, argv []string, ws *workspace.Workspace, patterns []string, dryRun bool) error {
+func runSections(proc process, argv []string, ws *workspace.Workspace, patterns []string, dryRun bool) error {
 	plan, matched, err := buildPlan(ws, patterns)
 	if err != nil {
 		return invalid(err)
 	}
 	if dryRun {
-		report.DryRun(stdout, plan, matched)
+		report.DryRun(proc.stdout, plan, matched)
 		return nil
 	}
 
@@ -131,7 +131,7 @@ func runSections(stdout io.Writer, argv []string, ws *workspace.Workspace, patte
 	}
 	var steps runner.Steps
 	if slices.ContainsFunc(plan.Sections, func(s runner.Section) bool { return len(s.Wrappers) > 0 }) {
-		d, err := runner.NewStepDir(os.TempDir())
+		d, err := runner.NewStepDir(proc.tempDir())
 		if err != nil {
 			return rejected(fmt.Errorf("cannot create step directory: %w", err))
 		}
@@ -163,7 +163,7 @@ func runSections(stdout io.Writer, argv []string, ws *workspace.Workspace, patte
 	}
 
 	r := &runner.Runner{
-		Exec:  runner.Shell{KillDelay: killDelay, Force: force, Environ: os.Environ()},
+		Exec:  runner.Shell{KillDelay: killDelay, Force: force, Environ: proc.env},
 		Steps: steps,
 		OpenLog: func(project, section string) (runner.SectionLog, error) {
 			l, err := logs.OpenSection(project, section)
@@ -172,7 +172,7 @@ func runSections(stdout io.Writer, argv []string, ws *workspace.Workspace, patte
 			}
 			return l, nil
 		},
-		Report: newReporter(stdout),
+		Report: newReporter(proc.stdout),
 		Record: logs,
 		Now:    time.Now,
 		RunID:  logs.ID,
@@ -180,7 +180,7 @@ func runSections(stdout io.Writer, argv []string, ws *workspace.Workspace, patte
 	}
 	res := r.Run(ctx, plan)
 	total := time.Since(start)
-	report.Summary(stdout, res, total, path.Join(workspace.DirName, "runs", logs.ID))
+	report.Summary(proc.stdout, res, total, path.Join(workspace.DirName, "runs", logs.ID))
 	code := res.ExitCode()
 	if err := logs.Finish(total); err != nil {
 		return &exitError{code: max(code, 1), err: fmt.Errorf("log error: %w", err)}

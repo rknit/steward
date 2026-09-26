@@ -47,13 +47,13 @@ stdout '"cause": "exit 3"'
 stdout '"total_ms": \d+'
 
 # Second run: skip_if passes, so core's sections skip.
-exec stew build core
+stew build core
 stdout '^==> core: setup \.\.\. skip \(\d+\.\ds\)$'
 stdout '^==> core: build \.\.\. skip \(\d+\.\ds\)$'
 ! stdout '==> api'
 
 # setup runs only setup.
-exec stew setup core
+stew setup core
 stdout '^==> core: setup \.\.\. skip'
 ! stdout '==> core: build'
 stdout '^│ project │ setup │$'

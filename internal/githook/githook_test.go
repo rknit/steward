@@ -61,7 +61,7 @@ func TestInstallInSubdirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path, err := Install(root, "pre-commit")
+	path, err := Install(root, "pre-commit", os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestInstallInSubdirectory(t *testing.T) {
 		t.Errorf("content = %q", data)
 	}
 
-	if _, err := Install(root, "pre-commit"); !errors.Is(err, ErrExists) {
+	if _, err := Install(root, "pre-commit", os.Environ()); !errors.Is(err, ErrExists) {
 		t.Errorf("second install: err = %v, want ErrExists", err)
 	}
 }
@@ -93,7 +93,7 @@ func TestInstallRespectsHooksPath(t *testing.T) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git config: %v\n%s", err, out)
 	}
-	path, err := Install(top, "pre-commit")
+	path, err := Install(top, "pre-commit", os.Environ())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,14 +103,14 @@ func TestInstallRespectsHooksPath(t *testing.T) {
 }
 
 func TestInstallErrors(t *testing.T) {
-	if _, err := Install(t.TempDir(), "post-merge"); err == nil || !strings.Contains(err.Error(), "supported: pre-commit, pre-push") {
+	if _, err := Install(t.TempDir(), "post-merge", os.Environ()); err == nil || !strings.Contains(err.Error(), "supported: pre-commit, pre-push") {
 		t.Errorf("unsupported hook: err = %v", err)
 	}
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
-	t.Setenv("GIT_CEILING_DIRECTORIES", os.TempDir())
-	if _, err := Install(t.TempDir(), "pre-commit"); err == nil || !strings.Contains(err.Error(), "git rev-parse") {
+	env := append(os.Environ(), "GIT_CEILING_DIRECTORIES="+os.TempDir())
+	if _, err := Install(t.TempDir(), "pre-commit", env); err == nil || !strings.Contains(err.Error(), "git rev-parse") {
 		t.Errorf("not a repo: err = %v", err)
 	}
 }

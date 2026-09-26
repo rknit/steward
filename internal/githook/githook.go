@@ -21,19 +21,20 @@ var ErrExists = errors.New("hook already exists")
 // ErrUnsupported is returned for a hook name not in Supported.
 var ErrUnsupported = errors.New("unsupported hook")
 
-// Install writes the named hook for the workspace at root and returns the hook's path.
-func Install(root, hook string) (string, error) {
+// Install writes the named hook for the workspace at root and returns the hook's path. git runs with env as its
+// environment.
+func Install(root, hook string, env []string) (string, error) {
 	if !slices.Contains(Supported, hook) {
 		return "", fmt.Errorf("%w %q (supported: %s)", ErrUnsupported, hook, strings.Join(Supported, ", "))
 	}
-	hooksDir, err := git(root, "rev-parse", "--git-path", "hooks")
+	hooksDir, err := git(root, env, "rev-parse", "--git-path", "hooks")
 	if err != nil {
 		return "", err
 	}
 	if !filepath.IsAbs(hooksDir) {
 		hooksDir = filepath.Join(root, hooksDir)
 	}
-	top, err := git(root, "rev-parse", "--show-toplevel")
+	top, err := git(root, env, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", err
 	}
@@ -92,9 +93,10 @@ func escapeDoubleQuoted(s string) string {
 	return b.String()
 }
 
-func git(dir string, args ...string) (string, error) {
+func git(dir string, env []string, args ...string) (string, error) {
 	cmd := exec.Command("git", args...)
 	cmd.Dir = dir
+	cmd.Env = env
 	out, err := cmd.Output()
 	if err != nil {
 		var ee *exec.ExitError

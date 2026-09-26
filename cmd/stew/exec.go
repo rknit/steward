@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,13 +16,13 @@ import (
 
 const execKey = "exec"
 
-func newExecCmd() *cobra.Command {
+func newExecCmd(proc process) *cobra.Command {
 	return &cobra.Command{
 		Use:   "exec [project] <command>",
 		Short: "Run a shell command in the current directory, inside the workspace wrapper and the named project's wrapper",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cwd, ws, err := loadWorkspace()
+			ws, err := loadWorkspace(proc.dir)
 			if err != nil {
 				return err
 			}
@@ -39,34 +38,34 @@ func newExecCmd() *cobra.Command {
 				wraps = append(wraps, p.Wrapper)
 				wrapDir = filepath.Join(ws.Root, filepath.FromSlash(p.Path))
 			}
-			return execJob(cwd, wrapDir, wrappers(wraps...), env, args[len(args)-1])
+			return execJob(proc, wrapDir, wrappers(wraps...), env, args[len(args)-1])
 		},
 	}
 }
 
-// execJob runs command as sh -c in cwd, as a job of its own (see job.Run). Wrappers, outermost first, run in wrapDir
-// as they do for a section of that project, and the step script returns to cwd before it runs command.
+// execJob runs command as sh -c in proc.dir, as a job of its own (see job.Run). Wrappers, outermost first, run in
+// wrapDir as they do for a section of that project, and the step script returns to proc.dir before it runs command.
 // stew exits with the command's status, 128+n after signal n.
-func execJob(cwd, wrapDir string, wraps, env []string, command string) error {
+func execJob(proc process, wrapDir string, wraps, env []string, command string) error {
 	if len(wraps) == 0 {
-		status, err := job.Run(cwd, []string{"sh", "-c", command}, jobEnv(env))
+		status, err := job.Run(proc.dir, []string{"sh", "-c", command}, jobEnv(proc, env))
 		if err != nil {
 			return rejected(fmt.Errorf("cannot run: %w", err))
 		}
 		return statusError(exitStatus(status))
 	}
 
-	d, err := runner.NewStepDir(os.TempDir())
+	d, err := runner.NewStepDir(proc.tempDir())
 	if err != nil {
 		return rejected(fmt.Errorf("cannot create step directory: %w", err))
 	}
 	defer d.Remove()
-	inCwd := "cd -- " + runner.ShellQuote(cwd) + " || exit\n" + command
+	inCwd := "cd -- " + runner.ShellQuote(proc.dir) + " || exit\n" + command
 	argv, err := d.Prepare(execKey, wraps, env, inCwd)
 	if err != nil {
 		return rejected(fmt.Errorf("cannot prepare step: %w", err))
 	}
-	status, err := job.Run(wrapDir, argv, jobEnv(env))
+	status, err := job.Run(wrapDir, argv, jobEnv(proc, env))
 	if err != nil {
 		return rejected(fmt.Errorf("cannot run: %w", err))
 	}
@@ -92,9 +91,9 @@ func execJob(cwd, wrapDir string, wraps, env []string, command string) error {
 // a section does not see that section's values.
 var runVars = []string{"STEW_RUN_ID", "STEW_ROOT", "STEW_PROJECT", "STEW_SECTION", "STEW_TAG"}
 
-// jobEnv is stew's environment without inherited run variables, plus env.
-func jobEnv(env []string) []string {
-	inherited := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+// jobEnv is proc's environment without inherited run variables, plus env.
+func jobEnv(proc process, env []string) []string {
+	inherited := slices.DeleteFunc(slices.Clone(proc.env), func(kv string) bool {
 		key, _, _ := strings.Cut(kv, "=")
 		return slices.Contains(runVars, key)
 	})

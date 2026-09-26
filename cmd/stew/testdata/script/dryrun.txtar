@@ -1,17 +1,17 @@
 # --dry-run prints the order and requires, and runs nothing.
-exec stew run --dry-run 'api:ci.full'
+stew run --dry-run 'api:ci.full'
 cmp stdout want/plan
 ! exists .stew/runs
 ! exists core/ran
 ! exists api/ran
-exec stew ci --dry-run api
+stew ci --dry-run api
 cmp stdout want/plan
 ! exists .stew/runs
 ! exists core/ran
 ! exists api/ran
-! exec stew build --dry-run web
+! stew build --dry-run web
 stderr '^stew: unknown project "web"$'
-! exec stew run --dry-run 'x:y'
+! stew run --dry-run 'x:y'
 stderr '^stew: pattern "x:y" matches no section$'
 
 -- .stew/config.toml --

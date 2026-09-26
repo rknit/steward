@@ -1,8 +1,9 @@
 # The spec's worked example: api:build fails. Only sections that directly require it print a blocked line;
 # web:e2e requires only blocked sections, so it prints nothing, yet its summary cell is blocked.
 # Durations and the run ID vary, so they are normalized before comparing the whole output.
-exec sh -c 'stew run ''web:e2e'' ''api:test'' ''docs:build'' ''core:lint'' > out; echo "exit=$?"'
-stdout '^exit=1$'
+! stew run 'web:e2e' 'api:test' 'docs:build' 'core:lint'
+cp stdout out
+status 1
 exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
 cmp stdout want/out
 
@@ -16,12 +17,14 @@ stdout '"blocked_by": \[\s*"api:image",\s*"web:build"\s*\]'
 stdout '"blocked_by": \[\s*"api:build",\s*"api:test"\s*\]'
 
 # runs show applies the same pruning.
-exec sh -c 'stew runs show latest > out'
+stew runs show latest
+cp stdout out
 exec sh -c 'sed -E -e "s/^run [^:]*:/run ID:/" -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
 cmp stdout want/show
 
 # A section asked for by name prints its line with its whole blocked_by.
-exec sh -c 'stew runs show latest ''web:e2e'' > out'
+stew runs show latest 'web:e2e'
+cp stdout out
 exec sh -c 'sed -E -e "s/^run [^:]*:/run ID:/" out'
 cmp stdout want/show-e2e
 

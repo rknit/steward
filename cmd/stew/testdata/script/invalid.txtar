@@ -1,29 +1,29 @@
 # Invalid configuration exits 2, names the file and problem, and runs nothing.
 cp bad/typo.toml core/stew.toml
-exec sh -c 'stew build; echo "exit=$?"'
-stdout '^exit=2$'
+! stew build
+status 2
 stderr 'core/stew.toml: \[build\]: unknown key "requries"'
 ! stdout '==>'
 ! exists .stew/runs
 
 cp bad/dependencies.toml core/stew.toml
-exec sh -c 'stew build; echo "exit=$?"'
-stdout '^exit=2$'
+! stew build
+status 2
 stderr 'core/stew.toml: unknown key "dependencies"'
 
 cp bad/cycle.toml core/stew.toml
-exec sh -c 'stew build; echo "exit=$?"'
-stdout '^exit=2$'
+! stew build
+status 2
 stderr 'cycle: api:build -> api:setup -> core:build -> core:setup -> api:build'
 
 cp bad/missing.toml core/stew.toml
-exec sh -c 'stew setup; echo "exit=$?"'
-stdout '^exit=2$'
+! stew setup
+status 2
 stderr '\[setup\]: missing key "run"'
 
 rm core/stew.toml
-exec sh -c 'stew add api; echo "exit=$?"'
-stdout '^exit=2$'
+! stew add api
+status 2
 stderr 'project "core": missing stew.toml'
 
 -- .stew/config.toml --

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -23,7 +22,7 @@ import (
 )
 
 // newRunsCmd returns the "runs" command group.
-func newRunsCmd(stdout io.Writer) *cobra.Command {
+func newRunsCmd(proc process) *cobra.Command {
 	runs := &cobra.Command{
 		Use:   "runs",
 		Short: "Inspect and prune past runs",
@@ -36,7 +35,7 @@ func newRunsCmd(stdout io.Writer) *cobra.Command {
 		Short: "Show a run's sections and their logs (run-id may be \"latest\")",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return showRun(stdout, cmd.ErrOrStderr(), args[0], args[1:], porcelain, noPager)
+			return showRun(proc, args[0], args[1:], porcelain, noPager)
 		},
 	}
 	show.Flags().BoolVar(&porcelain, "porcelain", false, "print tab-separated project, section, status, duration in ms, and log path")
@@ -47,22 +46,18 @@ func newRunsCmd(stdout io.Writer) *cobra.Command {
 		Short: "List runs, newest first",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return listRuns(stdout, cmd.ErrOrStderr(), listPorcelain, listNoPager)
+			return listRuns(proc, listPorcelain, listNoPager)
 		},
 	}
 	list.Flags().BoolVar(&listPorcelain, "porcelain", false, "print tab-separated start time, run ID, result, total in ms, and command")
 	list.Flags().BoolVar(&listNoPager, "no-pager", false, "print directly instead of through a pager")
-	runs.AddCommand(show, list, newRunsPruneCmd(stdout))
+	runs.AddCommand(show, list, newRunsPruneCmd(proc))
 	return runs
 }
 
-// findStewDir returns the .stew directory of the workspace above cwd without loading the workspace.
-func findStewDir() (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", rejected(err)
-	}
-	root, err := workspace.FindRoot(cwd)
+// findStewDir returns the .stew directory of the workspace above dir without loading the workspace.
+func findStewDir(dir string) (string, error) {
+	root, err := workspace.FindRoot(dir)
 	if err != nil {
 		return "", invalid(err)
 	}
@@ -79,8 +74,8 @@ type listedRun struct {
 	command string
 }
 
-func listRuns(stdout, stderr io.Writer, porcelain, noPager bool) error {
-	stewDir, err := findStewDir()
+func listRuns(proc process, porcelain, noPager bool) error {
+	stewDir, err := findStewDir(proc.dir)
 	if err != nil {
 		return err
 	}
@@ -96,9 +91,9 @@ func listRuns(stdout, stderr io.Writer, porcelain, noPager bool) error {
 	if porcelain {
 		var b strings.Builder
 		for _, r := range rows {
-			fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\n", startedText(r.started, time.RFC3339), r.id, r.result, r.totalMS, r.command)
+			fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%s\n", startedText(r.started, proc.loc, time.RFC3339), r.id, r.result, r.totalMS, r.command)
 		}
-		io.WriteString(stdout, b.String())
+		io.WriteString(proc.stdout, b.String())
 		return nil
 	}
 	var b bytes.Buffer
@@ -107,11 +102,11 @@ func listRuns(stdout, stderr io.Writer, porcelain, noPager bool) error {
 	} else {
 		table := [][]string{{"started", "run", "result", "total", "command"}}
 		for _, r := range rows {
-			table = append(table, []string{startedText(r.started, time.DateTime), r.id, r.result, r.total, r.command})
+			table = append(table, []string{startedText(r.started, proc.loc, time.DateTime), r.id, r.result, r.total, r.command})
 		}
 		report.Table(&b, table)
 	}
-	if err := page(stdout, stderr, b.Bytes(), !noPager && isTerminal(stdout)); err != nil {
+	if err := page(proc, b.Bytes(), !noPager && isTerminal(proc.stdout)); err != nil {
 		return rejected(err)
 	}
 	return nil
@@ -136,20 +131,20 @@ func listRun(stewDir, id string) listedRun {
 	return r
 }
 
-// startedText formats a run's start time in local time, or "-" when the run ID has no valid time.
-func startedText(t time.Time, layout string) string {
+// startedText formats a run's start time in loc, or "-" when the run ID has no valid time.
+func startedText(t time.Time, loc *time.Location, layout string) string {
 	if t.IsZero() {
 		return "-"
 	}
-	return t.Local().Format(layout)
+	return t.In(loc).Format(layout)
 }
 
-func showRun(stdout, stderr io.Writer, id string, patterns []string, porcelain, noPager bool) error {
+func showRun(proc process, id string, patterns []string, porcelain, noPager bool) error {
 	matchers, err := compileKeyPatterns(patterns)
 	if err != nil {
 		return invalid(err)
 	}
-	stewDir, err := findStewDir()
+	stewDir, err := findStewDir(proc.dir)
 	if err != nil {
 		return err
 	}
@@ -190,7 +185,7 @@ func showRun(stdout, stderr io.Writer, id string, patterns []string, porcelain, 
 
 	logsDir := path.Join(workspace.DirName, "runs", id)
 	if porcelain {
-		writePorcelain(stdout, sections, logsDir)
+		writePorcelain(proc.stdout, sections, logsDir)
 		return nil
 	}
 	var sum *report.ShownSummary
@@ -208,7 +203,7 @@ func showRun(stdout, stderr io.Writer, id string, patterns []string, porcelain, 
 	}
 	var b bytes.Buffer
 	report.Show(&b, id, run.Manifest.Argv, run.Manifest.WorkspaceWrapper, projectWrappers, sections, sum)
-	if err := page(stdout, stderr, b.Bytes(), !noPager && isTerminal(stdout)); err != nil {
+	if err := page(proc, b.Bytes(), !noPager && isTerminal(proc.stdout)); err != nil {
 		return rejected(err)
 	}
 	return nil

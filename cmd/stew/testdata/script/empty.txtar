@@ -1,8 +1,8 @@
 # A fresh workspace with no projects has no sections, so every pattern matches nothing: exit 2 and no run.
-exec stew init
-! exec stew build
+stew init
+! stew build
 stderr '^stew: pattern "\.\*:build" matches no section$'
 ! stdout .
-! exec stew ci
+! stew ci
 stderr '^stew: pattern "\.\*:ci\\\.full" matches no section$'
 ! exists .stew/runs

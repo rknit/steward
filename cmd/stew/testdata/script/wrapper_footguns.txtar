@@ -4,22 +4,22 @@ env PATH=$WORK/bin:$PATH
 
 # Each wrapper below ends without running the command: the section fails with the wrapper cause and ran never exists.
 cp cfg/comment.toml .stew/config.toml
-! exec stew build
+! stew build
 stdout '^\(wrapper did not run the command \(exit 2\)\)$'
 ! exists lib/ran
 
 cp cfg/echo.toml .stew/config.toml
-! exec stew build
+! stew build
 stdout '^\(wrapper did not run the command \(exit 0\)\)$'
 ! exists lib/ran
 
 cp cfg/false-and.toml .stew/config.toml
-! exec stew build
+! stew build
 stdout '^\(wrapper did not run the command \(exit 1\)\)$'
 ! exists lib/ran
 
 cp cfg/missing.toml .stew/config.toml
-! exec stew build
+! stew build
 stdout '^\(wrapper did not run the command \(exit 127\)\)$'
 stdout 'no-such-tool-for-stew: .*not found'
 ! exists lib/ran
@@ -27,7 +27,7 @@ stdout 'no-such-tool-for-stew: .*not found'
 # A loop runs the command twice, and the section fails.
 cp cfg/loop.toml .stew/config.toml
 cp lib/count.toml lib/stew.toml
-! exec stew build
+! stew build
 stdout '^\(wrapper ran the command 2 times \(exit 0\)\)$'
 exec sh -c 'wc -l < lib/count'
 stdout '^ *2$'
@@ -35,7 +35,7 @@ stdout '^ *2$'
 # A skip_if through a failing wrapper fails the section; run never runs.
 cp cfg/failing.toml .stew/config.toml
 cp lib/skip-if.toml lib/stew.toml
-! exec stew build
+! stew build
 stdout '^\(wrapper did not run the command \(exit 2\)\)$'
 stdout '^--- stew: skip_if: test -f ran$'
 ! stdout 'stew: run: touch ran'
@@ -44,33 +44,33 @@ stdout '^--- stew: skip_if: test -f ran$'
 # ";" keeps sh meaning: the command runs after the failing tool.
 cp cfg/semicolon.toml .stew/config.toml
 cp lib/plain.toml lib/stew.toml
-exec stew build
+stew build
 exists lib/ran
 rm lib/ran
 
 # A command that fails after the wrapper ran it has a plain exit cause.
 cp cfg/true-and.toml .stew/config.toml
 cp lib/failing.toml lib/stew.toml
-! exec stew build
+! stew build
 stdout '^\(exit 3\)$'
 
 # The step's result is the command's own exit status. What the wrapper does after the command is ignored.
 cp cfg/or-true.toml .stew/config.toml
 cp lib/exit7.toml lib/stew.toml
-! exec stew build
+! stew build
 stdout '^==> lib: build \.\.\. fail'
 stdout '^\(exit 7\)$'
 
 cp cfg/echo-post.toml .stew/config.toml
 cp lib/failing.toml lib/stew.toml
-! exec stew build
+! stew build
 stdout '^==> lib: build \.\.\. fail'
 stdout 'post'
 stdout '^\(exit 3\)$'
 
 cp cfg/then-false.toml .stew/config.toml
 cp lib/plain.toml lib/stew.toml
-exec stew build
+stew build
 stdout '^==> lib: build \.\.\. done'
 exists lib/ran
 rm lib/ran
@@ -79,7 +79,7 @@ rm lib/ran
 # The command waits for lib/release, but stew stops it when the step ends, so it never finishes.
 cp cfg/background.toml .stew/config.toml
 cp lib/background.toml lib/stew.toml
-! exec stew build
+! stew build
 stdout '^==> lib: build \.\.\. fail'
 stdout '^\(wrapper exited before the command finished \(exit 0\)\)$'
 ! exists lib/finished

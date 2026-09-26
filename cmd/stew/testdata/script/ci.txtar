@@ -3,25 +3,26 @@
 # Durations and the run ID vary, so they are normalized before comparing.
 
 # Naming api: core's sections run only as requirements, so core gets no CI.
-exec stew ci api
+stew ci api
 ! stdout '==> core: ci'
 stdout '^==> api: ci\.full \.\.\. done \(\d+\.\ds\)$'
 stdout '^│ core    │ skip  │ skip  │ -       │$'
 stdout '^│ api     │ skip  │ skip  │ done    │$'
 
 # A named project without the level fails its pattern; there is no fallback.
-! exec stew ci api -l quick
+! stew ci api -l quick
 stderr '^stew: pattern "api:ci\\\.quick" matches no section$'
 ! stdout .
 
 # All projects, pre-commit level: only projects that define it run, in Kahn order.
-exec sh -c 'stew ci --level pre-commit > out'
+stew ci --level pre-commit
+cp stdout out
 exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
 cmp stdout want/pre-commit
 exec sh -c 'ls .stew/runs/*/core:ci.quick.stdout'
 
 # pre-push requires full, skipping quick.
-exec stew ci --level pre-push
+stew ci --level pre-push
 stdout '^==> core: ci\.full \.\.\. done'
 stdout '^==> core: ci\.pre-push \.\.\. skip'
 stdout '^==> api: ci\.pre-push \.\.\. done'
@@ -30,24 +31,23 @@ stdout '^==> api: ci\.pre-push \.\.\. done'
 exec sh -c 'ls .stew/runs/*/api:ci.pre-push.stdout'
 
 # Default level is full.
-exec stew ci core
+stew ci core
 stdout '^==> core: ci\.full \.\.\. done'
 
 # Failing CI exits 1.
-exec sh -c 'stew ci api -l pre-commit --level pre-commit >/dev/null; echo "exit=$?"'
-stdout '^exit=0$'
+stew ci api -l pre-commit --level pre-commit
 cp want/api-failing.toml api/stew.toml
-exec sh -c 'stew ci api; echo "exit=$?"'
+! stew ci api
 stdout '^==> api: ci\.full \.\.\. fail'
 stdout '^\(exit 1\)$'
-stdout '^exit=1$'
+status 1
 
 # Usage errors exit 2 before anything runs.
-exec sh -c 'stew ci -l nightly; echo "exit=$?"'
-stdout '^exit=2$'
+! stew ci -l nightly
+status 2
 stderr '^stew: pattern "\.\*:ci\\\.nightly" matches no section$'
-exec sh -c 'stew ci nope; echo "exit=$?"'
-stdout '^exit=2$'
+! stew ci nope
+status 2
 stderr 'unknown project "nope"'
 ! stdout '==>'
 

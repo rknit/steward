@@ -1,51 +1,51 @@
 # add registers a pre-existing stew.toml without changing it. The name comes from the file.
-exec stew init
-exec stew add libs/core
+stew init
+stew add libs/core
 cmp stdout want/core.txt
 ! stderr .
 cmp libs/core/stew.toml want/core.toml
-exec stew add 'apps/My App'
+stew add 'apps/My App'
 stdout '^added my-app \(apps/My App\)$'
-exec stew add apps/alias -a alias-name
+stew add apps/alias -a alias-name
 stdout '^added alias-name \(apps/alias\)$'
 cmp .stew/projects.toml want/projects-1.toml
 
 # Rejections exit 1, register nothing, and leave the file as it was.
-exec sh -c 'stew add bad; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add bad
+status 1
 stderr 'bad/stew.toml: \[setup\]: missing key "run"'
 
-exec sh -c 'stew add apps/other -a nope; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add apps/other -a nope
+status 1
 stderr '^stew: -a nope does not match name "other" in apps/other/stew.toml$'
 
-exec sh -c 'stew add apps/web; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add apps/web
+status 1
 stderr '^stew: apps/web/stew.toml: \[setup\]: requires "api:build": unknown project "api"; add it first$'
 
-exec sh -c 'stew add apps/self; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add apps/self
+status 1
 stderr '^stew: apps/self/stew.toml: cycle: self:build -> self:setup -> self:build$'
 
-exec sh -c 'stew add apps/dup; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add apps/dup
+status 1
 stderr '^stew: project name "core" is already used by libs/core$'
 
 # A taken name is reported before the file's requires, which would resolve against the wrong project.
-exec sh -c 'stew add apps/dup-requires; echo "exit=$?"'
-stdout '^exit=1$'
+! stew add apps/dup-requires
+status 1
 stderr '^stew: project name "core" is already used by libs/core$'
 
 cmp .stew/projects.toml want/projects-1.toml
 grep '^name = "web"$' apps/web/stew.toml
 
 # Projects removed without --clean can be added back, required projects first.
-exec stew remove my-app core
-exec sh -c 'stew add "apps/My App"; echo "exit=$?"'
-stdout '^exit=1$'
+stew remove my-app core
+! stew add 'apps/My App'
+status 1
 stderr 'requires "core:build": unknown project "core"; add it first'
-exec stew add libs/core
-exec stew add 'apps/My App'
+stew add libs/core
+stew add 'apps/My App'
 cmp .stew/projects.toml want/projects-1.toml
 
 -- want/core.txt --

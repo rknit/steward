@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"regexp"
 	"strconv"
@@ -15,7 +14,7 @@ import (
 )
 
 // newRunsPruneCmd returns the "runs prune" command.
-func newRunsPruneCmd(stdout io.Writer) *cobra.Command {
+func newRunsPruneCmd(proc process) *cobra.Command {
 	var keepSince string
 	var keepLastN int
 	cmd := &cobra.Command{
@@ -25,7 +24,7 @@ func newRunsPruneCmd(stdout io.Writer) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			var keep runlog.Retention
 			if cmd.Flags().Changed("keep-since") {
-				since, err := parseKeepSince(keepSince, time.Now(), time.Local)
+				since, err := parseKeepSince(keepSince, time.Now(), proc.loc)
 				if err != nil {
 					return invalid(err)
 				}
@@ -40,7 +39,7 @@ func newRunsPruneCmd(stdout io.Writer) *cobra.Command {
 			if keep.Since == nil && keep.LastN == nil {
 				return invalid(errors.New("at least one of --keep-since or --keep-last-n is required"))
 			}
-			return pruneRuns(stdout, cmd.ErrOrStderr(), keep)
+			return pruneRuns(proc, keep)
 		},
 	}
 	cmd.Flags().StringVar(&keepSince, "keep-since", "", "keep runs started at or after a time: a duration ago (36h, 7d, 2w) or a date (2026-09-01, \"2026-09-01 15:04:05\", RFC 3339)")
@@ -84,8 +83,8 @@ func parseKeepSince(s string, now time.Time, loc *time.Location) (time.Time, err
 
 // pruneRuns deletes the runs keep does not keep, oldest first, printing one line per run.
 // A failed delete is reported and the rest still run.
-func pruneRuns(stdout, stderr io.Writer, keep runlog.Retention) error {
-	stewDir, err := findStewDir()
+func pruneRuns(proc process, keep runlog.Retention) error {
+	stewDir, err := findStewDir(proc.dir)
 	if err != nil {
 		return err
 	}
@@ -97,13 +96,13 @@ func pruneRuns(stdout, stderr io.Writer, keep runlog.Retention) error {
 	for _, id := range keep.Expired(ids) {
 		switch err := runlog.Delete(stewDir, id); {
 		case err == nil:
-			fmt.Fprintf(stdout, "pruned %s\n", id)
+			fmt.Fprintf(proc.stdout, "pruned %s\n", id)
 		case errors.Is(err, runlog.ErrRunning):
-			fmt.Fprintf(stdout, "kept %s: running\n", id)
+			fmt.Fprintf(proc.stdout, "kept %s: running\n", id)
 		case errors.Is(err, runlog.ErrUnknownRun):
 			// Another prune removed it first.
 		default:
-			fmt.Fprintf(stderr, "stew: prune %s: %v\n", id, err)
+			fmt.Fprintf(proc.stderr, "stew: prune %s: %v\n", id, err)
 			failed = true
 		}
 	}

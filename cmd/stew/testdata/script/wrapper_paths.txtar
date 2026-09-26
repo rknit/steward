@@ -5,7 +5,7 @@ env PATH=$WORK/bin:$PATH
 env TMPDIR=$WORK/tmp
 mkdir tmp
 cd 'my proj''s'
-exec stew build
+stew build
 stdout '^==> lib: setup \.\.\. done'
 exists lib/ran
 cd $WORK
@@ -16,7 +16,7 @@ stdout '^0$'
 cd 'my proj''s'
 rm lib/ran
 cp lib/wrapped.toml lib/stew.toml
-exec stew build
+stew build
 stdout '^==> lib: setup \.\.\. done'
 exists lib/ran
 cd $WORK
@@ -27,8 +27,8 @@ stdout '^0$'
 mkdir 'bad tmp'
 env TMPDIR=$WORK/bad' tmp'
 cd 'my proj''s'
-exec sh -c 'stew build; echo "exit=$?"'
-stdout '^exit=1$'
+! stew build
+status 1
 stderr 'cannot create step directory: .*/bad tmp needs shell quoting; set TMPDIR to a path of letters, digits, and /\._-$'
 cd $WORK
 exec sh -c 'ls my*/.stew/runs | wc -l'

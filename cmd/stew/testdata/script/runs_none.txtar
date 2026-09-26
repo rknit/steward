@@ -1,24 +1,24 @@
 # latest with no runs is an unknown run.
-exec sh -c 'stew runs show latest; echo "exit=$?"'
-stdout '^exit=2$'
+! stew runs show latest
+status 2
 stderr '^stew: unknown run "latest"$'
 
 # runs list with no runs: a message, or nothing with --porcelain.
-exec stew runs list
+stew runs list
 stdout '^no runs$'
-exec stew runs list --porcelain
+stew runs list --porcelain
 ! stdout .
 
 # runs prune with no runs directory prints nothing.
-exec stew runs prune --keep-last-n 0
+stew runs prune --keep-last-n 0
 ! stdout .
 ! stderr .
 
 # An unknown subcommand of a command group is a usage error; bare "runs" prints help and exits 0.
-exec sh -c 'stew runs shw latest; echo "exit=$?"'
-stdout '^exit=2$'
+! stew runs shw latest
+status 2
 stderr '^stew: unknown command "shw" for "stew runs"$'
-exec stew runs
+stew runs
 stdout '^Usage:$'
 
 -- .stew/config.toml --

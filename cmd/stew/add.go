@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -15,22 +14,22 @@ import (
 	"github.com/rknit/steward/internal/workspace"
 )
 
-func newAddCmd(stdout io.Writer) *cobra.Command {
+func newAddCmd(proc process) *cobra.Command {
 	var alias string
 	cmd := &cobra.Command{
 		Use:   "add <path>",
 		Short: "Register <path> as a project, creating <path>/stew.toml if missing",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return add(stdout, args[0], alias)
+			return add(proc, args[0], alias)
 		},
 	}
 	cmd.Flags().StringVarP(&alias, "alias", "a", "", "project name for a new stew.toml (default: the directory's name)")
 	return cmd
 }
 
-func add(stdout io.Writer, arg, alias string) error {
-	cwd, ws, err := loadWorkspace()
+func add(proc process, arg, alias string) error {
+	ws, err := loadWorkspace(proc.dir)
 	if err != nil {
 		return err
 	}
@@ -38,7 +37,7 @@ func add(stdout io.Writer, arg, alias string) error {
 
 	dir := arg
 	if !filepath.IsAbs(dir) {
-		dir = filepath.Join(cwd, dir)
+		dir = filepath.Join(proc.dir, dir)
 	}
 	info, err := os.Stat(dir)
 	if err != nil {
@@ -116,9 +115,9 @@ func add(stdout io.Writer, arg, alias string) error {
 		return rejected(fmt.Errorf("register %s: %w", rel, err))
 	}
 	if existing {
-		fmt.Fprintf(stdout, "using existing %s\n", manifestRel)
+		fmt.Fprintf(proc.stdout, "using existing %s\n", manifestRel)
 	}
-	fmt.Fprintf(stdout, "added %s (%s)\n", name, rel)
+	fmt.Fprintf(proc.stdout, "added %s (%s)\n", name, rel)
 	return nil
 }
 
