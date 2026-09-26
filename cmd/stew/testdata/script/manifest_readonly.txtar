@@ -1,8 +1,11 @@
 # A run.json save that fails at section end turns that section into a log error failure.
 # core's setup makes the run directory read-only while it runs.
 [root] skip 'root ignores directory permissions'
-exec sh -c 'stew build > out 2> err; echo "exit=$?"; chmod 0755 .stew/runs/*'
-stdout '^exit=1$'
+! stew build
+cp stdout out
+cp stderr err
+exec sh -c 'chmod 0755 .stew/runs/*'
+status 1
 grep '^==> core: setup \.\.\. fail \(\d+\.\ds\)$' out
 grep '^\(log error: .*permission denied\)$' out
 grep '^==> core: build \.\.\. blocked by core:setup$' out

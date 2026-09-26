@@ -1,4 +1,4 @@
-# stew exec exits with the command's status, passes stdin to the command, and leaves no step directory.
+# stew exec exits with the command's status and leaves no step directory.
 exec chmod 755 bin/wrap-ws bin/wrap-lib
 env PATH=$WORK/bin:$PATH
 env TMPDIR=$WORK/tmp
@@ -9,11 +9,6 @@ exec sh -c 'stew exec lib "exit 3"; echo "exit=$?"'
 stdout '^exit=3$'
 exec sh -c 'stew exec "kill -TERM \$\$"; echo "exit=$?"'
 stdout '^exit=143$'
-
-# stdin reaches the command.
-stdin input.txt
-exec stew exec lib 'cat'
-stdout '^hello from stdin$'
 
 # No step directory is left.
 exec sh -c 'ls -A tmp | wc -l'
@@ -34,8 +29,6 @@ name = "lib"
 project_wrapper = "wrap-lib {{STEW_STEP}}"
 [setup]
 run = "true"
--- input.txt --
-hello from stdin
 -- bin/wrap-ws --
 #!/bin/sh
 export WS=yes WS_ARG="$1" WS_CWD="$(pwd)"

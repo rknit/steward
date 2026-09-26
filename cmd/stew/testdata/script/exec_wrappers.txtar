@@ -3,11 +3,10 @@ exec chmod 755 bin/wrap-none
 env PATH=$WORK/bin:$PATH
 env TMPDIR=$WORK/tmp
 mkdir tmp
-exec stew exec 'env | grep -c "^STEW_ROOT="; echo "project=$STEW_PROJECT"'
+exec sh -c 'stew exec "$(cat unwrapped)"; echo "exit=$?"'
+stdout '^ws=$'
 stdout '^1$'
 stdout '^project=$'
-exec sh -c 'stew exec "echo ws=\$WS; exit 4"; echo "exit=$?"'
-stdout '^ws=$'
 stdout '^exit=4$'
 
 # A wrapper that never runs the command fails with exit 1.
@@ -28,6 +27,8 @@ name = "lib"
 project_wrapper = ""
 [setup]
 run = "true"
+-- unwrapped --
+echo "ws=$WS"; env | grep -c "^STEW_ROOT="; echo "project=$STEW_PROJECT"; exit 4
 -- bin/wrap-none --
 #!/bin/sh
 exit 0

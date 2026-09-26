@@ -3,9 +3,11 @@
 ! stew build
 status 1
 
-# Exact run ID: full page with every section's output, including output a passing section hides live.
+# latest is the real run, not a fixture: a full page with every section's output, including output a passing section
+# hides live. The fixtures below look runs up by exact ID.
 # app:build requires only the blocked app:setup, so it prints no line; its summary cell is still blocked.
-exec sh -c 'stew runs show "$(ls .stew/runs | tail -n 1)"'
+stew runs show latest
+! stdout '20260101'
 stdout '^run \d{8}T\d{6}Z-[0-9a-f]{4}: stew build$'
 stdout '^==> core: setup \.\.\. done \(\d+\.\ds\)$'
 stdout '^--- stew: run: echo core-setup-out$'
@@ -21,11 +23,6 @@ stdout '^│ app     │ blocked │ blocked │$'
 stdout '^total: \d+\.\ds$'
 stdout '^logs: \.stew/runs/\d{8}T\d{6}Z-[0-9a-f]{4}$'
 ! stdout '\x1b'
-
-# latest is the real run, not a fixture.
-stew runs show latest
-stdout '^run \d{8}T\d{6}Z-[0-9a-f]{4}: stew build$'
-! stdout '20260101'
 
 # Regexes match the whole <project>:<section> key; several are OR-ed; no summary with regexes.
 stew runs show latest 'api:.*'

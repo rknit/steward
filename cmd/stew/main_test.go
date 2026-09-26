@@ -108,9 +108,10 @@ func TestScripts(t *testing.T) {
 	})
 }
 
-// stewCmd runs stew in this test process, in the script's directory. Its environment has only the variables the
-// script started with, at their current values, because testscript does not list the others; a script that adds
-// a variable for stew to see uses exec stew. stew exec always needs exec stew exec.
+// stewCmd runs stew in this test process, in the script's directory. testscript does not list a script's variables,
+// so the environment has the variables the script started with, at their current values, and the run variables the
+// script set; a script that adds another variable for stew to see uses exec stew. stew exec always needs
+// exec stew exec.
 func stewCmd(ts *testscript.TestScript, neg bool, args []string) {
 	if len(args) > 0 && args[0] == "exec" {
 		ts.Fatalf("stew exec moves the terminal and handles signals for the whole process; use exec stew exec")
@@ -118,6 +119,11 @@ func stewCmd(ts *testscript.TestScript, neg bool, args []string) {
 	var env []string
 	for _, key := range ts.Value(scriptVarsKey{}).([]string) {
 		env = append(env, key+"="+ts.Getenv(key))
+	}
+	for _, key := range runVars {
+		if value := ts.Getenv(key); value != "" {
+			env = append(env, key+"="+value)
+		}
 	}
 	loc, err := time.LoadLocation(ts.Getenv("TZ"))
 	ts.Check(err)

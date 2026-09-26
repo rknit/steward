@@ -1,9 +1,13 @@
 # Loops are bounded (10s) so a regression fails instead of hanging the suite.
 # A run in progress holds its lock: prune keeps it, even with --keep-last-n 0.
-exec sh -c 'stew build core > out 2>&1 & pid=$!; i=0; while [ ! -f core/started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; stew runs prune --keep-last-n 0; touch core/release; wait $pid; echo "exit=$?"'
+exec stew build core &
+exec sh -c 'i=0; while [ ! -f core/started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done'
+exists core/started
+stew runs prune --keep-last-n 0
 stdout '^kept \d{8}T\d{6}Z-[0-9a-f]{4}: running$'
 ! stdout pruned
-stdout '^exit=0$'
+exec touch core/release
+wait
 
 # stew killed mid-run with SIGKILL runs no cleanup. The kernel still drops the lock:
 # the run stays unfinished, its orphaned command keeps running, and prune deletes the run.
