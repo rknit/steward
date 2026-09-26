@@ -8,6 +8,7 @@ import (
 )
 
 func TestResultWrapped(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		res               Result
 		ok, wrapperFailed bool
@@ -34,12 +35,14 @@ func TestResultWrapped(t *testing.T) {
 }
 
 func TestSectionKey(t *testing.T) {
+	t.Parallel()
 	if k := (Section{Project: "my.lib", Name: "ci.full"}).Key(); k != "my.lib:ci.full" {
 		t.Errorf("Key = %q", k)
 	}
 }
 
 func TestLogErrorOutcome(t *testing.T) {
+	t.Parallel()
 	err := errors.New("boom")
 	tests := map[string]struct {
 		in   Outcome

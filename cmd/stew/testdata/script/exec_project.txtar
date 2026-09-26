@@ -1,0 +1,33 @@
+# stew exec with a project named nests the project wrapper inside the workspace wrapper, both in the project
+# directory, and the command returns to the current directory, even one that needs shell quoting. Inherited run
+# variables, as inside a section, are replaced.
+exec chmod 755 bin/wrap-ws bin/wrap-lib
+env PATH=$WORK/bin:$PATH
+env TMPDIR=$WORK/tmp
+mkdir tmp
+mkdir 'lib/my dir''s'
+env STEW_ROOT=stale STEW_PROJECT=stale STEW_SECTION=stale
+cd 'lib/my dir''s'
+
+exec stew exec lib 'echo "cwd=$(pwd) ws_cwd=$WS_CWD arg=$WS_ARG lib_cwd=$LIB_CWD root=$STEW_ROOT project=$STEW_PROJECT section=$STEW_SECTION"'
+stdout '^cwd='$WORK'/lib/my dir''s ws_cwd='$WORK'/lib arg='$WORK' lib_cwd='$WORK'/lib root='$WORK' project=lib section=$'
+
+-- .stew/config.toml --
+workspace_wrapper = 'wrap-ws "$STEW_ROOT" {{STEW_STEP}}'
+-- .stew/projects.toml --
+projects = ["lib"]
+-- lib/stew.toml --
+name = "lib"
+project_wrapper = "wrap-lib {{STEW_STEP}}"
+[setup]
+run = "true"
+-- bin/wrap-ws --
+#!/bin/sh
+export WS=yes WS_ARG="$1" WS_CWD="$(pwd)"
+shift
+exec "$@"
+-- bin/wrap-lib --
+#!/bin/sh
+[ "$WS" = yes ] || exit 9
+export LIB=yes LIB_CWD="$(pwd)"
+exec "$@"

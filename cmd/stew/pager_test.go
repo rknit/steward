@@ -19,6 +19,7 @@ func pagerEnv(kv ...string) []string {
 }
 
 func TestPagerCommand(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		stewPager, pager, want string
 	}{
@@ -48,24 +49,28 @@ func pageTo(t *testing.T, env []string, out []byte, tty bool) (string, string) {
 }
 
 func TestPageNotTTY(t *testing.T) {
+	t.Parallel()
 	if got, _ := pageTo(t, pagerEnv("STEW_PAGER=echo pager-ran"), []byte("a\nb\n"), false); got != "a\nb\n" {
 		t.Errorf("stdout = %q", got)
 	}
 }
 
 func TestPageDisabled(t *testing.T) {
+	t.Parallel()
 	if got, _ := pageTo(t, pagerEnv("STEW_PAGER=cat"), []byte("a\n"), true); got != "a\n" {
 		t.Errorf("stdout = %q", got)
 	}
 }
 
 func TestPageThroughPager(t *testing.T) {
+	t.Parallel()
 	if got, _ := pageTo(t, pagerEnv(`STEW_PAGER=sed 's/^/> /'`), []byte("a\nb\n"), true); got != "> a\n> b\n" {
 		t.Errorf("stdout = %q", got)
 	}
 }
 
 func TestPageLessDefault(t *testing.T) {
+	t.Parallel()
 	const printLess = `STEW_PAGER=cat > /dev/null; printf 'LESS=%s\n' "$LESS"`
 	if got, _ := pageTo(t, pagerEnv(printLess), []byte("x\n"), true); got != "LESS=FRX\n" {
 		t.Errorf("unset LESS: stdout = %q", got)
@@ -76,6 +81,7 @@ func TestPageLessDefault(t *testing.T) {
 }
 
 func TestPageEarlyQuit(t *testing.T) {
+	t.Parallel()
 	big := bytes.Repeat([]byte("x\n"), 2<<20)
 	if got, _ := pageTo(t, pagerEnv("STEW_PAGER=head -c 1"), big, true); got != "x" {
 		t.Errorf("stdout = %q", got)
@@ -83,6 +89,7 @@ func TestPageEarlyQuit(t *testing.T) {
 }
 
 func TestPageMissingPager(t *testing.T) {
+	t.Parallel()
 	got, errOut := pageTo(t, pagerEnv("STEW_PAGER=stew-test-no-such-pager"), []byte("a\n"), true)
 	if got != "a\n" {
 		t.Errorf("stdout = %q, want the page written directly", got)

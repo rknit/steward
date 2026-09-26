@@ -53,6 +53,7 @@ requires = ["api:build"]
 }
 
 func TestBuildPlan(t *testing.T) {
+	t.Parallel()
 	ws := testWorkspace(t, "", "")
 	plan, _, err := buildPlan(ws, []string{"api:ci.full"})
 	if err != nil {
@@ -90,6 +91,7 @@ func TestBuildPlan(t *testing.T) {
 
 // Requires are listed in execution order, not file order.
 func TestBuildPlanRequiresInExecutionOrder(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for rel, content := range map[string]string{
 		".stew/projects.toml": `projects = ["a", "b"]` + "\n",
@@ -121,6 +123,7 @@ func sectionsEqual(a, b runner.Section) bool {
 }
 
 func TestBuildPlanWrapper(t *testing.T) {
+	t.Parallel()
 	const outer, inner = "tool exec . {{STEW_STEP}}", "other run {{STEW_STEP}}"
 	tests := []struct {
 		workspace, api string
@@ -145,6 +148,7 @@ func TestBuildPlanWrapper(t *testing.T) {
 }
 
 func TestAliasPatterns(t *testing.T) {
+	t.Parallel()
 	ws := testWorkspace(t, "", "")
 	tests := []struct {
 		section  string

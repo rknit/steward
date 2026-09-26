@@ -253,7 +253,7 @@ func TestExecTerminalSuspend(t *testing.T) {
 		t.Run(map[string]string{"": "plain", "lib": "wrapped"}[project], func(t *testing.T) {
 			t.Parallel()
 			s := newShellSession(t)
-			s.send(`stew exec ` + project + ` 'echo "R-$((6*7))"; read line; echo "got:$line"'; echo "rc=$((0+$?))"` + "\n")
+			s.send(`stew exec ` + project + ` 'echo "R-$((6*7))"; read line; echo "got:$line"; exit 3'; echo "rc=$((0+$?))"` + "\n")
 			s.expect(`R-42`)
 			s.send("\x1a")
 			s.expect(`Stopped`)
@@ -265,8 +265,8 @@ func TestExecTerminalSuspend(t *testing.T) {
 			s.send("hello\n")
 			s.expect(`got:hello`)
 			s.send(`echo "rc=$((0+$?))"` + "\n")
-			if rc := s.expect(`rc=(\d+)`)[1]; rc != "0" {
-				t.Errorf("exit = %s, want 0", rc)
+			if rc := s.expect(`rc=(\d+)`)[1]; rc != "3" {
+				t.Errorf("exit = %s, want 3", rc)
 			}
 		})
 	}
@@ -289,7 +289,8 @@ func TestExecTerminalTermSparesPipeline(t *testing.T) {
 
 // A hangup reaches the command once from each of its two sources, the kernel and bash, which passes it on to its
 // job before it exits. Two SIGHUPs that arrive together merge into one, so the command gets it once or twice, with
-// or without stew; a third would mean stew passed a SIGHUP on more than once.
+// or without stew. A third means a SIGHUP arrived again later; one passed on twice at once merges, and job's unit
+// test covers that stew passes each signal once.
 //
 // After bash exits only stew may still pass a SIGHUP on, so a SIGTERM passed through stew reaches hupcount after every
 // SIGHUP, and the count is final once hupcount records the SIGTERM. When stew exits instead, because a forking wrapper

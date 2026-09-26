@@ -45,6 +45,7 @@ func testStepDir(t *testing.T) *StepDir {
 }
 
 func TestShellQuote(t *testing.T) {
+	t.Parallel()
 	for _, s := range []string{"", "a b", "it's", `say "hi"`, "$HOME", "two\nlines", `back\slash\`} {
 		out, err := exec.Command("sh", "-c", "printf %s "+ShellQuote(s)).Output()
 		if err != nil || string(out) != s {
@@ -54,6 +55,7 @@ func TestShellQuote(t *testing.T) {
 }
 
 func TestStepDirPathIsPlain(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	if !regexp.MustCompile(`^[A-Za-z0-9/._-]+$`).MatchString(d.Dir) || !filepath.IsAbs(d.Dir) ||
 		!strings.HasPrefix(filepath.Base(d.Dir), "stew-") {
@@ -62,6 +64,7 @@ func TestStepDirPathIsPlain(t *testing.T) {
 }
 
 func TestStepDirRejectsTMPDIRNeedingQuotes(t *testing.T) {
+	t.Parallel()
 	tmp := filepath.Join(t.TempDir(), "my tmp")
 	os.Mkdir(tmp, 0o755)
 	_, err := NewStepDir(tmp)
@@ -74,6 +77,7 @@ func TestStepDirRejectsTMPDIRNeedingQuotes(t *testing.T) {
 }
 
 func TestWrappedCommandRunsOnceWithExactEnv(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	root := t.TempDir() + "/it's a \"root\" $HOME"
 	project := "two\nlines \\ and \\n"
@@ -87,6 +91,7 @@ func TestWrappedCommandRunsOnceWithExactEnv(t *testing.T) {
 }
 
 func TestTwoLevelsNestOuterFirst(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	_, out, c := runStep(t, d, t.TempDir(), []string{`L=outer; export L; {{STEW_STEP}}`, `L="$L,inner" {{STEW_STEP}}`},
 		nil, `echo "$L"`)
@@ -96,6 +101,7 @@ func TestTwoLevelsNestOuterFirst(t *testing.T) {
 }
 
 func TestPrepareWritesWrapperTextUnchanged(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	outer, inner := "a 'x' \"$Y\" {{STEW_STEP}} ; b", "c\n{{STEW_STEP}} # d"
 	argv, err := d.Prepare("p-build", []string{outer, inner}, []string{"STEW_SECTION=build"}, "make")
@@ -118,6 +124,7 @@ func TestPrepareWritesWrapperTextUnchanged(t *testing.T) {
 }
 
 func TestPlaceholderInsideReparsedString(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	for _, w := range []string{
 		`sh -c {{STEW_STEP}}`,
@@ -132,6 +139,7 @@ func TestPlaceholderInsideReparsedString(t *testing.T) {
 }
 
 func TestWrapperThatDoesNotRunTheCommandOnce(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	for _, tc := range []struct {
 		wrapper string
@@ -151,6 +159,7 @@ func TestWrapperThatDoesNotRunTheCommandOnce(t *testing.T) {
 }
 
 func TestStepResultIsTheCommandsStatus(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	for _, tc := range []struct {
 		wrappers []string
@@ -172,6 +181,7 @@ func TestStepResultIsTheCommandsStatus(t *testing.T) {
 }
 
 func TestBackgroundedCommandIsUnfinishedAndStopped(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	dir := t.TempDir()
 	wrapper := `{{STEW_STEP}} >/dev/null 2>&1 & i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`
@@ -186,6 +196,7 @@ func TestBackgroundedCommandIsUnfinishedAndStopped(t *testing.T) {
 }
 
 func TestCollectRemovesStepFiles(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	runStep(t, d, t.TempDir(), []string{"a=1 {{STEW_STEP}}", "{{STEW_STEP}}"}, nil, "true")
 	if entries, _ := os.ReadDir(d.Dir); len(entries) != 0 {
@@ -194,6 +205,7 @@ func TestCollectRemovesStepFiles(t *testing.T) {
 }
 
 func TestUnreadableStatusIsAnError(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	if _, err := d.Prepare("p-build", []string{"{{STEW_STEP}}"}, nil, "true"); err != nil {
 		t.Fatal(err)
@@ -209,6 +221,7 @@ func TestUnreadableStatusIsAnError(t *testing.T) {
 }
 
 func TestCollectLeavesOtherStepsFiles(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	wrappers := []string{"{{STEW_STEP}}", "{{STEW_STEP}}"}
 	if _, err := d.Prepare("p-ci.full.q-setup", wrappers, nil, "true"); err != nil {
@@ -228,6 +241,7 @@ func TestCollectLeavesOtherStepsFiles(t *testing.T) {
 }
 
 func TestPrepareRemovesStaleReachAndStatus(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	os.WriteFile(filepath.Join(d.Dir, "p-build.reach"), []byte("\n\n"), 0o600)
 	os.WriteFile(filepath.Join(d.Dir, "p-build.status"), []byte("9\n"), 0o600)
@@ -238,6 +252,7 @@ func TestPrepareRemovesStaleReachAndStatus(t *testing.T) {
 }
 
 func TestUncountableReachDoesNotRunCommand(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	argv, err := d.Prepare("p-build", []string{"{{STEW_STEP}}", "{{STEW_STEP}}"}, nil, "touch ran")
 	if err != nil {
@@ -267,6 +282,7 @@ func TestUncountableReachDoesNotRunCommand(t *testing.T) {
 }
 
 func TestUnexecutableStepScriptIsExit126(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	argv, err := d.Prepare("p-build", []string{"{{STEW_STEP}}"}, nil, "true")
 	if err != nil {
@@ -284,6 +300,7 @@ func TestUnexecutableStepScriptIsExit126(t *testing.T) {
 }
 
 func TestFailedPrepareForgetsKey(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	level := filepath.Join(d.Dir, "p-build.1")
 	if err := os.Mkdir(level, 0o700); err != nil {
@@ -305,6 +322,7 @@ func TestFailedPrepareForgetsKey(t *testing.T) {
 }
 
 func TestRemoveDeletesDir(t *testing.T) {
+	t.Parallel()
 	d := testStepDir(t)
 	if err := d.Remove(); err != nil {
 		t.Fatal(err)

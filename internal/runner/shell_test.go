@@ -41,6 +41,7 @@ func runShell(t *testing.T, ctx context.Context, killDelay time.Duration, dir, c
 }
 
 func TestShellExitAndStreams(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	res, out, errOut := runShell(t, context.Background(), slowKillDelay, dir, "pwd; echo oops >&2; exit 3")
 	if res != (Result{ExitCode: 3}) {
@@ -56,6 +57,7 @@ func TestShellExitAndStreams(t *testing.T) {
 }
 
 func TestShellStdinIsDevNull(t *testing.T) {
+	t.Parallel()
 	res, out, _ := runShell(t, context.Background(), slowKillDelay, t.TempDir(), "cat; echo eof")
 	if !res.OK() || out != "eof\n" {
 		t.Errorf("result = %+v, stdout = %q", res, out)
@@ -63,6 +65,7 @@ func TestShellStdinIsDevNull(t *testing.T) {
 }
 
 func TestShellEnvOverridesInherited(t *testing.T) {
+	t.Parallel()
 	var stdout, stderr bytes.Buffer
 	s := Shell{Environ: append(os.Environ(), "STEW_TAG=parent:build", "STEW_TEST_KEPT=kept"), KillDelay: slowKillDelay}
 	res := s.Run(context.Background(), t.TempDir(), []string{"STEW_TAG=child:setup"}, []string{"sh", "-c", `env | grep -c '^STEW_TAG='; echo "$STEW_TAG $STEW_TEST_KEPT"`}, &stdout, &stderr)
@@ -72,6 +75,7 @@ func TestShellEnvOverridesInherited(t *testing.T) {
 }
 
 func TestShellCannotStart(t *testing.T) {
+	t.Parallel()
 	res, _, _ := runShell(t, context.Background(), slowKillDelay, filepath.Join(t.TempDir(), "missing"), "true")
 	if res.Err == nil {
 		t.Errorf("result = %+v, want start error", res)
@@ -79,6 +83,7 @@ func TestShellCannotStart(t *testing.T) {
 }
 
 func TestShellAlreadyCancelled(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	cancel(ErrInterrupted)
 	res, _, _ := runShell(t, ctx, slowKillDelay, t.TempDir(), "touch ran")
@@ -89,6 +94,7 @@ func TestShellAlreadyCancelled(t *testing.T) {
 
 // TestShellCancelKillsGroup checks SIGTERM reaches the whole process group, including a grandchild.
 func TestShellCancelKillsGroup(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	cancelledAt := make(chan time.Time, 1)
@@ -109,6 +115,7 @@ func TestShellCancelKillsGroup(t *testing.T) {
 }
 
 func TestShellCancelEscalatesToKill(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	go func() {
@@ -122,6 +129,7 @@ func TestShellCancelEscalatesToKill(t *testing.T) {
 }
 
 func TestShellInterruptSendsSIGINT(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	go func() {
@@ -136,6 +144,7 @@ func TestShellInterruptSendsSIGINT(t *testing.T) {
 }
 
 func TestShellInterruptSendsSIGTERM(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	go func() {
@@ -150,6 +159,7 @@ func TestShellInterruptSendsSIGTERM(t *testing.T) {
 }
 
 func TestShellInterruptSIGTERMEscalatesToKill(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	go func() {
@@ -165,6 +175,7 @@ func TestShellInterruptSIGTERMEscalatesToKill(t *testing.T) {
 // TestShellBackgroundProcessDoesNotHang checks Run stops waiting on stdout held open by a background process once
 // WaitDelay (KillDelay) passes.
 func TestShellBackgroundProcessDoesNotHang(t *testing.T) {
+	t.Parallel()
 	start := time.Now()
 	res, out, _ := runShell(t, context.Background(), fastKillDelay, t.TempDir(), "sleep 5 & echo started")
 	if !res.OK() || out != "started\n" {
@@ -187,6 +198,7 @@ func waitForFile(t *testing.T, path string) {
 
 // TestShellForceKillsAfterInterrupt checks that closing Force SIGKILLs a command that survives the forwarded SIGINT.
 func TestShellForceKillsAfterInterrupt(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	force := make(chan struct{})
@@ -211,6 +223,7 @@ func TestShellForceKillsAfterInterrupt(t *testing.T) {
 // TestShellForceSkipsKillDelay checks that closing Force during a SIGTERM stop kills at once instead of waiting
 // out KillDelay.
 func TestShellForceSkipsKillDelay(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	force := make(chan struct{})
@@ -252,6 +265,7 @@ func gone(t *testing.T, dir string) bool {
 }
 
 func TestShellStopsLeftoverProcesses(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	res, _, _ := runShell(t, context.Background(), slowKillDelay, dir, "sleep 30 > /dev/null 2>&1 & echo $! > pid")
 	if !res.OK() {
@@ -263,6 +277,7 @@ func TestShellStopsLeftoverProcesses(t *testing.T) {
 }
 
 func TestShellKillsLeftoverThatIgnoresSIGTERM(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	start := time.Now()
 	res, _, _ := runShell(t, context.Background(), fastKillDelay, dir,
@@ -280,6 +295,7 @@ func TestShellKillsLeftoverThatIgnoresSIGTERM(t *testing.T) {
 }
 
 func TestShellNoLeftoversNoDelay(t *testing.T) {
+	t.Parallel()
 	start := time.Now()
 	res, _, _ := runShell(t, context.Background(), slowKillDelay, t.TempDir(), "true")
 	if !res.OK() {

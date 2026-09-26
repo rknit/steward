@@ -6,6 +6,7 @@ import (
 )
 
 func TestParseKeepSince(t *testing.T) {
+	t.Parallel()
 	ict := time.FixedZone("ICT", 7*3600)
 	now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 

@@ -30,15 +30,23 @@ const stopGrace = time.Second
 // group with it. When stew continues, it gives the terminal back if its group is in the foreground, and continues
 // the job.
 func Run(dir string, argv, env []string) (syscall.WaitStatus, error) {
-	path, err := exec.LookPath(argv[0])
-	if err != nil {
-		return 0, err
-	}
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		tty = nil
 	} else {
 		defer tty.Close()
+	}
+	return run(tty, dir, argv, env, func(pgid int, sig syscall.Signal) { syscall.Kill(-pgid, sig) })
+}
+
+// run is Run with stew's controlling terminal tty, nil for none, and pass sending each signal stew gets on to the
+// job's group.
+func run(
+	tty *os.File, dir string, argv, env []string, pass func(pgid int, sig syscall.Signal),
+) (syscall.WaitStatus, error) {
+	path, err := exec.LookPath(argv[0])
+	if err != nil {
+		return 0, err
 	}
 
 	sigs := make(chan os.Signal, len(passed))
@@ -75,7 +83,7 @@ func Run(dir string, argv, env []string) (syscall.WaitStatus, error) {
 	for {
 		select {
 		case sig := <-sigs:
-			syscall.Kill(-pgid, sig.(syscall.Signal))
+			pass(pgid, sig.(syscall.Signal))
 		case w := <-waits:
 			if w.err != nil {
 				return 0, w.err

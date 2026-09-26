@@ -6,8 +6,9 @@ env PATH=$WORK/bin:$PATH
 env TMPDIR=$WORK/tmp
 mkdir tmp
 
-# SIGINT to stew reaches the command once, and stew keeps waiting. stew passes signals on in order, so a second
-# SIGINT would reach the command before the SIGTERM that ends it; that SIGTERM also ends the forking wrapper (143).
+# SIGINT to stew reaches the command once, and stew keeps waiting. stew passes signals on in order, so a later
+# second SIGINT would reach the command before the SIGTERM that ends it; that SIGTERM also ends the forking wrapper
+# (143). A second SIGINT right after the first merges with it; job's unit test covers that stew passes each once.
 exec sh -c 'stew exec "$(cat trap-int)" & pid=$!; i=0; while [ ! -f started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; i=0; while [ ! -f ints ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -TERM $pid; wait $pid; echo "exit=$?"; i=0; while [ ! -f done ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done'
 stdout '^exit=143$'
 exists done

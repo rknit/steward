@@ -53,6 +53,7 @@ func runOne(t *testing.T, s Section, script map[string][]fakeCmd) (Outcome, *har
 }
 
 func TestSectionAlgorithm(t *testing.T) {
+	t.Parallel()
 	type S = Section
 	tests := []struct {
 		name      string
@@ -125,6 +126,7 @@ func TestSectionAlgorithm(t *testing.T) {
 }
 
 func TestCommandsRunInProjectDir(t *testing.T) {
+	t.Parallel()
 	_, h := runOne(t, Section{Run: "r"}, map[string][]fakeCmd{"r": {ok("")}})
 	if !slices.Equal(h.exec.calls, []string{"/w/p: r"}) {
 		t.Errorf("calls = %q", h.exec.calls)
@@ -132,6 +134,7 @@ func TestCommandsRunInProjectDir(t *testing.T) {
 }
 
 func TestReplayAndLogs(t *testing.T) {
+	t.Parallel()
 	out, h := runOne(t, Section{Run: "r", SkipIf: "v", Verify: "v"}, map[string][]fakeCmd{
 		"v": {{exit: 1, stdout: "pre-verify noise\n"}, {exit: 1, stdout: "vout\n", stderr: "verr\n"}},
 		"r": {{stdout: "rout\n", stderr: "rerr\n"}},
@@ -165,6 +168,7 @@ func TestReplayAndLogs(t *testing.T) {
 }
 
 func TestDurationSpansAllSteps(t *testing.T) {
+	t.Parallel()
 	out, _ := runOne(t, Section{Run: "r", SkipIf: "v", Verify: "v"}, map[string][]fakeCmd{
 		"v": {{exit: 1, took: 1 * time.Second}, {took: 3 * time.Second}},
 		"r": {{took: 2 * time.Second}},
@@ -199,6 +203,7 @@ func exampleScript() map[string][]fakeCmd {
 }
 
 func TestBlockingIsPrunedPerSection(t *testing.T) {
+	t.Parallel()
 	h := newHarness(exampleScript())
 	res := h.r.Run(context.Background(), example())
 	wantEvents := []string{
@@ -247,6 +252,7 @@ func TestBlockingIsPrunedPerSection(t *testing.T) {
 }
 
 func TestAllDone(t *testing.T) {
+	t.Parallel()
 	script := exampleScript()
 	script["ab"] = []fakeCmd{ok("")}
 	h := newHarness(script)
@@ -257,6 +263,7 @@ func TestAllDone(t *testing.T) {
 }
 
 func TestInterruptStopsBeforeNextSection(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	script := exampleScript()
 	script["cs"] = []fakeCmd{{took: time.Second, during: func() { cancel(ErrInterrupted) }}}
@@ -275,6 +282,7 @@ func TestInterruptStopsBeforeNextSection(t *testing.T) {
 }
 
 func TestLogOpenFailure(t *testing.T) {
+	t.Parallel()
 	script := exampleScript()
 	h := newHarness(script)
 	h.logs.openErr["api:setup"] = true
@@ -296,6 +304,7 @@ func TestLogOpenFailure(t *testing.T) {
 }
 
 func TestLogWriteFailureCancelsCommand(t *testing.T) {
+	t.Parallel()
 	script := exampleScript()
 	script["as"] = []fakeCmd{{stdout: "some output\n"}}
 	h := newHarness(script)
@@ -318,6 +327,7 @@ func TestLogWriteFailureCancelsCommand(t *testing.T) {
 }
 
 func TestLogMarkerFailure(t *testing.T) {
+	t.Parallel()
 	script := exampleScript()
 	h := newHarness(script)
 	h.logs.setup["api:setup"] = func(l *fakeLog) { l.failMarker = true }
@@ -336,6 +346,7 @@ func TestLogMarkerFailure(t *testing.T) {
 var notAPICalls = []string{"/w/core: cl", "/w/core: cs", "/w/core: cb", "/w/docs: db"}
 
 func TestInterrupt(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	script := exampleScript()
@@ -374,6 +385,7 @@ func assertOnlyCells(t *testing.T, res *Results, ended ...string) {
 }
 
 func TestInterruptSIGTERM(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	script := exampleScript()
@@ -396,6 +408,7 @@ func TestInterruptSIGTERM(t *testing.T) {
 }
 
 func TestInterruptBetweenSections(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	script := exampleScript()
@@ -413,6 +426,7 @@ func TestInterruptBetweenSections(t *testing.T) {
 }
 
 func TestInterruptBeforeBlockedSections(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	script := exampleScript()
@@ -452,6 +466,7 @@ func (c *cancelAfter) SectionEnd(s Section, out Outcome) {
 }
 
 func TestResultCause(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		r    Result
 		want string
@@ -468,6 +483,7 @@ func TestResultCause(t *testing.T) {
 }
 
 func TestRecorderCalls(t *testing.T) {
+	t.Parallel()
 	h := newHarness(exampleScript())
 	h.r.Run(context.Background(), example())
 
@@ -486,6 +502,7 @@ func TestRecorderCalls(t *testing.T) {
 }
 
 func TestRecordErrorFailsSection(t *testing.T) {
+	t.Parallel()
 	h := newHarness(exampleScript())
 	h.record.failSection["api:setup"] = true
 	res := h.r.Run(context.Background(), example())
@@ -506,6 +523,7 @@ func TestRecordErrorFailsSection(t *testing.T) {
 }
 
 func TestRecordErrorKeepsFailCause(t *testing.T) {
+	t.Parallel()
 	script := exampleScript()
 	script["as"] = []fakeCmd{{exit: 2}}
 	h := newHarness(script)
@@ -517,6 +535,7 @@ func TestRecordErrorKeepsFailCause(t *testing.T) {
 }
 
 func TestRecordErrorKeepsInterrupted(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	script := exampleScript()
@@ -533,6 +552,7 @@ func TestRecordErrorKeepsInterrupted(t *testing.T) {
 }
 
 func TestStewEnv(t *testing.T) {
+	t.Parallel()
 	h := newHarness(map[string][]fakeCmd{"v": {bad(""), ok("")}, "r": {ok("")}, "q": {ok("")}})
 	h.r.Run(context.Background(), plan(
 		Section{Project: "my.lib", Name: "setup", Dir: "/w/lib", Run: "r", SkipIf: "v", Verify: "v"},
@@ -573,6 +593,7 @@ func runWrappedOne(t *testing.T, s Section, script map[string][]fakeCmd) (Outcom
 }
 
 func TestNoWrappersRunsPlainShell(t *testing.T) {
+	t.Parallel()
 	_, h := runOne(t, Section{Run: "r"}, map[string][]fakeCmd{"r": {ok("")}})
 	if len(h.exec.argvs) != 1 || !slices.Equal(h.exec.argvs[0], []string{"sh", "-c", "r"}) {
 		t.Errorf("argvs = %q", h.exec.argvs)
@@ -583,6 +604,7 @@ func TestNoWrappersRunsPlainShell(t *testing.T) {
 }
 
 func TestWrappedStepRunsPreparedArgv(t *testing.T) {
+	t.Parallel()
 	out, h := runWrappedOne(t, Section{Run: "r"}, map[string][]fakeCmd{"r": {ok("")}})
 	if out.Status != Done || len(h.exec.argvs) != 1 || !slices.Equal(h.exec.argvs[0], []string{"fake-wrapped", "p-build", "r"}) {
 		t.Errorf("outcome = %+v, argvs = %q", out, h.exec.argvs)
@@ -594,6 +616,7 @@ func TestWrappedStepRunsPreparedArgv(t *testing.T) {
 }
 
 func TestWrapperFailureFailsEveryStep(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		s      Section
@@ -618,6 +641,7 @@ func TestWrapperFailureFailsEveryStep(t *testing.T) {
 }
 
 func TestWrapperFailureInSkipIfFailsWithoutRun(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		v    fakeCmd
 		want string
@@ -636,6 +660,7 @@ func TestWrapperFailureInSkipIfFailsWithoutRun(t *testing.T) {
 }
 
 func TestReachedFailingCommandHasPlainCause(t *testing.T) {
+	t.Parallel()
 	out, _ := runWrappedOne(t, Section{Run: "r"}, map[string][]fakeCmd{"r": {bad("")}})
 	if out.Status != Fail || out.Cause != "exit 1" {
 		t.Errorf("outcome = %+v", out)
@@ -643,6 +668,7 @@ func TestReachedFailingCommandHasPlainCause(t *testing.T) {
 }
 
 func TestReachedStepResultIsTheCommandsStatus(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		r      fakeCmd
@@ -661,6 +687,7 @@ func TestReachedStepResultIsTheCommandsStatus(t *testing.T) {
 }
 
 func TestUnfinishedCommandFailsEveryStep(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		s      Section
@@ -686,6 +713,7 @@ func TestUnfinishedCommandFailsEveryStep(t *testing.T) {
 }
 
 func TestUnfinishedInterruptIsInterrupted(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	h := newHarness(map[string][]fakeCmd{"r": {{unfinished: true, during: func() { cancel(ErrInterrupted) }}}})
 	out := runWrapped(ctx, h, Section{Name: "build", Run: "r"})["p:build"]
@@ -695,6 +723,7 @@ func TestUnfinishedInterruptIsInterrupted(t *testing.T) {
 }
 
 func TestStepsErrorsAreLogErrors(t *testing.T) {
+	t.Parallel()
 	for _, tt := range []struct {
 		name string
 		set  func(*fakeSteps)
@@ -714,6 +743,7 @@ func TestStepsErrorsAreLogErrors(t *testing.T) {
 }
 
 func TestUnreachedLogWriteErrorIsLogError(t *testing.T) {
+	t.Parallel()
 	h := newHarness(map[string][]fakeCmd{"r": {{unreached: true, stdout: "x"}}})
 	h.logs.setup["p:build"] = func(l *fakeLog) { l.failWrite = true }
 	if out := runWrapped(context.Background(), h, Section{Name: "build", Run: "r"})["p:build"]; out.Status != Fail || out.Cause != "log error: disk full" {
@@ -722,6 +752,7 @@ func TestUnreachedLogWriteErrorIsLogError(t *testing.T) {
 }
 
 func TestUnreachedInterruptIsInterrupted(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancelCause(context.Background())
 	h := newHarness(map[string][]fakeCmd{"r": {{unreached: true, during: func() { cancel(ErrInterrupted) }}}})
 	if out := runWrapped(ctx, h, Section{Name: "build", Run: "r"})["p:build"]; out.Status != Interrupted || out.Cause != "wrapper did not run the command (signal SIGINT)" {
@@ -730,6 +761,7 @@ func TestUnreachedInterruptIsInterrupted(t *testing.T) {
 }
 
 func TestStepKeysDifferPerSection(t *testing.T) {
+	t.Parallel()
 	h := newHarness(map[string][]fakeCmd{"s": {ok("")}, "b": {ok("")}, "q": {ok("")}})
 	runWrapped(context.Background(), h,
 		Section{Name: "setup", Run: "s"}, Section{Name: "build", Run: "b"}, Section{Name: "ci.quick", Run: "q"})
@@ -739,6 +771,7 @@ func TestStepKeysDifferPerSection(t *testing.T) {
 }
 
 func TestBlockedRecordErrorChangesNothing(t *testing.T) {
+	t.Parallel()
 	h := newHarness(map[string][]fakeCmd{"x": {{exit: 2}}, "y": {ok("")}})
 	h.record.failBlocked = true
 	res := h.r.Run(context.Background(), plan(sec("a", "build", "x"), sec("b", "build", "y", "a:build")))
