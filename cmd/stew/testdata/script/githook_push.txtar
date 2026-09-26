@@ -1,0 +1,66 @@
+# The pre-push hook runs ci.pre-push; a failing CI blocks the push.
+# Unlike pre-commit, git keeps pre-push hook output on stdout.
+[!exec:git] skip 'git not installed'
+exec git init -q
+exec git add -A
+exec git commit -q -m first
+
+cd mono
+stew git install pre-push
+stdout '^installed .*/\.git/hooks/pre-push$'
+cd $WORK
+exec test -x .git/hooks/pre-push
+cmp .git/hooks/pre-push want/push-hook
+
+exec git init -q --bare remote.git
+! exec git push -q remote.git HEAD:refs/heads/main
+stdout '^==> core: ci\.full \.\.\. fail'
+stdout '^==> core: ci\.pre-push \.\.\. blocked by core:ci\.full$'
+! exec git --git-dir=remote.git rev-parse -q --verify refs/heads/main
+
+cp want/push-passing.toml mono/core/stew.toml
+exec git push -q remote.git HEAD:refs/heads/main
+stdout '^==> core: ci\.pre-push \.\.\. done'
+exec git --git-dir=remote.git rev-parse -q --verify refs/heads/main
+
+-- mono/.stew/config.toml --
+workspace_wrapper = ""
+-- mono/.stew/projects.toml --
+projects = ["core"]
+-- mono/.stew/.gitignore --
+runs/
+-- mono/core/stew.toml --
+name = "core"
+project_wrapper = ""
+[setup]
+run = ""
+[build]
+run = ""
+requires = ["core:setup"]
+[ci.full]
+run = "exit 1"
+requires = ["core:build"]
+[ci.quick]
+run = "echo quick-ok"
+requires = ["core:build"]
+[ci.pre-push]
+run = ""
+requires = ["core:ci.full"]
+-- want/push-hook --
+#!/bin/sh
+# installed by stew
+cd "$(git rev-parse --show-toplevel)/mono" && exec stew ci --level pre-push
+-- want/push-passing.toml --
+name = "core"
+project_wrapper = ""
+[setup]
+run = ""
+[build]
+run = ""
+requires = ["core:setup"]
+[ci.full]
+run = "exit 1"
+requires = ["core:build"]
+[ci.pre-push]
+run = "echo push-ok"
+requires = ["core:build"]

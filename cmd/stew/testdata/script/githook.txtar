@@ -45,25 +45,6 @@ exec git add -A
 stderr '^==> core: ci\.quick \.\.\. fail'
 stderr '^==> core: ci\.pre-commit \.\.\. blocked by core:ci\.quick$'
 
-# The pre-push hook runs ci.pre-push; a failing CI blocks the push.
-# Unlike pre-commit, git keeps pre-push hook output on stdout.
-cd mono
-stew git install pre-push
-stdout '^installed .*/\.git/hooks/pre-push$'
-cd $WORK
-exec test -x .git/hooks/pre-push
-cmp .git/hooks/pre-push want/push-hook
-exec git init -q --bare remote.git
-cp want/push-failing.toml mono/core/stew.toml
-! exec git push -q remote.git HEAD:refs/heads/main
-stdout '^==> core: ci\.full \.\.\. fail'
-stdout '^==> core: ci\.pre-push \.\.\. blocked by core:ci\.full$'
-! exec git --git-dir=remote.git rev-parse -q --verify refs/heads/main
-cp want/push-passing.toml mono/core/stew.toml
-exec git push -q remote.git HEAD:refs/heads/main
-stdout '^==> core: ci\.pre-push \.\.\. done'
-exec git --git-dir=remote.git rev-parse -q --verify refs/heads/main
-
 # In a workspace where no project defines the level, the hook fails with exit 2 and blocks the commit.
 cp want/no-level.toml mono/core/stew.toml
 exec git add -A
@@ -116,41 +97,6 @@ requires = ["core:ci.quick"]
 #!/bin/sh
 # installed by stew
 cd "$(git rev-parse --show-toplevel)/mono" && exec stew ci --level pre-commit
--- want/push-hook --
-#!/bin/sh
-# installed by stew
-cd "$(git rev-parse --show-toplevel)/mono" && exec stew ci --level pre-push
--- want/push-failing.toml --
-name = "core"
-project_wrapper = ""
-[setup]
-run = ""
-[build]
-run = ""
-requires = ["core:setup"]
-[ci.full]
-run = "exit 1"
-requires = ["core:build"]
-[ci.quick]
-run = "echo quick-ok"
-requires = ["core:build"]
-[ci.pre-push]
-run = ""
-requires = ["core:ci.full"]
--- want/push-passing.toml --
-name = "core"
-project_wrapper = ""
-[setup]
-run = ""
-[build]
-run = ""
-requires = ["core:setup"]
-[ci.full]
-run = "exit 1"
-requires = ["core:build"]
-[ci.pre-push]
-run = "echo push-ok"
-requires = ["core:build"]
 -- want/no-level.toml --
 name = "core"
 project_wrapper = ""
