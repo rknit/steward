@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -79,8 +80,12 @@ func TestScripts(t *testing.T) {
 		Dir:                 "testdata/script",
 		RequireExplicitExec: true,
 		Condition: func(cond string) (bool, error) {
-			if cond == "root" {
+			switch cond {
+			case "root":
 				return os.Geteuid() == 0, nil
+			case "bash-sh":
+				out, err := exec.Command("sh", "-c", `echo "$BASH_VERSION"`).Output()
+				return strings.TrimSpace(string(out)) != "", err
 			}
 			return false, fmt.Errorf("unknown condition %q", cond)
 		},

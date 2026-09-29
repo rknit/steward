@@ -26,6 +26,17 @@ status 2
 stderr 'config\.toml: workspace_wrapper: sh: '
 ! exists lib/ran
 
+# The syntax check does not use stew's environment. bash as sh would take extglob from BASHOPTS and accept @(a|b).
+# The case runs only where sh is bash: dash rejects @(a|b) either way.
+# A variable the script adds reaches only a real stew process.
+[bash-sh] cp cfg/extglob.toml .stew/config.toml
+[bash-sh] env BASHOPTS=extglob
+[bash-sh] exec sh -c 'stew build; echo "exit=$?"'
+[bash-sh] stdout '^exit=2$'
+[bash-sh] stderr 'config\.toml: workspace_wrapper: sh: '
+[bash-sh] ! exists lib/ran
+[bash-sh] env BASHOPTS=
+
 cp cfg/unknown.toml .stew/config.toml
 ! stew build
 status 2
@@ -66,6 +77,9 @@ workspace_wrapper = "tool {{STEW_STEP}} {{STEW_STEP}}"
 workspace_trust = ""
 -- cfg/syntax.toml --
 workspace_wrapper = 'tool "unbalanced {{STEW_STEP}}'
+workspace_trust = ""
+-- cfg/extglob.toml --
+workspace_wrapper = "echo @(a|b); {{STEW_STEP}}"
 workspace_trust = ""
 -- cfg/unknown.toml --
 workspace_wrapper = ""

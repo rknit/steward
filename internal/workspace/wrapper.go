@@ -21,6 +21,8 @@ func CheckWrapper(w string) error {
 	}
 	var stderr bytes.Buffer
 	cmd := exec.Command("sh", "-n", "-c", strings.Replace(w, runner.StepPlaceholder, "/tmp/stew-check/step", 1))
+	// bash as sh imports parse options such as extglob from BASHOPTS and SHELLOPTS in its environment.
+	cmd.Env = []string{}
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		if msg := strings.TrimSpace(stderr.String()); msg != "" {
