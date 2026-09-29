@@ -36,16 +36,23 @@ stdout '^removed .*/ws/\.agents/skills/use-steward$'
 status 1
 stderr '^stew: .*/ws/\.agents/skills/use-steward: not installed$'
 
-# Outside a workspace, a named directory works and the default is a usage error.
+# Outside a workspace, the default is .agents/skills in the working directory, where stew init would put the root.
 cd $WORK/outside
+! stew list
+status 2
+stderr '^stew: not a stew workspace$'
+stew skills install
+stdout '^installed .*/outside/\.agents/skills/use-steward$'
+exists .agents/skills/use-steward/SKILL.md
+! exists .stew
+stew skills uninstall
+stdout '^removed .*/outside/\.agents/skills/use-steward$'
+! exists .agents/skills/use-steward
+! stew skills uninstall
+status 1
+stderr '^stew: .*/outside/\.agents/skills/use-steward: not installed$'
 stew skills install skills
 exists skills/use-steward/SKILL.md
-! stew skills install
-status 2
-stderr '^stew: not a stew workspace$'
-! stew skills uninstall
-status 2
-stderr '^stew: not a stew workspace$'
 ! stew skills install a b
 status 2
 stderr '^stew: accepts at most 1 arg\(s\), received 2$'

@@ -147,7 +147,8 @@ Manage this skill, `use-steward`, which each `stew` binary carries for its own v
 
 - `<dir>` is a skills directory. The skill lives in `<dir>/use-steward/`.
 - Without `<dir>`, it is `.agents/skills` in the workspace root, from anywhere in the workspace. Outside a
-  workspace, name a directory; otherwise `not a stew workspace`, exit 2.
+  workspace, it is `.agents/skills` in the current directory, where `stew init` would put the root. No `init`
+  is needed.
 - A named `<dir>` is resolved against the current directory and need not be inside a workspace.
 - Neither command loads the workspace, so both work while the configuration is broken.
 - `install` creates `<dir>` if needed and replaces an earlier `use-steward/`, including files an older version had.

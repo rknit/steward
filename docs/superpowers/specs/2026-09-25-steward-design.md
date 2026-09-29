@@ -1192,7 +1192,8 @@ embeds the skill from `skills/use-steward/`, so each `stew` installs the skill f
 
 - `<dir>` is a skills directory. The skill lives in `<dir>/use-steward/`.
 - Without `<dir>`: `.agents/skills` in the workspace root, found by root discovery from cwd. The workspace is not
-  loaded or validated. No workspace: `not a stew workspace`, exit 2.
+  loaded or validated. No workspace: `.agents/skills` in cwd, where `stew init` would put the root, so the skill
+  can be installed before `init`.
 - A named `<dir>` is resolved against cwd and needs no workspace.
 - More than one argument is exit 2.
 
