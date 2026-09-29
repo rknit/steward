@@ -56,18 +56,22 @@ project_wrapper = ""
 # Makes the project wrapper usable in a new tree, e.g. "mise trust". Runs once per tree, with consent.
 # "" means none.
 project_trust = ""
+# "parallel", "serial" (one section of this project at a time), or "exclusive" (each section alone).
+# concurrency = "parallel"
 
 # Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose
 # <project>:<section> key matches; `stew build` is `stew run '.*:build'`.
 # skip_if exit 0 skips the section. verify runs after run and must exit 0.
 # requires lists sections that must succeed first, as "<project>:<section>",
 # or ":<section>" for a section of this project.
+# exclusive = true runs the section with nothing else running; false overrides an "exclusive" project.
 #
 # [build]
 # run = ""
 # skip_if = ""
 # verify = ""
 # requires = []
+# exclusive = false
 -- want/projects-1.toml --
 projects = ["libs/core"]
 -- want/projects-2.toml --

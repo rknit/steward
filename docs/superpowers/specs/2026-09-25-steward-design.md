@@ -230,6 +230,7 @@ Each run captures all command output to disk.
 name = "api"
 project_wrapper = ""
 project_trust = ""
+concurrency = "serial"
 
 [setup]
 skip_if = "test -d node_modules"
@@ -243,6 +244,7 @@ requires = ["api:setup", "core:build"]
 [ci.full]
 run = "npm test"
 requires = ["api:build"]
+exclusive = true
 
 [ci.quick]
 run = "npm run lint"
@@ -258,20 +260,30 @@ requires = ["api:ci.quick"]
 | `name`            | yes      | Unique across the workspace. Must match `[a-z0-9][a-z0-9._-]*`. |
 | `project_wrapper` | yes      | String. `""` means no wrapper. Nested inside the workspace one. |
 | `project_trust`   | yes      | String. `""` means no trust step.                               |
+| `concurrency`     | no       | `"parallel"`, `"serial"`, or `"exclusive"`. Absent means `"parallel"`. |
 | any other table   | no       | A section. A project may have zero sections.                    |
 | `run`             | yes      | String. `""` allowed.                                           |
 | `skip_if`         | no       | String. Absent and `""` both mean none.                         |
 | `verify`          | no       | String. Absent and `""` both mean none.                         |
 | `requires`        | no       | List of keys. Absent means `[]`.                                |
+| `exclusive` (section) | no   | Boolean. Absent means inherited from the project.               |
 
 - `dependencies` is not a `stew.toml` key. Project dependencies are derived from `requires` (see `stew list`).
 - No section name is special. `setup`, `build`, and `ci.full` are not required, and a project may have none.
 - Errors inside a section name the section: `<file>: [build]: missing key "run"`, `<file>: [build]: unknown key "foo"`.
+- `concurrency` joins `name`, `project_wrapper`, and `project_trust` as a top-level key. Every other top-level key
+  is still a section or namespace.
+- `exclusive` joins the section keys (`run`, `skip_if`, `verify`, `requires`). A table holding any section key is
+  a section and must have `run`, so `[lint]` with only `exclusive = true` fails with `[lint]: missing key "run"`.
+- Errors:
+  - `<file>: concurrency: want a string`
+  - `<file>: concurrency: must be "parallel", "serial", or "exclusive"`
+  - `<file>: [<section>]: exclusive: want a boolean`
 
 #### Section Names
 
 - A dotted TOML table is a dotted name: `[ci.full]` is section `ci.full`.
-- A table is a section when it holds any of `run`, `skip_if`, `verify`, `requires`.
+- A table is a section when it holds any of `run`, `skip_if`, `verify`, `requires`, `exclusive`.
   Otherwise it is a namespace and must hold only tables.
 - A table cannot be both. `[ci]` with `run`, plus `[ci.full]`, is an error:
   `<file>: [ci]: a section cannot contain sections`.
@@ -308,17 +320,21 @@ project_wrapper = ""
 # Makes the project wrapper usable in a new tree, e.g. "mise trust". Runs once per tree, with consent.
 # "" means none.
 project_trust = ""
+# "parallel", "serial" (one section of this project at a time), or "exclusive" (each section alone).
+# concurrency = "parallel"
 
 # Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose
 # <project>:<section> key matches; `stew build` is `stew run '.*:build'`.
 # skip_if exit 0 skips the section. verify runs after run and must exit 0.
 # requires lists sections that must succeed first, as "<project>:<section>".
+# exclusive = true runs the section with nothing else running; false overrides an "exclusive" project.
 #
 # [build]
 # run = ""
 # skip_if = ""
 # verify = ""
 # requires = []
+# exclusive = false
 ```
 
 The template defines no section. It is valid on creation and does nothing until filled in.
@@ -548,6 +564,23 @@ and comma-separated, or `-` when there are none.
 - Order: topological over selected sections (Kahn). Among ready sections, the smallest project name goes first,
   then the smallest section name. The order is identical on every run. It is the **start priority**.
 
+An exclusive section runs with no other section running. A serial project runs at most one of its sections at a
+time; other projects' sections may overlap it. Resolved per section:
+
+| Project `concurrency` | Section `exclusive` | Exclusive | Serial |
+| ---------------------- | -------------------- | --------- | ------ |
+| `parallel`             | absent or `false`    | no        | no     |
+| `parallel`             | `true`                | yes       | no     |
+| `serial`               | absent or `false`    | no        | yes    |
+| `serial`               | `true`                | yes       | yes    |
+| `exclusive`            | absent or `true`      | yes       | yes    |
+| `exclusive`            | `false`               | no        | yes    |
+
+An exclusive section runs alone, so its Serial value only matters for the other sections of its project.
+
+A section with nothing to run (`run` and `verify` both `""`) is never exclusive: it would hold back the run to do
+nothing.
+
 Job limit, the most sections that run at once:
 
 | Workspace `concurrency` | Job limit                                           |
@@ -565,12 +598,16 @@ Once at the start, and whenever a section ends, the scheduler scans the sections
 order, and stops at the first rule that says stop:
 
 1. No stop signal has arrived. After one, the scan does nothing.
-2. The job limit is not reached. Otherwise the scan stops.
+2. The job limit is not reached, and no exclusive section is running. Otherwise the scan stops.
 3. A section that is not ready (a requirement has not ended) is passed over.
 4. A ready section with a requirement that failed or was blocked becomes `blocked` at once, with the recording,
    pruning, and `blocked by` line of Failure and Blocking. Its dependents come later in plan order, so they are
    blocked when a scan reaches them.
-5. Otherwise the section starts.
+5. A ready exclusive section starts when nothing is running. Either way, the scan stops: no section after it in
+   plan order starts before it. Only sections before it in plan order can still start; there are finitely many,
+   so it cannot starve.
+6. A ready serial section is passed over while another section of its project is running.
+7. Otherwise the section starts.
 
 Then the scheduler waits for the next section to end.
 

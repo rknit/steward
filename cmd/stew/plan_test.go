@@ -1,6 +1,7 @@
 package main
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -121,7 +122,38 @@ func TestBuildPlanRequiresInExecutionOrder(t *testing.T) {
 func sectionsEqual(a, b runner.Section) bool {
 	return a.Project == b.Project && a.Name == b.Name && a.Dir == b.Dir && a.Run == b.Run &&
 		a.SkipIf == b.SkipIf && a.Verify == b.Verify && slices.Equal(a.Requires, b.Requires) &&
-		slices.Equal(a.Wrappers, b.Wrappers)
+		slices.Equal(a.Wrappers, b.Wrappers) && a.Exclusive == b.Exclusive && a.Serial == b.Serial
+}
+
+func TestBuildPlanIsolation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	for rel, content := range map[string]string{
+		".stew/projects.toml": `projects = ["a"]` + "\n",
+		".stew/config.toml":   workspace.ConfigTemplate,
+		"a/stew.toml": "name = \"a\"\nproject_wrapper = \"\"\nproject_trust = \"\"\nconcurrency = \"serial\"\n" +
+			"[build]\nrun = \"b\"\nexclusive = true\n[lint]\nrun = \"l\"\n[group]\nrun = \"\"\nexclusive = true\n",
+	} {
+		if err := writeFile(root, rel, content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ws, err := workspace.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, _, err := buildPlan(ws, []string{"a:.*"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][2]bool{}
+	for _, s := range plan.Sections {
+		got[s.Key()] = [2]bool{s.Exclusive, s.Serial}
+	}
+	want := map[string][2]bool{"a:build": {true, true}, "a:lint": {false, true}, "a:group": {false, true}}
+	if !maps.Equal(got, want) {
+		t.Errorf("exclusive, serial = %v, want %v", got, want)
+	}
 }
 
 func TestBuildPlanWrapper(t *testing.T) {

@@ -42,6 +42,9 @@
 - The plan order is a topological sort over `requires`. Among ready sections, the smallest project name comes first,
   then the smallest section name. Free slots go to sections in this order. With one job, sections run exactly in
   this order.
+- Sections of different projects share the machine and may run at once. Use `exclusive = true` for a section that
+  needs the machine alone, and `concurrency = "serial"` in a project whose sections share files.
+- An exclusive section waits until nothing runs, and no section after it in the order starts before it.
 - `--dry-run` prints this order with each section's direct requirements and runs nothing:
 
   ```text

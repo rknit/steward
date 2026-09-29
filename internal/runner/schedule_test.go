@@ -90,6 +90,93 @@ func TestEmptySectionsEachStartAndEnd(t *testing.T) {
 	}
 }
 
+func TestExclusiveSectionRunsAlone(t *testing.T) {
+	t.Parallel()
+	x := sec("x", "build", "x")
+	x.Exclusive = true
+	g := startGated(context.Background(), 4, plan(sec("a", "build", "a"), x, sec("b", "build", "b")))
+	g.expect(t, "start a:build")
+	g.exec.finish("a", Result{})
+	g.expect(t, "end a:build done", "start x:build")
+	g.exec.finish("x", Result{})
+	g.expect(t, "end x:build done", "start b:build")
+	g.exec.finish("b", Result{})
+	g.expect(t, "end b:build done")
+	g.wait(t)
+}
+
+func TestBlockedExclusiveSectionDoesNotStopScan(t *testing.T) {
+	t.Parallel()
+	t.Run("passed over while not ready", func(t *testing.T) {
+		t.Parallel()
+		x := sec("x", "build", "x", "a:build")
+		x.Exclusive = true
+		g := startGated(context.Background(), 4, plan(sec("a", "build", "a"), x, sec("b", "build", "b")))
+		g.expect(t, "start a:build", "start b:build")
+		g.exec.finish("a", Result{ExitCode: 1})
+		g.expect(t, "end a:build fail", "blocked x:build by a:build")
+		g.exec.finish("b", Result{})
+		g.expect(t, "end b:build done")
+		res := g.wait(t)
+		want := map[string]Status{"a:build": Fail, "x:build": Blocked, "b:build": Done}
+		if got := cells(res); !maps.Equal(got, want) {
+			t.Errorf("cells = %v, want %v", got, want)
+		}
+	})
+	t.Run("blocked mid-scan", func(t *testing.T) {
+		t.Parallel()
+		x := sec("x", "build", "x", "a:build")
+		x.Exclusive = true
+		g := startGated(context.Background(), 2,
+			plan(sec("a", "build", "a"), sec("b", "build", "b"), x, sec("d", "build", "d")))
+		g.expect(t, "start a:build", "start b:build")
+		g.exec.finish("a", Result{ExitCode: 1})
+		g.expect(t, "end a:build fail", "blocked x:build by a:build", "start d:build")
+		g.exec.finish("d", Result{})
+		g.expect(t, "end d:build done")
+		g.exec.finish("b", Result{})
+		g.expect(t, "end b:build done")
+		res := g.wait(t)
+		want := map[string]Status{"a:build": Fail, "b:build": Done, "x:build": Blocked, "d:build": Done}
+		if got := cells(res); !maps.Equal(got, want) {
+			t.Errorf("cells = %v, want %v", got, want)
+		}
+	})
+}
+
+func TestSectionBeforeWaitingExclusiveStarts(t *testing.T) {
+	t.Parallel()
+	x := sec("x", "build", "x")
+	x.Exclusive = true
+	g := startGated(context.Background(), 4,
+		plan(sec("a", "build", "a"), sec("p", "build", "p", "a:build"), x, sec("q", "build", "q")))
+	g.expect(t, "start a:build")
+	g.exec.finish("a", Result{})
+	g.expect(t, "end a:build done", "start p:build")
+	g.exec.finish("p", Result{})
+	g.expect(t, "end p:build done", "start x:build")
+	g.exec.finish("x", Result{})
+	g.expect(t, "end x:build done", "start q:build")
+	g.exec.finish("q", Result{})
+	g.expect(t, "end q:build done")
+	g.wait(t)
+}
+
+func TestSerialProjectRunsOneSectionAtATime(t *testing.T) {
+	t.Parallel()
+	one, two := sec("p", "one", "p1"), sec("p", "two", "p2")
+	one.Serial, two.Serial = true, true
+	g := startGated(context.Background(), 4, plan(one, two, sec("q", "one", "q1")))
+	g.expect(t, "start p:one", "start q:one")
+	g.exec.finish("p1", Result{})
+	g.expect(t, "end p:one done", "start p:two")
+	g.exec.finish("q1", Result{})
+	g.expect(t, "end q:one done")
+	g.exec.finish("p2", Result{})
+	g.expect(t, "end p:two done")
+	g.wait(t)
+}
+
 func TestStepKeysAreUniqueWhenNamesCollide(t *testing.T) {
 	t.Parallel()
 	h := newHarness(map[string][]fakeCmd{"x": {ok("")}, "y": {ok("")}})

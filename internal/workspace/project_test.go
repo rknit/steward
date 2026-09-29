@@ -117,6 +117,10 @@ func TestParseProjectErrors(t *testing.T) {
 		{"self short", head + "[build]\nrun = \"\"\nrequires = [\":build\"]\n", `stew.toml: [build]: requires "api:build": section requires itself`},
 		{"duplicate", head + "[build]\nrun = \"\"\nrequires = [\"core:build\", \"core:build\"]\n", `stew.toml: [build]: duplicate requires "core:build"`},
 		{"duplicate short", head + "[build]\nrun = \"\"\nrequires = [\"api:setup\", \":setup\"]\n", `stew.toml: [build]: duplicate requires "api:setup"`},
+		{"concurrency type", head + "concurrency = 1\n", "stew.toml: concurrency: want a string"},
+		{"bad concurrency", head + "concurrency = \"alone\"\n", `stew.toml: concurrency: must be "parallel", "serial", or "exclusive"`},
+		{"exclusive type", head + "[build]\nrun = \"\"\nexclusive = \"yes\"\n", "stew.toml: [build]: exclusive: want a boolean"},
+		{"exclusive alone", head + "[lint]\nexclusive = true\n", `stew.toml: [lint]: missing key "run"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -126,6 +130,35 @@ func TestParseProjectErrors(t *testing.T) {
 				t.Errorf("err = %v, want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestIsolation(t *testing.T) {
+	t.Parallel()
+	const head = "name = \"p\"\nproject_wrapper = \"\"\nproject_trust = \"\"\n"
+	for _, tc := range []struct {
+		project, section  string
+		exclusive, serial bool
+	}{
+		{"", "", false, false},
+		{"", "exclusive = false\n", false, false},
+		{"", "exclusive = true\n", true, false},
+		{"concurrency = \"parallel\"\n", "exclusive = true\n", true, false},
+		{"concurrency = \"serial\"\n", "", false, true},
+		{"concurrency = \"serial\"\n", "exclusive = false\n", false, true},
+		{"concurrency = \"serial\"\n", "exclusive = true\n", true, true},
+		{"concurrency = \"exclusive\"\n", "", true, true},
+		{"concurrency = \"exclusive\"\n", "exclusive = true\n", true, true},
+		{"concurrency = \"exclusive\"\n", "exclusive = false\n", false, true},
+	} {
+		content := head + tc.project + "[build]\nrun = \"\"\n" + tc.section
+		p, err := ParseProject("stew.toml", []byte(content))
+		if err != nil {
+			t.Fatalf("%q: %v", content, err)
+		}
+		if exclusive, serial := p.Isolation("build"); exclusive != tc.exclusive || serial != tc.serial {
+			t.Errorf("%q: Isolation = %v, %v; want %v, %v", content, exclusive, serial, tc.exclusive, tc.serial)
+		}
 	}
 }
 
@@ -158,18 +191,22 @@ project_wrapper = ""
 # Makes the project wrapper usable in a new tree, e.g. "mise trust". Runs once per tree, with consent.
 # "" means none.
 project_trust = ""
+# "parallel", "serial" (one section of this project at a time), or "exclusive" (each section alone).
+# concurrency = "parallel"
 
 # Sections: any [name] with a ` + "`run`" + ` key. ` + "`stew run '<regex>'`" + ` runs sections whose
 # <project>:<section> key matches; ` + "`stew build`" + ` is ` + "`stew run '.*:build'`" + `.
 # skip_if exit 0 skips the section. verify runs after run and must exit 0.
 # requires lists sections that must succeed first, as "<project>:<section>",
 # or ":<section>" for a section of this project.
+# exclusive = true runs the section with nothing else running; false overrides an "exclusive" project.
 #
 # [build]
 # run = ""
 # skip_if = ""
 # verify = ""
 # requires = []
+# exclusive = false
 `
 	if got := string(Template("x")); got != want {
 		t.Errorf("template:\n%s\nwant:\n%s", got, want)

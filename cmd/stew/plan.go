@@ -36,15 +36,21 @@ func buildPlan(ws *workspace.Workspace, patterns []string) (runner.Plan, map[str
 		for j, k := range reqs {
 			requires[j] = k.String()
 		}
+		exclusive, serial := n.Project.Isolation(n.Key.Section)
+		if n.Section.Run == "" && n.Section.Verify == "" {
+			exclusive = false
+		}
 		plan.Sections = append(plan.Sections, runner.Section{
-			Project:  n.Project.Name,
-			Name:     n.Key.Section,
-			Dir:      filepath.Join(ws.Root, filepath.FromSlash(n.Project.Path)),
-			Wrappers: wrappers(ws.Wrapper, n.Project.Wrapper),
-			Run:      n.Section.Run,
-			SkipIf:   n.Section.SkipIf,
-			Verify:   n.Section.Verify,
-			Requires: requires,
+			Project:   n.Project.Name,
+			Name:      n.Key.Section,
+			Dir:       filepath.Join(ws.Root, filepath.FromSlash(n.Project.Path)),
+			Wrappers:  wrappers(ws.Wrapper, n.Project.Wrapper),
+			Run:       n.Section.Run,
+			SkipIf:    n.Section.SkipIf,
+			Verify:    n.Section.Verify,
+			Requires:  requires,
+			Exclusive: exclusive,
+			Serial:    serial,
 		})
 	}
 	return plan, matched, nil

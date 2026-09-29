@@ -101,6 +101,7 @@ requires = [":ci.quick"]
 | `name` | yes | Unique in the workspace. Matches `[a-z0-9][a-z0-9._-]*`. Never contains `:`. |
 | `project_wrapper` | yes | String. `""` means none. Nested inside the workspace wrapper. |
 | `project_trust` | yes | String. `""` means none. |
+| `concurrency` | no | `"parallel"` (default), `"serial"` (one section of this project at a time), or `"exclusive"` (each section runs alone). |
 | any other table | no | A section, or a namespace of sections. A project may have none. |
 
 Keys inside a section:
@@ -111,17 +112,20 @@ Keys inside a section:
 | `skip_if` | no | String. Exit 0 skips the section. Absent and `""` both mean none. |
 | `verify` | no | String. Runs after `run`; must exit 0. Absent and `""` both mean none. |
 | `requires` | no | List of keys that must succeed first. Absent means `[]`. |
+| `exclusive` (section) | no | Boolean. `true` runs the section with nothing else running. `false` overrides an `"exclusive"` project, which leaves it serial. |
 
 - There is no `dependencies` key. `stew list` derives project dependencies from `requires`.
 - A section with `run = ""` and only `requires` groups other sections. It runs nothing and ends `skip` once its
   requirements pass. `ci.pre-commit` above is one.
+- A section with nothing to run (`run` and `verify` both `""`) is never exclusive, even with `exclusive = true` or
+  in an `"exclusive"` project: it would hold back the run to do nothing.
 - Multi-line commands work: use a TOML multi-line string. Each step runs as one `sh -c` script.
 
 ## Section Names
 
 - A dotted table is a dotted name: `[ci.full]` is section `ci.full`.
-- A table is a section when it holds `run`, `skip_if`, `verify`, or `requires`. Otherwise it is a namespace and
-  holds only tables.
+- A table is a section when it holds `run`, `skip_if`, `verify`, `requires`, or `exclusive`. Otherwise it is a
+  namespace and holds only tables.
 - A table cannot be both. `[ci]` with `run`, plus `[ci.full]`: `[ci]: a section cannot contain sections`.
 - An empty table defines no section.
 - Each segment matches `[a-z0-9][a-z0-9_-]*`. A quoted key such as `["ci.full"]` is rejected.
@@ -165,6 +169,10 @@ Any error stops the command before anything runs, with exit 2 and a message that
 - `config.toml` parses; both required keys present; wrapper checks pass; `concurrency` and `jobs` are valid when set.
 - Every `stew.toml` parses with no unknown keys (`<file>: [build]: unknown key "foo"`), no missing required keys
   (`<file>: [build]: missing key "run"`), valid section names, and valid wrapper and `requires` entries.
+- `stew.toml` `concurrency` and section `exclusive` are valid when set:
+  - `<file>: concurrency: want a string`
+  - `<file>: concurrency: must be "parallel", "serial", or "exclusive"`
+  - `<file>: [<section>]: exclusive: want a boolean`
 - Every `name` is valid and unique.
 - The section graph has no cycle.
 
@@ -182,18 +190,22 @@ project_wrapper = ""
 # Makes the project wrapper usable in a new tree, e.g. "mise trust". Runs once per tree, with consent.
 # "" means none.
 project_trust = ""
+# "parallel", "serial" (one section of this project at a time), or "exclusive" (each section alone).
+# concurrency = "parallel"
 
 # Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose
 # <project>:<section> key matches; `stew build` is `stew run '.*:build'`.
 # skip_if exit 0 skips the section. verify runs after run and must exit 0.
 # requires lists sections that must succeed first, as "<project>:<section>",
 # or ":<section>" for a section of this project.
+# exclusive = true runs the section with nothing else running; false overrides an "exclusive" project.
 #
 # [build]
 # run = ""
 # skip_if = ""
 # verify = ""
 # requires = []
+# exclusive = false
 ```
 
 It defines no section. Add sections by hand.

@@ -15,21 +15,42 @@ import (
 // ManifestFile is the per-project config file name.
 const ManifestFile = "stew.toml"
 
+// Concurrency is how a project's sections may overlap. The zero value is ConcurrencyParallel.
+type Concurrency int
+
+const (
+	ConcurrencyParallel  Concurrency = iota // sections overlap freely
+	ConcurrencySerial                       // one section of the project at a time
+	ConcurrencyExclusive                    // each section runs alone, unless it sets exclusive = false
+)
+
 // Section holds one section's commands and requirements. An empty command means "none".
 type Section struct {
-	Run      string
-	SkipIf   string
-	Verify   string
-	Requires []Key
+	Run       string
+	SkipIf    string
+	Verify    string
+	Requires  []Key
+	Exclusive *bool // nil: inherit from the project
 }
 
 // Project is one parsed and validated stew.toml.
 type Project struct {
-	Name     string
-	Path     string // root-relative, slash-separated, as registered
-	Wrapper  string // project wrapper, nested inside the workspace wrapper; "" means none
-	Trust    string // project trust command; "" means none
-	Sections map[string]*Section
+	Name        string
+	Path        string // root-relative, slash-separated, as registered
+	Wrapper     string // project wrapper, nested inside the workspace wrapper; "" means none
+	Trust       string // project trust command; "" means none
+	Concurrency Concurrency
+	Sections    map[string]*Section
+}
+
+// Isolation returns how section runs: exclusive runs it with no other section running; serial keeps other sections
+// of p from running alongside it.
+func (p *Project) Isolation(section string) (exclusive, serial bool) {
+	exclusive = p.Concurrency == ConcurrencyExclusive
+	if e := p.Sections[section].Exclusive; e != nil {
+		exclusive = *e
+	}
+	return exclusive, p.Concurrency != ConcurrencyParallel
 }
 
 // SectionNames returns the project's section names, sorted.
@@ -57,7 +78,7 @@ func ValidName(name string) bool {
 	return nameRE.MatchString(name)
 }
 
-var sectionKeys = []string{"run", "skip_if", "verify", "requires"}
+var sectionKeys = []string{"run", "skip_if", "verify", "requires", "exclusive"}
 
 // ParseProject parses stew.toml content. file is used only in error messages.
 func ParseProject(file string, data []byte) (*Project, error) {
@@ -97,9 +118,26 @@ func parseProject(raw map[string]any) (*Project, error) {
 		return nil, fmt.Errorf("project_wrapper: %v", err)
 	}
 
-	p := &Project{Name: name, Wrapper: wrapper, Trust: trust, Sections: make(map[string]*Section)}
+	concurrency := ConcurrencyParallel
+	if v, ok := raw["concurrency"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, fmt.Errorf("concurrency: want a string")
+		}
+		switch s {
+		case "parallel":
+		case "serial":
+			concurrency = ConcurrencySerial
+		case "exclusive":
+			concurrency = ConcurrencyExclusive
+		default:
+			return nil, fmt.Errorf(`concurrency: must be "parallel", "serial", or "exclusive"`)
+		}
+	}
+
+	p := &Project{Name: name, Wrapper: wrapper, Trust: trust, Concurrency: concurrency, Sections: make(map[string]*Section)}
 	for _, key := range slices.Sorted(maps.Keys(raw)) {
-		if key == "name" || key == "project_wrapper" || key == "project_trust" {
+		if key == "name" || key == "project_wrapper" || key == "project_trust" || key == "concurrency" {
 			continue
 		}
 		if err := p.parseTable([]string{key}, raw[key]); err != nil {
@@ -163,6 +201,12 @@ func (p *Project) parseSection(name string, table map[string]any) (*Section, err
 				return nil, err
 			}
 			s.Requires = requires
+		case "exclusive":
+			b, ok := v.(bool)
+			if !ok {
+				return nil, fmt.Errorf("[%s]: exclusive: want a boolean", name)
+			}
+			s.Exclusive = &b
 		default:
 			if _, isTable := v.(map[string]any); isTable {
 				return nil, fmt.Errorf("[%s]: a section cannot contain sections", name)
@@ -234,18 +278,22 @@ var templateLines = []string{
 	`# Makes the project wrapper usable in a new tree, e.g. "mise trust". Runs once per tree, with consent.`,
 	`# "" means none.`,
 	`project_trust = ""`,
+	`# "parallel", "serial" (one section of this project at a time), or "exclusive" (each section alone).`,
+	`# concurrency = "parallel"`,
 	``,
 	"# Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose",
 	"# <project>:<section> key matches; `stew build` is `stew run '.*:build'`.",
 	`# skip_if exit 0 skips the section. verify runs after run and must exit 0.`,
 	`# requires lists sections that must succeed first, as "<project>:<section>",`,
 	`# or ":<section>" for a section of this project.`,
+	`# exclusive = true runs the section with nothing else running; false overrides an "exclusive" project.`,
 	`#`,
 	`# [build]`,
 	`# run = ""`,
 	`# skip_if = ""`,
 	`# verify = ""`,
 	`# requires = []`,
+	`# exclusive = false`,
 }
 
 // Template returns the stew.toml content that `stew add` writes. name must be valid.

@@ -33,14 +33,16 @@ var ErrInterrupted = Interrupt{Signal: syscall.SIGINT}
 
 // Section is one section of one project, with its commands resolved.
 type Section struct {
-	Project  string
-	Name     string   // section name, also the summary column: "build", "ci.full"
-	Dir      string   // absolute directory the commands run in
-	Wrappers []string // non-empty wrappers, outermost first; each contains StepPlaceholder once
-	Run      string
-	SkipIf   string
-	Verify   string
-	Requires []string // keys of the sections it requires, in execution order
+	Project   string
+	Name      string   // section name, also the summary column: "build", "ci.full"
+	Dir       string   // absolute directory the commands run in
+	Wrappers  []string // non-empty wrappers, outermost first; each contains StepPlaceholder once
+	Run       string
+	SkipIf    string
+	Verify    string
+	Requires  []string // keys of the sections it requires, in execution order
+	Exclusive bool     // runs with no other section running
+	Serial    bool     // runs with no other section of its project running
 }
 
 // Key returns "<project>:<section>".

@@ -37,10 +37,12 @@ func (r *Runner) env(s Section) []string {
 }
 
 // Run executes the plan. Whenever a section ends, and once at the start, it scans the sections not yet started, in
-// plan order, and starts each ready one while fewer than Jobs run; with Jobs 1 the plan runs in order. It never
-// returns early on failure: sections that do not require a failed one keep running. After an interrupt (ctx
-// cancelled with an Interrupt cause: Ctrl-C, SIGTERM, or SIGHUP) no new section starts, and Run returns once the
-// running ones end. Only Run's own goroutine calls Report and Record.
+// plan order, and starts each ready one while fewer than Jobs run; with Jobs 1 the plan runs in order. An exclusive
+// section starts only when nothing runs, and no section after it in plan order starts first; a serial section
+// waits while another section of its project runs. It never returns early on failure: sections that do not require
+// a failed one keep running. After an interrupt (ctx cancelled with an Interrupt cause: Ctrl-C, SIGTERM, or
+// SIGHUP) no new section starts, and Run returns once the running ones end. Only Run's own goroutine calls Report
+// and Record.
 func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 	if r.Jobs < 1 {
 		panic("runner: Jobs must be at least 1")
@@ -65,6 +67,8 @@ func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 	status := make(map[string]Status, len(plan.Sections)) // keys of sections that ended or were blocked
 	started := make([]bool, len(plan.Sections))           // started or blocked
 	running := 0
+	exclusive := false            // an exclusive section is running
+	byProject := map[string]int{} // running sections of each project
 
 	scan := func() {
 		for i, s := range plan.Sections {
@@ -75,20 +79,29 @@ func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 				res.Interrupted = sig
 				return
 			}
-			if running >= r.Jobs {
+			if running >= r.Jobs || exclusive {
 				return
 			}
 			if slices.ContainsFunc(s.Requires, func(req string) bool { _, ended := status[req]; return !ended }) {
 				continue
 			}
-			started[i] = true
 			if r.block(s, status) {
+				started[i] = true
 				*cell(s) = Blocked
 				status[s.Key()] = Blocked
 				res.Failed = true
 				continue
 			}
+			switch {
+			case s.Exclusive && running > 0:
+				return
+			case s.Serial && byProject[s.Project] > 0:
+				continue
+			}
+			started[i] = true
 			running++
+			byProject[s.Project]++
+			exclusive = s.Exclusive
 			r.Report.SectionStart(s)
 			go func() {
 				begin := r.Now()
@@ -102,8 +115,12 @@ func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 	scan()
 	for running > 0 {
 		e := <-endings
-		running--
 		s, out := plan.Sections[e.i], e.out
+		running--
+		byProject[s.Project]--
+		if s.Exclusive {
+			exclusive = false
+		}
 		if err := r.Record.SectionEnd(s, out); err != nil {
 			out = LogErrorOutcome(out, err)
 		}
