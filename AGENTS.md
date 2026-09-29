@@ -14,7 +14,9 @@ workflow is specified, the coding agent must ask before making changes.
 Only the operator may choose the workflow. The coding agent and its skills must
 not choose one on the operator's behalf.
 
-### Work in main
+Exception: If the coding agent is already in a worktree, assume `Working in a worktree` workflow.
+
+### Working in the main branch
 
 The coding agent works directly in the current main checkout. It must not make
 a new branch or worktree.
@@ -25,26 +27,27 @@ Rules:
 - Commit and push approval must be explicitly granted every time.
 - Single audience: no compatibility shims, deprecation ceremony, or dead code.
 
-### Worktree
+### Working in a worktree
 
 Rules:
 
 - Commit freely within the worktree. These commits need not be standalone.
-- No pushes without explicit instruction.
-- No commit in main without explicit instruction.
-- Commit and push approval must be explicitly granted every time.
+- No pushes to remote without explicit instruction regardless of branches.
+- No commit in the main branch without explicit instruction.
+- Commit in the main branch must be explicitly granted every time.
+- Push approval must be explicitly granted every time.
 - Single audience: no compatibility shims, deprecation ceremony, or dead code.
 
 Workflow:
 
-1. Enter a worktree.
-2. Set up everything required by the task.
+1. Enter a worktree if not in one.
+2. Make sure tools and dependencies required by the task are available and set up.
 3. Do the work there.
 4. Squash the commits into standalone commits (see Standalone Commits).
    Dropping them one at a time from latest to oldest must leave every step
    standalone. The coding agent decides the grouping.
-5. Leave the worktree so git can reach main.
-6. Cherry-pick the commits onto main.
+5. Ask the operator on how to submit your work if you've not been informed beforehand.
+   Present 2-3 choices: Cherry-pick to main, Create a PR/MR, or the operator specify.
 
 ## Planning Horizon
 
