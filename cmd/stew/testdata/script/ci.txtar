@@ -122,12 +122,19 @@ requires = ["api:setup"]
 run = "exit 1"
 requires = ["api:build"]
 -- want/pre-commit --
+==> core: setup ... started
 ==> core: setup ... skip (T)
+==> core: build ... started
 ==> core: build ... skip (T)
+==> api: setup ... started
 ==> api: setup ... skip (T)
+==> api: build ... started
 ==> api: build ... skip (T)
+==> api: ci.pre-commit ... started
 ==> api: ci.pre-commit ... done (T)
+==> core: ci.quick ... started
 ==> core: ci.quick ... done (T)
+==> core: ci.pre-commit ... started
 ==> core: ci.pre-commit ... skip (T)
 ┌─────────┬───────┬───────┬───────────────┬──────────┐
 │ project │ setup │ build │ ci.pre-commit │ ci.quick │

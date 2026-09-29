@@ -9,7 +9,7 @@ cp stdout out
 exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
 cmp stdout want/mylib-build
 stew run 'api:.*' '.*:build'
-stdout -count=1 '^==> api: build '
+stdout -count=1 '^==> api: build \.\.\. done'
 
 # A pattern that matches nothing is exit 2 before anything runs.
 ! stew run 'web:build'
@@ -67,8 +67,11 @@ project_trust = ""
 [build]
 run = "true"
 -- want/api-build --
+==> core: setup ... started
 ==> core: setup ... done (T)
+==> core: build ... started
 ==> core: build ... done (T)
+==> api: build ... started
 ==> api: build ... done (T)
 ┌─────────┬───────┬───────┐
 │ project │ setup │ build │
@@ -79,6 +82,7 @@ run = "true"
 total: T
 logs: .stew/runs/ID
 -- want/mylib-build --
+==> my.lib: build ... started
 ==> my.lib: build ... done (T)
 ┌─────────┬───────┐
 │ project │ build │

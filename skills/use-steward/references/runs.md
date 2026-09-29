@@ -12,10 +12,13 @@
 
 ## Live Output
 
-One line per section: `==> <project>: <section> ... <status>`, plus ` (<duration>)` for `done`, `skip`, and `fail`.
+Plain output (not a terminal) prints two lines per section: `==> <project>: <section> ... started` when it starts,
+and `==> <project>: <section> ... <status>` when it ends, plus ` (<duration>)` for `done`, `skip`, and `fail`.
 
 ```text
+==> core: setup ... started
 ==> core: setup ... done (0.0s)
+==> core: build ... started
 ==> core: build ... fail (0.4s)
 --- stew: run: sh ./build.sh
 compiling core
@@ -32,8 +35,8 @@ error: config.ini not found
   - Last line: `(exit N)`, `(signal <name>)`, `(cannot start: <error>)`, `(log error: <error>)`, or a wrapper cause
     such as `(wrapper did not run the command (exit 0))`.
 - Durations: `0.4s`, `10.5s` under a minute; `1m3s`, `1h5m12s` from a minute up.
-- On a terminal the running line animates. Otherwise stew writes the start of the line when the section starts and
-  the rest when it ends, with no escape codes.
+- On a terminal the running line animates in place and there are no `started` lines. Otherwise there are no escape
+  codes.
 
 ## Summary
 

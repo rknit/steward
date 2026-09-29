@@ -76,7 +76,7 @@ func (t *TTY) SectionEnd(s runner.Section, out runner.Outcome) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.redraw(" ... " + statusText(out) + "\n")
-	writeContent(t.w, out)
+	t.w.Write(content(out))
 }
 
 // Blocked implements runner.Reporter.

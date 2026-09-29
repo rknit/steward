@@ -823,31 +823,39 @@ All output goes to stdout, except configuration and usage errors, which go to st
 
 ### Section Lines
 
-One line per section, and nothing else on it: `==> <project>: <section> ... <status>`,
+One end line per section (plain output also prints a `started` line first; see Progress Animation), and nothing
+else on the end line: `==> <project>: <section> ... <status>`,
 plus ` (<duration>)` when the status is `done`, `skip`, or `fail`.
 Exit codes, failing steps, and command output go in the content area below a `fail` or `interrupted` line.
 
-Example 1, success: `stew ci api`, where `api:setup` requires `core:build`.
+Example 1, success (plain output): `stew ci api`, where `api:setup` requires `core:build`.
 
 ```
+==> core: setup ... started
 ==> core: setup ... skip (0.1s)
+==> core: build ... started
 ==> core: build ... skip (0.0s)
+==> api: setup ... started
 ==> api: setup ... done (12.4s)
+==> api: build ... started
 ==> api: build ... done (1m3s)
+==> api: ci.full ... started
 ==> api: ci.full ... done (8.2s)
 ```
 
 `core` runs only because `api`'s sections require it, so it gets no CI column entry.
 
-Example 2, failure: `stew run api:build core:typecheck`, where `core:build` requires `core:setup`,
-`api:build` requires `core:build`, and `core:typecheck` requires nothing.
+Example 2, failure (plain output): `stew run api:build core:typecheck`, where `core:build` requires
+`core:setup`, `api:build` requires `core:build`, and `core:typecheck` requires nothing.
 
 ```
+==> core: setup ... started
 ==> core: setup ... fail (2.7s)
 --- stew: run: npm ci
 <captured output of core's setup run>
 (exit 2)
 ==> core: build ... blocked by core:setup
+==> core: typecheck ... started
 ==> core: typecheck ... done (0.4s)
 ```
 
@@ -884,9 +892,10 @@ rule (see Failure and Blocking) hides its line; its summary cell is still `block
   one frame every 300 ms, redrawn in place with `\r` and clear-to-end-of-line.
   When the section ends, the line is redrawn as `... <status> (<duration>)` followed by a newline.
   (`interrupted` has no duration, in both modes.)
-- **Not a terminal (CI logs, pipes).** Stew writes `==> <project>: <section> ... ` when the section starts,
-  and `<status> (<duration>)` plus a newline when it ends. No escape codes.
-  Long sections still show which section is running.
+- **Not a terminal (CI logs, pipes).** Stew writes `==> <project>: <section> ... started` and a newline when the
+  section starts, and the whole end line (`==> <project>: <section> ... <status> (<duration>)`) with its content
+  area, in one write, when it ends. No escape codes. A section still running shows as a `started` line with no
+  end line.
 
 ### Summary
 

@@ -5,7 +5,6 @@ package report
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -47,10 +46,10 @@ func blockedLine(project, section string, by []string) string {
 	return head(project, section) + " ... blocked by " + strings.Join(by, ", ") + "\n"
 }
 
-// writeContent writes the content area below a fail or interrupted line.
-func writeContent(w io.Writer, out runner.Outcome) {
+// content is the content area below a fail or interrupted line, and nil for any other status.
+func content(out runner.Outcome) []byte {
 	if out.Status != runner.Fail && out.Status != runner.Interrupted {
-		return
+		return nil
 	}
 	var b bytes.Buffer
 	for _, st := range out.Steps {
@@ -61,5 +60,5 @@ func writeContent(w io.Writer, out runner.Outcome) {
 		}
 	}
 	b.WriteString("(" + out.Cause + ")\n")
-	w.Write(b.Bytes())
+	return b.Bytes()
 }

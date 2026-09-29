@@ -6,20 +6,20 @@ import (
 	"github.com/rknit/steward/internal/runner"
 )
 
-// Plain reports without escape codes: the line head at section start, the status when the section ends.
+// Plain reports without escape codes: a started line when a section starts, and its end line when it ends.
 type Plain struct {
 	W io.Writer
 }
 
 // SectionStart implements runner.Reporter.
 func (p *Plain) SectionStart(s runner.Section) {
-	io.WriteString(p.W, head(s.Project, s.Name)+" ... ")
+	io.WriteString(p.W, head(s.Project, s.Name)+" ... started\n")
 }
 
 // SectionEnd implements runner.Reporter.
 func (p *Plain) SectionEnd(s runner.Section, out runner.Outcome) {
-	io.WriteString(p.W, statusText(out)+"\n")
-	writeContent(p.W, out)
+	line := head(s.Project, s.Name) + " ... " + statusText(out) + "\n"
+	p.W.Write(append([]byte(line), content(out)...))
 }
 
 // Blocked implements runner.Reporter.

@@ -55,7 +55,8 @@ a trust command needs `--trusted` after the same consent.
 
 ## Reading Results
 
-- Success output is hidden. `done` and `skip` print one line each. Only `fail` and `interrupted` replay output.
+- Success output is hidden. Plain output prints a `started` line and an end line per section. Only `fail` and
+  `interrupted` replay output.
 - A failed section shows `--- stew: <step>: <command>` markers, the command's output, then `(exit N)` or a cause.
 - `blocked by <key>` means a required section failed or was blocked. Fix the named section, not the blocked one.
   Only sections that directly require a failed one print this line. The summary shows every `blocked` section.

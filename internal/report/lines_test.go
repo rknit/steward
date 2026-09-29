@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -71,8 +72,11 @@ func TestPlainSectionLines(t *testing.T) {
 		Steps: []runner.StepOutput{{Step: "run", Cmd: "make", Output: []byte("partial\n")}},
 	})
 
-	want := `==> core: setup ... skip (0.1s)
+	want := `==> core: setup ... started
+==> core: setup ... skip (0.1s)
+==> api: build ... started
 ==> api: build ... done (1m3s)
+==> web: ci.full ... started
 ==> web: ci.full ... fail (2.7s)
 --- stew: run: npm test
 out
@@ -80,8 +84,10 @@ no newline
 --- stew: verify: test -f x
 (exit 2)
 ==> app: build ... blocked by api:build, backend:build
+==> lib: setup ... started
 ==> lib: setup ... fail (0.0s)
 (log error: disk full)
+==> x: build ... started
 ==> x: build ... interrupted
 --- stew: run: make
 partial
@@ -92,6 +98,29 @@ partial
 	}
 	if strings.Contains(b.String(), "\x1b") {
 		t.Error("plain output contains escape codes")
+	}
+}
+
+// writes records each Write call separately.
+type writes struct{ calls []string }
+
+func (w *writes) Write(p []byte) (int, error) {
+	w.calls = append(w.calls, string(p))
+	return len(p), nil
+}
+
+func TestPlainWritesEachEndInOneWrite(t *testing.T) {
+	t.Parallel()
+	var w writes
+	p := &Plain{W: &w}
+	s := runner.Section{Project: "core", Name: "build"}
+	p.SectionEnd(s, runner.Outcome{
+		Status: runner.Fail, Duration: time.Second, Cause: "exit 1",
+		Steps: []runner.StepOutput{{Step: "run", Cmd: "make", Output: []byte("boom\n")}},
+	})
+	want := []string{"==> core: build ... fail (1.0s)\n--- stew: run: make\nboom\n(exit 1)\n"}
+	if !slices.Equal(w.calls, want) {
+		t.Errorf("writes = %q, want %q", w.calls, want)
 	}
 }
 

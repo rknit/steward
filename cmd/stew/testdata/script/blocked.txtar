@@ -77,16 +77,22 @@ requires = ["api:build", "api:test"]
 run = "true"
 requires = ["api:image", "web:build"]
 -- want/out --
+==> api: setup ... started
 ==> api: setup ... done (T)
+==> core: lint ... started
 ==> core: lint ... done (T)
+==> core: setup ... started
 ==> core: setup ... done (T)
+==> core: build ... started
 ==> core: build ... done (T)
+==> api: build ... started
 ==> api: build ... fail (T)
 --- stew: run: echo boom; exit 1
 boom
 (exit 1)
 ==> api: image ... blocked by api:build
 ==> api: test ... blocked by api:build
+==> docs: build ... started
 ==> docs: build ... done (T)
 ==> web: build ... blocked by api:build
 ┌─────────┬───────┬──────┬─────────┬─────────┬─────────┬─────────┐
