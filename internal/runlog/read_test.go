@@ -14,6 +14,7 @@ import (
 )
 
 func TestLoadRoundTrip(t *testing.T) {
+	t.Parallel()
 	run := newRun(t)
 	if err := run.Start([]string{"build"}, "", nil, []string{"setup", "build"}, []string{"core"}); err != nil {
 		t.Fatal(err)
@@ -52,6 +53,7 @@ const validManifest = `{"argv":["ci"],"columns":["setup","build","ci.full"],"pro
 	`{"project":"core","section":"ci.full","status":"fail","duration_ms":7,"cause":"exit 1"}]}`
 
 func TestLoadErrors(t *testing.T) {
+	t.Parallel()
 	stewDir := t.TempDir()
 	writeRun(t, stewDir, "20260101T000000Z-0000", "")
 	writeRun(t, stewDir, "20260101T000000Z-0001", "{not json")
@@ -74,6 +76,7 @@ func TestLoadErrors(t *testing.T) {
 }
 
 func TestLoadRejectsInconsistentManifest(t *testing.T) {
+	t.Parallel()
 	record := func(fields string) string {
 		return `{"argv":["ci"],"columns":["setup","ci.pre-commit"],"projects":["core"],"sections":[{` + fields + `}]}`
 	}
@@ -111,6 +114,7 @@ func TestLoadRejectsInconsistentManifest(t *testing.T) {
 }
 
 func TestLoadProjectWrapper(t *testing.T) {
+	t.Parallel()
 	stewDir := t.TempDir()
 	writeRun(t, stewDir, "20260101T000000Z-0000",
 		`{"argv":["ci"],"columns":["setup"],"projects":["core"],"project_wrapper":{"core":"x"},"sections":[]}`)
@@ -126,6 +130,7 @@ func TestLoadProjectWrapper(t *testing.T) {
 }
 
 func TestLatest(t *testing.T) {
+	t.Parallel()
 	stewDir := t.TempDir()
 	if _, err := Latest(stewDir); !errors.Is(err, ErrUnknownRun) {
 		t.Errorf("no runs dir: err = %v", err)
@@ -147,6 +152,7 @@ func TestLatest(t *testing.T) {
 }
 
 func TestIDs(t *testing.T) {
+	t.Parallel()
 	stewDir := t.TempDir()
 	if ids, err := IDs(stewDir); err != nil || ids != nil {
 		t.Errorf("no runs dir: IDs = %q, %v", ids, err)
@@ -164,6 +170,7 @@ func TestIDs(t *testing.T) {
 }
 
 func TestStartTime(t *testing.T) {
+	t.Parallel()
 	got, err := StartTime("20260925T043601Z-3f9a")
 	if want := time.Date(2026, 9, 25, 4, 36, 1, 0, time.UTC); err != nil || !got.Equal(want) {
 		t.Errorf("StartTime = %v, %v; want %v", got, err, want)
@@ -176,6 +183,7 @@ func TestStartTime(t *testing.T) {
 }
 
 func TestParseKey(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in   string
 		want Key
@@ -198,6 +206,7 @@ func TestParseKey(t *testing.T) {
 
 // An old run has "phases" instead of "sections" and logs named <project>-<phase>.
 func TestLoadOldRun(t *testing.T) {
+	t.Parallel()
 	stewDir := t.TempDir()
 	const id = "20260925T043601Z-3f9a"
 	writeRun(t, stewDir, id, `{"argv":["build"],"columns":["setup","build"],"projects":["api"],`+
@@ -219,6 +228,7 @@ func TestLoadOldRun(t *testing.T) {
 }
 
 func TestUnfinishedAndReadLog(t *testing.T) {
+	t.Parallel()
 	run := newRun(t)
 	if err := run.Start([]string{"build"}, "", nil, []string{"setup", "build"}, []string{"core", "x-build", "api"}); err != nil {
 		t.Fatal(err)

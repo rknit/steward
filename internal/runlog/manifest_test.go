@@ -38,6 +38,7 @@ func readManifest(t *testing.T, run *Run) (Manifest, string) {
 func i64(v int64) *int64 { return &v }
 
 func TestManifestSaves(t *testing.T) {
+	t.Parallel()
 	run := newRun(t)
 	setup := runner.Section{Project: "core", Name: "setup"}
 	build := runner.Section{Project: "api", Name: "build"}
@@ -105,6 +106,7 @@ func TestManifestSaves(t *testing.T) {
 }
 
 func TestManifestSaveErrors(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
@@ -173,6 +175,7 @@ func TestManifestSaveErrors(t *testing.T) {
 }
 
 func TestManifestWithoutWrapperField(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	runDir := filepath.Join(dir, "runs", "20260925T043601Z-3f9a")
 	os.MkdirAll(runDir, 0o755)
@@ -184,6 +187,7 @@ func TestManifestWithoutWrapperField(t *testing.T) {
 }
 
 func TestManifestResult(t *testing.T) {
+	t.Parallel()
 	total := int64(1)
 	sections := func(statuses ...runner.Status) []SectionRecord {
 		var recs []SectionRecord

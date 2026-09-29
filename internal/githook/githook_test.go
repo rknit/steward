@@ -9,36 +9,27 @@ import (
 	"testing"
 )
 
-func TestMain(m *testing.M) {
-	unsetInheritedRepoEnv()
-	os.Exit(m.Run())
+// gitEnv is an environment for git with no system or global config and none of the variables, such as GIT_DIR, that
+// git exports to hooks, so git acts only on the test's temp repositories.
+func gitEnv(t *testing.T) []string {
+	return []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}
 }
 
-// unsetInheritedRepoEnv drops GIT_DIR, GIT_INDEX_FILE, and similar variables that git exports to hooks,
-// so tests running inside a hook act on their temp repos instead of the repo being committed to.
-func unsetInheritedRepoEnv() {
-	out, err := exec.Command("git", "rev-parse", "--local-env-vars").Output()
-	if err != nil {
-		return
-	}
-	for name := range strings.FieldsSeq(string(out)) {
-		os.Unsetenv(name)
-	}
-}
-
-func gitInit(t *testing.T, dir string, args ...string) {
+func gitInit(t *testing.T, dir string, env []string, args ...string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
 	cmd := exec.Command("git", append([]string{"init", "-q"}, args...)...)
 	cmd.Dir = dir
+	cmd.Env = env
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v\n%s", err, out)
 	}
 }
 
 func TestScript(t *testing.T) {
+	t.Parallel()
 	tests := []struct{ rel, hook, want string }{
 		{".", "pre-commit", `cd "$(git rev-parse --show-toplevel)" && exec stew ci --level pre-commit`},
 		{"mono/repo", "pre-commit", `cd "$(git rev-parse --show-toplevel)/mono/repo" && exec stew ci --level pre-commit`},
@@ -64,14 +55,16 @@ func postCheckout(dir string) string {
 }
 
 func TestInstallInSubdirectory(t *testing.T) {
+	t.Parallel()
 	top := t.TempDir()
-	gitInit(t, top)
+	env := gitEnv(t)
+	gitInit(t, top, env)
 	root := filepath.Join(top, "mono")
 	if err := os.Mkdir(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	path, err := Install(root, "pre-commit", os.Environ())
+	path, err := Install(root, "pre-commit", env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,20 +83,19 @@ func TestInstallInSubdirectory(t *testing.T) {
 		t.Errorf("content = %q", data)
 	}
 
-	if _, err := Install(root, "pre-commit", os.Environ()); !errors.Is(err, ErrExists) {
+	if _, err := Install(root, "pre-commit", env); !errors.Is(err, ErrExists) {
 		t.Errorf("second install: err = %v, want ErrExists", err)
 	}
 }
 
 func TestInstallRespectsHooksPath(t *testing.T) {
+	t.Parallel()
 	top := t.TempDir()
-	gitInit(t, top)
-	cmd := exec.Command("git", "config", "core.hooksPath", "custom-hooks")
-	cmd.Dir = top
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git config: %v\n%s", err, out)
-	}
-	path, err := Install(top, "pre-commit", os.Environ())
+	env := gitEnv(t)
+	gitInit(t, top, env)
+	// Set in env, so git sees it only if Install passes env on.
+	env = append(env, "GIT_CONFIG_COUNT=1", "GIT_CONFIG_KEY_0=core.hooksPath", "GIT_CONFIG_VALUE_0=custom-hooks")
+	path, err := Install(top, "pre-commit", env)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,14 +105,16 @@ func TestInstallRespectsHooksPath(t *testing.T) {
 }
 
 func TestInstallErrors(t *testing.T) {
-	if _, err := Install(t.TempDir(), "post-merge", os.Environ()); err == nil || !strings.Contains(err.Error(), "supported: pre-commit, pre-push, post-checkout") {
+	t.Parallel()
+	if _, err := Install(t.TempDir(), "post-merge", nil); err == nil || !strings.Contains(err.Error(), "supported: pre-commit, pre-push, post-checkout") {
 		t.Errorf("unsupported hook: err = %v", err)
 	}
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
 	}
-	env := append(os.Environ(), "GIT_CEILING_DIRECTORIES="+os.TempDir())
-	if _, err := Install(t.TempDir(), "pre-commit", env); err == nil || !strings.Contains(err.Error(), "git rev-parse") {
+	dir := t.TempDir()
+	env := append(gitEnv(t), "GIT_CEILING_DIRECTORIES="+filepath.Dir(dir))
+	if _, err := Install(dir, "pre-commit", env); err == nil || !strings.Contains(err.Error(), "git rev-parse") {
 		t.Errorf("not a repo: err = %v", err)
 	}
 }

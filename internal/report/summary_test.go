@@ -9,6 +9,7 @@ import (
 )
 
 func TestSummary(t *testing.T) {
+	t.Parallel()
 	res := &runner.Results{
 		Columns: []string{"setup", "build", "ci.pre-commit"},
 		Rows: []runner.Row{
@@ -37,6 +38,7 @@ logs: .stew/runs/20260925T043601Z-3f9a
 }
 
 func TestSummaryWidensForLongNames(t *testing.T) {
+	t.Parallel()
 	res := &runner.Results{
 		Columns: []string{"setup"},
 		Rows:    []runner.Row{{Project: "a-very-long-project", Cells: []runner.Status{runner.Interrupted}}},

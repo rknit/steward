@@ -8,6 +8,7 @@ import (
 )
 
 func TestDryRun(t *testing.T) {
+	t.Parallel()
 	plan := runner.Plan{Sections: []runner.Section{
 		{Project: "api", Name: "setup"},
 		{Project: "core", Name: "setup"},
@@ -34,6 +35,7 @@ func TestDryRun(t *testing.T) {
 }
 
 func TestDryRunAllMatchedHasNoFooter(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	DryRun(&b, runner.Plan{Sections: []runner.Section{{Project: "a", Name: "build"}}}, map[string]bool{"a:build": true})
 	want := "┌───┬──────────┬──────────┐\n│ # │ key      │ requires │\n├───┼──────────┼──────────┤\n" +

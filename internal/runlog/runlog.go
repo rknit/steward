@@ -31,6 +31,11 @@ type Run struct {
 
 // Create makes <stewDir>/runs/<run-id>/ and locks it. The ID is the UTC time plus 4 random hex digits read from rand.
 func Create(stewDir string, now time.Time, rand io.Reader) (*Run, error) {
+	return create(stewDir, now, rand, nil)
+}
+
+// create is Create with a beforeFlock hook for lockDir.
+func create(stewDir string, now time.Time, rand io.Reader, beforeFlock func(string)) (*Run, error) {
 	runs := filepath.Join(stewDir, "runs")
 	if err := os.MkdirAll(runs, 0o755); err != nil {
 		return nil, err
@@ -50,7 +55,7 @@ func Create(stewDir string, now time.Time, rand io.Reader) (*Run, error) {
 		if err != nil {
 			return nil, err
 		}
-		lock, err := lockDir(dir)
+		lock, err := lockDir(dir, beforeFlock)
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, ErrRunning) {
 			// A concurrent prune took the new, still unlocked directory.
 			continue

@@ -11,6 +11,7 @@ import (
 func ms(n int) time.Duration { return time.Duration(n) * time.Millisecond }
 
 func TestShowSpecExample(t *testing.T) {
+	t.Parallel()
 	sections := []ShownSection{
 		{Project: "api", Section: "setup", Outcome: runner.Outcome{Status: runner.Done, Duration: ms(3100)},
 			Log: []byte("--- stew: run: npm ci\n")},
@@ -58,6 +59,7 @@ logs: .stew/runs/20260925T043601Z-3f9a
 }
 
 func TestShowUnfinishedAndInterrupted(t *testing.T) {
+	t.Parallel()
 	sections := []ShownSection{
 		{Project: "core", Section: "build", Outcome: runner.Outcome{Status: runner.Interrupted, Cause: "signal SIGINT"},
 			Log: []byte("--- stew: run: make\nhalf")},
@@ -93,6 +95,7 @@ logs: .stew/runs/20260101T000001Z-0001
 }
 
 func TestShowWithoutSummaryAndNoLog(t *testing.T) {
+	t.Parallel()
 	sections := []ShownSection{
 		{Project: "lib", Section: "setup", Outcome: runner.Outcome{Status: runner.Skip, Duration: ms(0)}},
 		{Project: "api", Section: "build", Outcome: runner.Outcome{Status: runner.Fail, Duration: ms(1200), Cause: "log error: disk full"}},
@@ -109,6 +112,7 @@ func TestShowWithoutSummaryAndNoLog(t *testing.T) {
 }
 
 func TestShowBlockedWithoutBlockedByIsHidden(t *testing.T) {
+	t.Parallel()
 	sections := []ShownSection{
 		{Project: "web", Section: "e2e", Outcome: runner.Outcome{Status: runner.Blocked}},
 	}
@@ -121,6 +125,7 @@ func TestShowBlockedWithoutBlockedByIsHidden(t *testing.T) {
 }
 
 func TestShowWrapperHeader(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	Show(&b, "20260925T043601Z-3f9a", []string{"ci"}, "tool exec . {{STEW_STEP}}", nil, nil, nil)
 	if got, want := b.String(), "run 20260925T043601Z-3f9a: stew ci\nwrapper: tool exec . {{STEW_STEP}}\n"; got != want {
@@ -134,6 +139,7 @@ func TestShowWrapperHeader(t *testing.T) {
 }
 
 func TestShowProjectWrapperHeader(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	Show(&b, "20260925T043601Z-3f9a", []string{"ci"}, "tool exec . {{STEW_STEP}}",
 		[]ProjectWrapper{{"core", "a run {{STEW_STEP}}"}, {"api", "b run {{STEW_STEP}}"}}, nil, nil)
@@ -151,6 +157,7 @@ func TestShowProjectWrapperHeader(t *testing.T) {
 }
 
 func TestShellQuote(t *testing.T) {
+	t.Parallel()
 	tests := map[string]string{
 		"build":         "build",
 		"--level":       "--level",
@@ -177,6 +184,7 @@ func TestShellQuote(t *testing.T) {
 }
 
 func TestCommand(t *testing.T) {
+	t.Parallel()
 	if got, want := Command([]string{"ci", "--level", "pre-commit", "my app"}), "stew ci --level pre-commit 'my app'"; got != want {
 		t.Errorf("Command = %q, want %q", got, want)
 	}

@@ -11,6 +11,7 @@ import (
 )
 
 func TestRetentionExpired(t *testing.T) {
+	t.Parallel()
 	ids := []string{
 		"20260101T000000Z-0000",
 		"20260102T000000Z-0001",
@@ -34,6 +35,7 @@ func TestRetentionExpired(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.keep.Expired(ids); !slices.Equal(got, tt.want) {
 				t.Errorf("Expired = %q, want %q", got, tt.want)
 			}
@@ -45,6 +47,7 @@ func TestRetentionExpired(t *testing.T) {
 }
 
 func TestDelete(t *testing.T) {
+	t.Parallel()
 	stew := t.TempDir()
 	run, err := Create(stew, now, bytes.NewReader([]byte{0x3f, 0x9a}))
 	if err != nil {
@@ -74,6 +77,7 @@ func TestDelete(t *testing.T) {
 }
 
 func TestDeleteErrors(t *testing.T) {
+	t.Parallel()
 	stew := t.TempDir()
 	runs := filepath.Join(stew, "runs")
 	target := filepath.Join(stew, "target")

@@ -15,6 +15,7 @@ var (
 )
 
 func TestFormatDuration(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		d    time.Duration
 		want string
@@ -37,6 +38,7 @@ func TestFormatDuration(t *testing.T) {
 }
 
 func TestPlainSectionLines(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	p := &Plain{W: &b}
 	sec := func(f float64) time.Duration { return time.Duration(f * float64(time.Second)) }
@@ -94,6 +96,7 @@ partial
 }
 
 func TestTTYAnimation(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	tick := make(chan time.Time)
 	stopped := false
@@ -126,6 +129,7 @@ func TestTTYAnimation(t *testing.T) {
 }
 
 func TestTTYFailureContent(t *testing.T) {
+	t.Parallel()
 	var b bytes.Buffer
 	tty := newTTY(&b, func() (<-chan time.Time, func()) { return nil, func() {} })
 	coreBuild := runner.Section{Project: "core", Name: "build"}

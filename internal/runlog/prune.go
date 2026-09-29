@@ -47,7 +47,7 @@ func Delete(stewDir, id string) error {
 	if err != nil {
 		return err
 	}
-	lock, err := lockDir(dir)
+	lock, err := lockDir(dir, nil)
 	if errors.Is(err, fs.ErrNotExist) {
 		return ErrUnknownRun
 	}
