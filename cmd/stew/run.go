@@ -225,8 +225,8 @@ func interrupted(ctx context.Context) error {
 
 // newReporter animates when stdout is a terminal and prints plain lines otherwise.
 func newReporter(stdout io.Writer) runner.Reporter {
-	if isTerminal(stdout) {
-		return report.NewTTY(stdout)
+	if f, ok := stdout.(*os.File); ok && isTerminal(stdout) {
+		return report.NewTTY(stdout, terminalSize(f))
 	}
 	return &report.Plain{W: stdout}
 }

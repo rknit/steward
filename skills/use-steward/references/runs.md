@@ -35,8 +35,9 @@ error: config.ini not found
   - Last line: `(exit N)`, `(signal <name>)`, `(cannot start: <error>)`, `(log error: <error>)`, or a wrapper cause
     such as `(wrapper did not run the command (exit 0))`.
 - Durations: `0.4s`, `10.5s` under a minute; `1m3s`, `1h5m12s` from a minute up.
-- On a terminal the running line animates in place and there are no `started` lines. Otherwise there are no escape
-  codes.
+- On a terminal, running sections sit in a footer at the bottom, one line each with animated dots. When a section
+  ends, its line leaves the footer and its end line prints above it. There are no `started` lines. Plain output
+  has no escape codes.
 
 ## Summary
 

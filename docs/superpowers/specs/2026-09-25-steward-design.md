@@ -888,14 +888,29 @@ rule (see Failure and Blocking) hides its line; its summary cell is still `block
 
 ### Progress Animation
 
-- **Terminal (stdout is a TTY).** While a section runs, the line ends in dots that cycle `.` → `..` → `...` → `.`,
-  one frame every 300 ms, redrawn in place with `\r` and clear-to-end-of-line.
-  When the section ends, the line is redrawn as `... <status> (<duration>)` followed by a newline.
-  (`interrupted` has no duration, in both modes.)
+- **Terminal (stdout is a TTY).** The screen has two parts: finished lines, which scroll up, and a footer below
+  them with one line per running section, in start order. There are no `started` lines.
+  - Footer line: `==> <project>: <section> <dots>`. All footer lines share one animation: `.` → `..` → `...`, one
+    frame every 300 ms.
+  - A section that starts adds its line to the bottom of the footer.
+  - A section that ends leaves the footer. Its end line and content area print above the footer, then the footer
+    is redrawn. A section's line is never printed twice: when the top footer line ends, it looks like an in-place
+    update; when a lower one ends first, its line moves above the running ones.
+  - A blocked line prints above the footer the same way.
+  - Redraw: `\r`, cursor up by the footer height minus one (`\x1b[<n>A`, omitted when 0), clear to end of screen
+    (`\x1b[J`), finished text if any, then the footer. The cursor stays at the end of the last footer line, which
+    has no trailing newline.
+  - Footer lines are cut to the terminal width minus one column, so none wraps and the cursor math holds. When the
+    width is unknown, lines are not cut.
+  - When the footer would be taller than the terminal height minus one, it shows the first lines that fit, then
+    `... <n> more running` as its last line.
+  - The size is read at each redraw with `TIOCGWINSZ` on stdout.
+  - Finished text is never cut.
 - **Not a terminal (CI logs, pipes).** Stew writes `==> <project>: <section> ... started` and a newline when the
   section starts, and the whole end line (`==> <project>: <section> ... <status> (<duration>)`) with its content
   area, in one write, when it ends. No escape codes. A section still running shows as a `started` line with no
   end line.
+- `interrupted` end lines have no duration, in both modes.
 
 ### Summary
 
