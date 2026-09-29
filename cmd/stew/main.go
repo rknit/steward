@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,6 +50,12 @@ func (proc process) getenv(key string) (string, bool) {
 		}
 	}
 	return value, ok
+}
+
+// findRoot finds the workspace root above proc's directory, below any directory in $STEW_CEILING_DIRECTORIES.
+func (proc process) findRoot() (string, error) {
+	ceilings, _ := proc.getenv(workspace.CeilingEnv)
+	return workspace.FindRoot(proc.dir, filepath.SplitList(ceilings))
 }
 
 // tempDir is $TMPDIR, or /tmp when it is empty.
@@ -127,9 +134,9 @@ func newRootCmd(proc process, argv []string) *cobra.Command {
 	return root
 }
 
-// loadWorkspace finds the workspace root above dir and loads it.
-func loadWorkspace(dir string) (*workspace.Workspace, error) {
-	root, err := workspace.FindRoot(dir)
+// loadWorkspace finds the workspace root above proc's directory and loads it.
+func loadWorkspace(proc process) (*workspace.Workspace, error) {
+	root, err := proc.findRoot()
 	if err != nil {
 		return nil, invalid(err)
 	}

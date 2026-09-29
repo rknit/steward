@@ -29,6 +29,9 @@
 - The root is the nearest ancestor of the current directory that contains `.stew/`. Every command except
   `stew init` looks for it. None found: `not a stew workspace`.
 - Nested workspaces are allowed, as with git. The nearest `.stew/` wins.
+- `STEW_CEILING_DIRECTORIES` works like `GIT_CEILING_DIRECTORIES`: a `:`-separated list of absolute paths the search
+  never moves up into. The current directory is always searched. Use it to keep a test or tool from finding an outer
+  workspace.
 - Projects exist only after `stew add`. There is no auto-discovery.
 - Hand-edit `config.toml` and each `stew.toml`. Change the registry with `stew add` and `stew remove`.
 

@@ -86,6 +86,7 @@ func TestScripts(t *testing.T) {
 		},
 		Setup: func(env *testscript.Env) error {
 			env.Setenv("PATH", bin+string(os.PathListSeparator)+env.Getenv("PATH"))
+			env.Setenv("STEW_CEILING_DIRECTORIES", filepath.Dir(env.WorkDir))
 			env.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 			env.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 			env.Setenv("GIT_AUTHOR_NAME", "stew test")

@@ -55,9 +55,9 @@ func newRunsCmd(proc process) *cobra.Command {
 	return runs
 }
 
-// findStewDir returns the .stew directory of the workspace above dir without loading the workspace.
-func findStewDir(dir string) (string, error) {
-	root, err := workspace.FindRoot(dir)
+// findStewDir returns the .stew directory of the workspace above proc's directory without loading the workspace.
+func findStewDir(proc process) (string, error) {
+	root, err := proc.findRoot()
 	if err != nil {
 		return "", invalid(err)
 	}
@@ -75,7 +75,7 @@ type listedRun struct {
 }
 
 func listRuns(proc process, porcelain, noPager bool) error {
-	stewDir, err := findStewDir(proc.dir)
+	stewDir, err := findStewDir(proc)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func showRun(proc process, id string, patterns []string, porcelain, noPager bool
 	if err != nil {
 		return invalid(err)
 	}
-	stewDir, err := findStewDir(proc.dir)
+	stewDir, err := findStewDir(proc)
 	if err != nil {
 		return err
 	}

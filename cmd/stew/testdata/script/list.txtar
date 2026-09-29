@@ -21,6 +21,19 @@ cd /
 status 2
 stderr '^stew: not a stew workspace$'
 cd $WORK
+
+# STEW_CEILING_DIRECTORIES stops the walk before it moves up into a listed directory.
+env OUTER_CEILING=$STEW_CEILING_DIRECTORIES
+env STEW_CEILING_DIRECTORIES=/unrelated:$WORK
+cd libs/core
+! stew list
+status 2
+stderr '^stew: not a stew workspace$'
+env STEW_CEILING_DIRECTORIES=$OUTER_CEILING
+stew list
+stdout '^│ core '
+cd $WORK
+
 rm libs/core/stew.toml
 ! stew list
 status 2

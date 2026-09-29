@@ -23,7 +23,7 @@ func newExecCmd(proc process) *cobra.Command {
 		Short: "Run a shell command in the current directory, inside the workspace wrapper and the named project's wrapper",
 		Args:  cobra.RangeArgs(1, 2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, err := loadWorkspace(proc.dir)
+			ws, err := loadWorkspace(proc)
 			if err != nil {
 				return err
 			}

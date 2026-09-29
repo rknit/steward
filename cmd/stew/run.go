@@ -33,7 +33,7 @@ func newRunCmd(proc process, argv []string) *cobra.Command {
 		Short: "Run sections whose <project>:<section> key matches, after the sections they require",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, err := loadWorkspace(proc.dir)
+			ws, err := loadWorkspace(proc)
 			if err != nil {
 				return err
 			}
@@ -60,7 +60,7 @@ func newAliasCmd(proc process, argv []string, use, section, short string) *cobra
 					return invalid(fmt.Errorf("invalid CI level %q", level))
 				}
 			}
-			ws, err := loadWorkspace(proc.dir)
+			ws, err := loadWorkspace(proc)
 			if err != nil {
 				return err
 			}

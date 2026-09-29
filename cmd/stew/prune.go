@@ -84,7 +84,7 @@ func parseKeepSince(s string, now time.Time, loc *time.Location) (time.Time, err
 // pruneRuns deletes the runs keep does not keep, oldest first, printing one line per run.
 // A failed delete is reported and the rest still run.
 func pruneRuns(proc process, keep runlog.Retention) error {
-	stewDir, err := findStewDir(proc.dir)
+	stewDir, err := findStewDir(proc)
 	if err != nil {
 		return err
 	}

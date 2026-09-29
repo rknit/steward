@@ -67,7 +67,7 @@ func skillsDir(proc process, args []string) (string, error) {
 		}
 		return filepath.Join(proc.dir, args[0]), nil
 	}
-	root, err := workspace.FindRoot(proc.dir)
+	root, err := proc.findRoot()
 	if errors.Is(err, workspace.ErrNotWorkspace) {
 		root = proc.dir
 	} else if err != nil {

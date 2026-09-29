@@ -31,7 +31,7 @@ func newRemoveCmd(proc process) *cobra.Command {
 }
 
 func remove(proc process, names []string, clean bool) error {
-	ws, err := loadWorkspace(proc.dir)
+	ws, err := loadWorkspace(proc)
 	if err != nil {
 		return err
 	}

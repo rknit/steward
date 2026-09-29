@@ -23,7 +23,7 @@ func newTrustCmd(proc process) *cobra.Command {
 		Short: "Run every trust command again, after consent, and record them for this tree",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ws, err := loadWorkspace(proc.dir)
+			ws, err := loadWorkspace(proc)
 			if err != nil {
 				return err
 			}

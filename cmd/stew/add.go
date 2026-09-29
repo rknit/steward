@@ -34,7 +34,7 @@ func newAddCmd(proc process) *cobra.Command {
 }
 
 func add(proc process, arg, alias string, trusted bool) error {
-	ws, err := loadWorkspace(proc.dir)
+	ws, err := loadWorkspace(proc)
 	if err != nil {
 		return err
 	}

@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/rknit/steward/internal/githook"
-	"github.com/rknit/steward/internal/workspace"
 )
 
 func newGitCmd(proc process) *cobra.Command {
@@ -23,7 +22,7 @@ func newGitCmd(proc process) *cobra.Command {
 		Short: "Install a git hook that runs stew (supported: " + strings.Join(githook.Supported, ", ") + ")",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			root, err := workspace.FindRoot(proc.dir)
+			root, err := proc.findRoot()
 			if err != nil {
 				return invalid(err)
 			}
