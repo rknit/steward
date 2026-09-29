@@ -28,19 +28,24 @@ const killDelay = 5 * time.Second
 
 func newRunCmd(proc process, argv []string) *cobra.Command {
 	var dryRun bool
+	var jobs int
 	cmd := &cobra.Command{
 		Use:   "run <regex>...",
 		Short: "Run sections whose <project>:<section> key matches, after the sections they require",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkJobs(cmd, jobs); err != nil {
+				return err
+			}
 			ws, err := loadWorkspace(proc)
 			if err != nil {
 				return err
 			}
-			return runSections(proc, argv, ws, args, dryRun)
+			return runSections(proc, argv, ws, args, dryRun, jobs)
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would run, in order, without running it")
+	addJobsFlag(cmd, &jobs)
 	return cmd
 }
 
@@ -49,10 +54,14 @@ func newRunCmd(proc process, argv []string) *cobra.Command {
 func newAliasCmd(proc process, argv []string, use, section, short string) *cobra.Command {
 	var level string
 	var dryRun bool
+	var jobs int
 	cmd := &cobra.Command{
 		Use:   use + " [project...]",
 		Short: short,
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := checkJobs(cmd, jobs); err != nil {
+				return err
+			}
 			name := section
 			if section == "ci" {
 				name = "ci." + level
@@ -68,13 +77,14 @@ func newAliasCmd(proc process, argv []string, use, section, short string) *cobra
 			if err != nil {
 				return invalid(err)
 			}
-			return runSections(proc, argv, ws, patterns, dryRun)
+			return runSections(proc, argv, ws, patterns, dryRun, jobs)
 		},
 	}
 	if section == "ci" {
 		cmd.Flags().StringVarP(&level, "level", "l", "full", "run section ci.<level>")
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print what would run, in order, without running it")
+	addJobsFlag(cmd, &jobs)
 	return cmd
 }
 
@@ -94,7 +104,34 @@ func aliasPatterns(ws *workspace.Workspace, section string, projects []string) (
 	return patterns, nil
 }
 
-func runSections(proc process, argv []string, ws *workspace.Workspace, patterns []string, dryRun bool) error {
+// addJobsFlag adds -j/--jobs to cmd. 0 means not given.
+func addJobsFlag(cmd *cobra.Command, jobs *int) {
+	cmd.Flags().IntVarP(jobs, "jobs", "j", 0,
+		"run at most `n` sections at once (default: jobs in .stew/config.toml, else the CPU count)")
+}
+
+// checkJobs rejects a -j below 1.
+func checkJobs(cmd *cobra.Command, jobs int) error {
+	if cmd.Flags().Changed("jobs") && jobs < 1 {
+		return invalid(fmt.Errorf("invalid jobs %d: must be at least 1", jobs))
+	}
+	return nil
+}
+
+// jobLimit is the most sections a run starts at once: 1 in serial mode, else -j, else jobs from the config, else cpus.
+func jobLimit(ws *workspace.Workspace, flag, cpus int) int {
+	switch {
+	case ws.Serial:
+		return 1
+	case flag > 0:
+		return flag
+	case ws.Jobs > 0:
+		return ws.Jobs
+	}
+	return cpus
+}
+
+func runSections(proc process, argv []string, ws *workspace.Workspace, patterns []string, dryRun bool, jobs int) error {
 	plan, matched, err := buildPlan(ws, patterns)
 	if err != nil {
 		return invalid(err)
@@ -160,6 +197,7 @@ func runSections(proc process, argv []string, ws *workspace.Workspace, patterns 
 		Now:    time.Now,
 		RunID:  logs.ID,
 		Root:   ws.Root,
+		Jobs:   jobLimit(ws, jobs, proc.cpus),
 	}
 	res := r.Run(ctx, plan)
 	total := time.Since(start)

@@ -23,17 +23,25 @@ const ConfigTemplate = `# Wraps every command stew runs. {{STEW_STEP}} marks whe
 workspace_wrapper = ""
 # Makes the wrapper usable in a new tree, e.g. "direnv allow .". Runs once per tree, with consent. "" means none.
 workspace_trust = ""
+# "parallel" runs independent sections at the same time; "serial" runs one at a time. Default "parallel".
+# concurrency = "parallel"
+# Most sections running at once in parallel mode. Default: the number of CPUs. stew run -j overrides it.
+# jobs = 8
 `
 
 // Config is the checked content of .stew/config.toml.
 type Config struct {
 	Wrapper string // workspace wrapper; "" means none
 	Trust   string // workspace trust command; "" means none
+	Serial  bool   // concurrency = "serial": one section at a time
+	Jobs    int    // most sections running at once; 0 when unset
 }
 
 type rawConfig struct {
 	WorkspaceWrapper string `toml:"workspace_wrapper"`
 	WorkspaceTrust   string `toml:"workspace_trust"`
+	Concurrency      string `toml:"concurrency"`
+	Jobs             int    `toml:"jobs"`
 }
 
 // LoadConfig reads and checks .stew/config.toml.
@@ -62,5 +70,12 @@ func LoadConfig(root string) (Config, error) {
 	if err := CheckWrapper(raw.WorkspaceWrapper); err != nil {
 		return Config{}, fmt.Errorf("%s: workspace_wrapper: %w", file, err)
 	}
-	return Config{Wrapper: raw.WorkspaceWrapper, Trust: raw.WorkspaceTrust}, nil
+	if md.IsDefined("concurrency") && raw.Concurrency != "parallel" && raw.Concurrency != "serial" {
+		return Config{}, fmt.Errorf(`%s: concurrency: must be "parallel" or "serial"`, file)
+	}
+	if md.IsDefined("jobs") && raw.Jobs < 1 {
+		return Config{}, fmt.Errorf("%s: jobs: must be at least 1", file)
+	}
+	return Config{Wrapper: raw.WorkspaceWrapper, Trust: raw.WorkspaceTrust, Serial: raw.Concurrency == "serial",
+		Jobs: raw.Jobs}, nil
 }

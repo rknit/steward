@@ -30,6 +30,8 @@ func TestLoadConfig(t *testing.T) {
 		{`workspace_wrapper = "tool exec . {{STEW_STEP}}"` + trust, Config{Wrapper: "tool exec . {{STEW_STEP}}"}},
 		{"workspace_wrapper = '''\nset -x\ntool exec . {{STEW_STEP}}'''" + trust, Config{Wrapper: "set -x\ntool exec . {{STEW_STEP}}"}},
 		{"workspace_wrapper = \"\"\nworkspace_trust = \"direnv allow .\"\n", Config{Trust: "direnv allow ."}},
+		{"workspace_wrapper = \"\"\nworkspace_trust = \"\"\nconcurrency = \"serial\"\n", Config{Serial: true}},
+		{"workspace_wrapper = \"\"\nworkspace_trust = \"\"\nconcurrency = \"parallel\"\njobs = 3\n", Config{Jobs: 3}},
 	} {
 		got, err := LoadConfig(writeConfig(t, tc.content))
 		if err != nil || got != tc.want {
@@ -53,6 +55,9 @@ func TestLoadConfigErrors(t *testing.T) {
 		{"no placeholder", `workspace_wrapper = "tool exec ."` + "\nworkspace_trust = \"\"", "workspace_wrapper: must contain {{STEW_STEP}} exactly once (found 0)", false},
 		{"missing trust", `workspace_wrapper = ""`, `missing key "workspace_trust"`, false},
 		{"trust type", "workspace_wrapper = \"\"\nworkspace_trust = 1", "toml: ", true},
+		{"bad concurrency", "workspace_wrapper = \"\"\nworkspace_trust = \"\"\nconcurrency = \"exclusive\"", `concurrency: must be "parallel" or "serial"`, false},
+		{"zero jobs", "workspace_wrapper = \"\"\nworkspace_trust = \"\"\njobs = 0", "jobs: must be at least 1", false},
+		{"jobs type", "workspace_wrapper = \"\"\nworkspace_trust = \"\"\njobs = \"8\"", "toml: ", true},
 	} {
 		root := writeConfig(t, tc.content)
 		_, err := LoadConfig(root)

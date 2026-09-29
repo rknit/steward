@@ -1,4 +1,5 @@
 # Loops are bounded (10s) so a regression fails instead of hanging the suite.
+# One job, so lib:setup waits for core:setup, and the signal must keep it from starting.
 # SIGINT reaches stew, which forwards it to the running command, stops, prints the summary, and exits 130.
 exec sh -c 'stew build > out 2>&1 & pid=$!; i=0; while [ ! -f core/started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; wait $pid; echo "exit=$?"'
 stdout '^exit=130$'
@@ -12,6 +13,7 @@ stdout '^│ lib     │ -           │ -     │$'
 -- .stew/config.toml --
 workspace_wrapper = ""
 workspace_trust = ""
+jobs = 1
 -- .stew/projects.toml --
 projects = ["core", "lib"]
 -- core/stew.toml --

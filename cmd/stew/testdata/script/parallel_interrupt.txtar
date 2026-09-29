@@ -1,0 +1,37 @@
+# Loops are bounded (10s) so a regression fails instead of hanging the suite.
+# SIGINT reaches every running section. Nothing new starts, and stew exits 130.
+exec sh -c 'stew build -j 2 > out 2>&1 & pid=$!; i=0; while { [ ! -f a/started ] || [ ! -f b/started ]; } && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; kill -INT $pid; wait $pid; echo "exit=$?"'
+stdout '^exit=130$'
+exec cat out
+stdout '^==> a: setup \.\.\. interrupted$'
+stdout '^==> b: setup \.\.\. interrupted$'
+stdout '^got-int-a$'
+stdout '^got-int-b$'
+stdout '^│ a       │ interrupted │ -     │$'
+stdout '^│ b       │ interrupted │ -     │$'
+! exists a/built
+! exists b/built
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = ""
+-- .stew/projects.toml --
+projects = ["a", "b"]
+-- a/stew.toml --
+name = "a"
+project_wrapper = ""
+project_trust = ""
+[setup]
+run = "trap 'echo got-int-a; exit 1' INT; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
+[build]
+run = "touch built"
+requires = [":setup"]
+-- b/stew.toml --
+name = "b"
+project_wrapper = ""
+project_trust = ""
+[setup]
+run = "trap 'echo got-int-b; exit 1' INT; touch started; i=0; while [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done"
+[build]
+run = "touch built"
+requires = [":setup"]

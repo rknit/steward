@@ -25,11 +25,11 @@ stew init
 stew add <path> [-a/--alias <name>] [--trusted]
 stew remove <name>... [--clean]
 stew list [--porcelain]
-stew run <regex>... [--dry-run]
-stew setup [project...] [--dry-run]
-stew build [project...] [--dry-run]
-stew ci [project...] [-l/--level <name>] [--dry-run]
-stew setup-worktree [project...] [--dry-run]
+stew run <regex>... [--dry-run] [-j <n>]
+stew setup [project...] [--dry-run] [-j <n>]
+stew build [project...] [--dry-run] [-j <n>]
+stew ci [project...] [-l/--level <name>] [--dry-run] [-j <n>]
+stew setup-worktree [project...] [--dry-run] [-j <n>]
 stew exec [project] <command>
 stew trust [--yes]
 stew git install pre-commit|pre-push|post-checkout
@@ -95,15 +95,24 @@ Committed and hand-edited. `stew init` writes it:
 workspace_wrapper = ""
 # Makes the wrapper usable in a new tree, e.g. "direnv allow .". Runs once per tree, with consent. "" means none.
 workspace_trust = ""
+# "parallel" runs independent sections at the same time; "serial" runs one at a time. Default "parallel".
+# concurrency = "parallel"
+# Most sections running at once in parallel mode. Default: the number of CPUs. stew run -j overrides it.
+# jobs = 8
 ```
 
-| Key                 | Required | Rule                           |
-| ------------------- | -------- | ------------------------------ |
-| `workspace_wrapper` | yes      | String. `""` means no wrapper. |
-| `workspace_trust`   | yes      | String. `""` means no trust step. |
+| Key                 | Required | Rule                                                   |
+| ------------------- | -------- | ------------------------------------------------------ |
+| `workspace_wrapper` | yes      | String. `""` means no wrapper.                         |
+| `workspace_trust`   | yes      | String. `""` means no trust step.                      |
+| `concurrency`       | no       | `"parallel"` or `"serial"`. Absent means `"parallel"`. |
+| `jobs`              | no       | Integer ≥ 1. Absent means the CPU count.               |
 
 - A missing file is an error: `.stew/config.toml: missing`.
 - Unknown keys are rejected.
+- `concurrency` other than `"parallel"` or `"serial"`: `<file>: concurrency: must be "parallel" or "serial"`.
+- `jobs` below 1: `<file>: jobs: must be at least 1`. A wrong TOML type (e.g. `jobs = "8"`) keeps the TOML
+  decoder's error, prefixed with `<file>: `.
 - `.stew/projects.toml` is a machine-written registry and holds no configuration.
 - A non-empty wrapper must contain `{{STEW_STEP}}` exactly once.
   Error: `<file>: <key>: must contain {{STEW_STEP}} exactly once (found N)`.
@@ -186,7 +195,7 @@ Each run captures all command output to disk.
 | `project_wrapper`   | Non-empty project wrappers as written, by project name. Absent when none.      |
 | `columns`           | Summary columns, as in the live summary.                                       |
 | `projects`          | Selected projects in execution order: the summary rows.                        |
-| `sections`          | Sections that ended or were blocked, in execution order.                       |
+| `sections`          | Sections that ended or were blocked, in the order they ended or were blocked.  |
 | `section`           | The section name; with `project`, the key.                                    |
 | `duration_ms`       | Section duration in milliseconds. Absent on `blocked` and `interrupted`.       |
 | `cause`             | Content area last line without parentheses. Only on `fail` and `interrupted`.  |
@@ -194,6 +203,8 @@ Each run captures all command output to disk.
 | `total_ms`          | Run wall time in milliseconds. Present only once the run has finished.         |
 
 - JSON via `encoding/json`. The file is machine-written only.
+- `sections` is in end order: records appear in the order sections end or are blocked, the same order as the live
+  output. `stew runs show` lists them in that order. One goroutine writes the manifest, so saves never race.
 - Readers reject anything stew never writes: an unknown status, a project or column that is not a valid name,
   a section outside `projects` or `columns`, a negative duration or `total_ms`, a `project_wrapper` entry for a
   project outside `projects`, or a `blocked_by` entry that is not a key.
@@ -202,7 +213,8 @@ Each run captures all command output to disk.
   A failed save is repaired by the next successful one.
 - Saves happen at run start, after each section ends or is blocked, and at run end.
 - A section that started but has no entry has a `.log` whose key is missing from `sections`.
-  Execution is sequential, so at most one exists, unless section-end saves failed. Several are sorted by key.
+  One can exist per running section, so up to the job limit, more when section-end saves failed. Several are
+  sorted by key.
 - Save errors follow the log error rules:
 
   | Save fails at | Effect                                                                                    |
@@ -534,8 +546,40 @@ and comma-separated, or `-` when there are none.
 ### Order and Execution
 
 - Order: topological over selected sections (Kahn). Among ready sections, the smallest project name goes first,
-  then the smallest section name. The order is identical on every run.
-- Execution is sequential, one section at a time.
+  then the smallest section name. The order is identical on every run. It is the **start priority**.
+
+Job limit, the most sections that run at once:
+
+| Workspace `concurrency` | Job limit                                           |
+| ----------------------- | --------------------------------------------------- |
+| `serial`                | 1. `jobs` and `-j` are ignored.                     |
+| `parallel`              | `-j` if given, else `jobs`, else the CPU count      |
+
+- `-j, --jobs <n>` is available on `stew run` and every alias (`setup`, `build`, `ci`, `setup-worktree`).
+- `-j` below 1 exits 2: `invalid jobs 0: must be at least 1`.
+- `--dry-run` accepts `-j` and ignores it.
+- Serial mode ignores `-j` so a workspace that opted out stays opted out in CI and git hooks.
+- The CPU count is `runtime.GOMAXPROCS(0)`, which follows cgroup CPU limits, read once in `main`.
+
+Once at the start, and whenever a section ends, the scheduler scans the sections that have not started, in plan
+order, and stops at the first rule that says stop:
+
+1. No stop signal has arrived. After one, the scan does nothing.
+2. The job limit is not reached. Otherwise the scan stops.
+3. A section that is not ready (a requirement has not ended) is passed over.
+4. A ready section with a requirement that failed or was blocked becomes `blocked` at once, with the recording,
+   pruning, and `blocked by` line of Failure and Blocking. Its dependents come later in plan order, so they are
+   blocked when a scan reaches them.
+5. Otherwise the section starts.
+
+Then the scheduler waits for the next section to end.
+
+- With a job limit of 1, every section starts in plan order, and blocked sections are reported where they would
+  have run.
+- A section with nothing to run (`run`, `skip_if`, and `verify` all `""`) counts as running while it starts and
+  ends. It takes a slot for no measurable time.
+- Scheduling is deterministic for a given sequence of end events. The start order across runs may differ, since
+  sections end at different times.
 
 ### `--dry-run`
 
@@ -706,17 +750,18 @@ Examples of the shape (not a supported-tools list):
 With at least one wrapper, stew writes executables for each step into the step directory.
 For a project with both wrappers:
 
-| File                       | Content                                                                                  |
-| -------------------------- | ---------------------------------------------------------------------------------------- |
-| `<project>-<section>.1`    | `#!/bin/sh`, then `project_wrapper` with `{{STEW_STEP}}` replaced by the `.step` path    |
-| `<project>-<section>.step` | `#!/bin/sh`, then: count one reach, export every `STEW_*`, run `sh -c <cmd>`,            |
-|                            | write its exit status to `<project>-<section>.status`, and exit with that status         |
+| File                           | Content                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------- |
+| `<n>-<project>-<section>.1`    | `#!/bin/sh`, then `project_wrapper` with `{{STEW_STEP}}` replaced by the `.step` path    |
+| `<n>-<project>-<section>.step` | `#!/bin/sh`, then: count one reach, export every `STEW_*`, run `sh -c <cmd>`,            |
+|                                | write its exit status to `<n>-<project>-<section>.status`, and exit with that status     |
 
 Then it runs `sh -c <workspace_wrapper with {{STEW_STEP}} replaced by the .1 path>`.
 With one wrapper, there is no `.1` file. stew runs `sh -c <that wrapper>`, with `{{STEW_STEP}}` replaced by
 the `.step` path.
 
-- `<project>-<section>` is a `:`-free rendering of the section's key (see Step Directory), not the run log names.
+- `<n>-<project>-<section>` is the section's plan index and a `:`-free rendering of its key (see Step Directory),
+  not the run log names.
 - `STEW_*` are in the environment of the whole chain, so a wrapper can read them.
 - The step script sets them again, so no wrapper can change what the command sees.
   Their values are shell-quoted inside the script, so any value is safe.
@@ -737,8 +782,9 @@ the `.step` path.
 - Its full path must match `[A-Za-z0-9/._-]+`, so no file in it ever needs quoting, however many times a tool
   parses it. Otherwise the run exits 1 before any section:
   `cannot create step directory: <path> needs shell quoting; set TMPDIR to a path of letters, digits, and /._-`.
-  Its files use a `:`-free rendering of each section's key, since a key can contain `:`. Two keys can map to the
-  same name (`a-b:c`, `a:b-c`), which is harmless: steps run one at a time, and a step's files are removed after it.
+- The file name of a wrapped step is `<n>-<project>-<section>.<ext>`, where `<n>` is the section's 0-based index
+  in the plan. Without the index, two keys could map to one name (`a-b:c`, `a:b-c`), which was harmless only
+  while steps ran one at a time. The index makes every name unique within a run.
 - It sits outside the workspace, so a workspace path with spaces or quotes never reaches a wrapper.
 - Any failure to create it exits 1 with `cannot create step directory: <error>`, before any run directory exists.
 - The temp directory must allow executing files. On a `noexec` mount, every wrapped step fails with
@@ -747,8 +793,8 @@ the `.step` path.
 
 #### Reach Count
 
-The step script appends one line to `<project>-<section>.reach` in the step directory each time it runs.
-When the command finishes, the step script writes the command's exit status to `<project>-<section>.status`.
+The step script appends one line to `<n>-<project>-<section>.reach` in the step directory each time it runs.
+When the command finishes, the step script writes the command's exit status to `<n>-<project>-<section>.status`.
 
 - stew removes the step's `.reach` and `.status` files before every step, and all the step's files after it.
 - After a wrapped step exits, stew counts the lines and reads the status.
@@ -796,7 +842,8 @@ None of the guards change what the wrapper does. They only check the input or th
 - Blocking follows `requires` edges only. Other sections of the same project keep running.
 - Nothing below a failure runs. Output is pruned: only sections that directly require a failed section print a
   line.
-  - Line: `==> <project>: <section> ... blocked by <key>, <key>`, at its place in the order. It lists the direct
+  - Line: `==> <project>: <section> ... blocked by <key>, <key>`, when the scheduler reaches it (at its place in the
+    order with one job). It lists the direct
     requirements that failed, in execution order.
   - A blocked section whose failed-or-blocked requirements are all blocked prints nothing.
 - The summary still shows `blocked` for every blocked section, printed or not.
@@ -808,14 +855,18 @@ None of the guards change what the wrapper does. They only check the input or th
 
 ### Interrupt
 
-- On Ctrl-C stew catches SIGINT and forwards it to the running command's process group.
-  Stew does not exit immediately. It waits for the command to exit and starts nothing new.
-  It then stops the command's leftovers as after any command, for up to 5 s. Only a second stop signal cuts that short.
-- On SIGTERM or SIGHUP (CI cancel, `timeout`, closed terminal) stew forwards that signal to the group,
-  then sends SIGKILL after 5 s if the command is still running. It starts nothing new.
-- A second stop signal (Ctrl-C, SIGTERM, or SIGHUP) while stew waits sends SIGKILL to the command's group at once.
-- The section in progress reports `interrupted`, followed by its content area (see Output).
-- Stew then prints the summary and exits 128 + the first signal's number: 130 (SIGINT), 143 (SIGTERM), 129 (SIGHUP).
+- First stop signal (SIGINT, SIGTERM, SIGHUP): nothing new starts. stew forwards the signal to **every** running
+  section's process group, with these per-signal rules:
+  - SIGINT (Ctrl-C): stew does not exit immediately. It waits for each command to exit, then stops the command's
+    leftovers as after any command, for up to 5 s. Only a second stop signal cuts that short.
+  - SIGTERM or SIGHUP (CI cancel, `timeout`, closed terminal): stew sends SIGKILL after 5 s to each command that
+    is still running.
+- stew waits for every running section to end, then records and reports each one as it ends.
+- Second stop signal: SIGKILL to every running group at once.
+- Each section that was running reports `interrupted`, with its content area (see Output). A section that ended
+  on its own before the signal reached it keeps its real status.
+- Sections that never started stay `-` in the summary. Blocked sections found before the signal keep `blocked`.
+- stew prints the summary and exits 128 + the first signal's number: 130 (SIGINT), 143 (SIGTERM), 129 (SIGHUP).
 
 ## Output
 

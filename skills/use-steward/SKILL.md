@@ -6,8 +6,9 @@ description: Use when a repository has a `.stew/` directory or `stew.toml` files
 # Using steward (`stew`)
 
 `stew` is a stack-agnostic monorepo orchestrator. Each registered project declares shell commands in named
-**sections** of its `stew.toml`. `stew` runs the sections you select, plus the sections they require, one at a
-time, in a fixed order, and records every run under `.stew/runs/`.
+**sections** of its `stew.toml`. `stew` runs the sections you select, plus the sections they require, in parallel
+where `requires` allows, up to a job limit (`-j`), starting them in a fixed order, and records every run under
+`.stew/runs/`.
 
 Use `stew` instead of calling a project's build or test tools by hand. It runs them in the right order, inside the
 toolchain wrappers the workspace defines, and keeps the logs.
@@ -80,6 +81,7 @@ a trust command needs `--trusted` after the same consent.
 | Run it for some projects only | `stew build api web`, `stew ci core -l quick` |
 | Run any sections by key regex | `stew run 'core:.*' 'api:ci\..*'` (each regex matches a whole key) |
 | Preview the order, run nothing | Add `--dry-run` to `run` or an alias |
+| Run one section at a time | Add `-j 1`, or set `concurrency = "serial"` in `.stew/config.toml` |
 | Run one command in the toolchain | `stew exec [project] '<command>'` |
 | Full logs of the last run | `stew runs show latest --no-pager` |
 | Logs of one section | `stew runs show latest 'core:build' --no-pager` |

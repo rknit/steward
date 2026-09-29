@@ -4,7 +4,7 @@ stdin $WORK/feed.txt
 exec sh -c 'stew build; echo "exit=$?"'
 cd $WORK
 
-# Section lines in execution order; plain format (not a TTY), no escape codes.
+# Section lines; plain format (not a TTY), no escape codes.
 stdout '^==> core: setup \.\.\. done \(\d+\.\ds\)$'
 stdout '^==> core: build \.\.\. done \(\d+\.\ds\)$'
 stdout '^==> api: setup \.\.\. skip \(\d+\.\ds\)$'

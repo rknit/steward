@@ -36,9 +36,12 @@
 
 ## Order
 
-- Sections run one at a time, never in parallel.
-- The order is a topological sort over `requires`. Among ready sections, the smallest project name runs first,
-  then the smallest section name. The same selection always runs in the same order.
+- Sections run in parallel. A section starts once every section it requires has ended.
+- At most the job limit run at once: `-j N`, else `jobs` in `.stew/config.toml`, else the CPU count.
+- `concurrency = "serial"` in `.stew/config.toml` runs one section at a time and ignores `-j` and `jobs`.
+- The plan order is a topological sort over `requires`. Among ready sections, the smallest project name comes first,
+  then the smallest section name. Free slots go to sections in this order. With one job, sections run exactly in
+  this order.
 - `--dry-run` prints this order with each section's direct requirements and runs nothing:
 
   ```text
@@ -84,6 +87,7 @@ killed.
 ## Failure and Blocking
 
 - A failure blocks only the sections that require it, directly or transitively. Other sections keep running.
+- Sections already running when a section fails keep running.
 - A blocked section prints `==> <project>: <section> ... blocked by <key>, <key>` only when a direct requirement
   failed. A section whose failed requirements are all themselves blocked prints nothing, but its summary cell still
   says `blocked`.
@@ -191,9 +195,9 @@ A trust command makes a wrapper usable in a tree, e.g. `direnv allow .` or `mise
 
 ## Interrupts
 
-- Ctrl-C (SIGINT): stew forwards it to the running command's group, waits for the command to exit, and starts
-  nothing new.
-- SIGTERM or SIGHUP: stew forwards it, then sends SIGKILL after 5 s if the command still runs.
-- A second stop signal kills the command's group at once.
-- The running section becomes `interrupted`. stew prints the summary and exits 128 + the first signal's number:
-  130 (SIGINT), 143 (SIGTERM), 129 (SIGHUP).
+- Ctrl-C (SIGINT): stew forwards it to every running command's group, waits for them to exit, and starts nothing
+  new.
+- SIGTERM or SIGHUP: stew forwards it, then sends SIGKILL after 5 s to each command that still runs.
+- A second stop signal kills every running command's group at once.
+- Each running section becomes `interrupted`. A section that ended before the signal keeps its status. stew prints
+  the summary and exits 128 + the first signal's number: 130 (SIGINT), 143 (SIGTERM), 129 (SIGHUP).

@@ -73,6 +73,7 @@ logs: .stew/runs/20260926T213255Z-8ac4
 - Each section that ran a command gets `<key>.log`, `<key>.stdout`, and `<key>.stderr`. Each step appends a
   `--- stew: <step>: <command>` marker to all three, then its output.
 - A section that ran no command (`blocked`, or `skip` with nothing to run) has no log files.
+- `run.json` lists sections in the order they ended or were blocked, like the live output.
 - Runs are never deleted automatically. `.stew/runs/` is git-ignored.
 - `grep` works directly on the files: `grep -n error .stew/runs/<run-id>/core:build.log`.
 

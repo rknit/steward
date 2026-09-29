@@ -1,0 +1,94 @@
+# Independent sections overlap: b waits for a to start, a waits for b's record in run.json.
+# So the run passes only when both run at once, and b ends first. Loops are bounded (10s).
+stew build -j 2
+cp stdout out
+exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
+cmp stdout want/overlap
+exec sh -c 'grep -o "\"project\": \"[ab]\"" .stew/runs/*/run.json'
+cmp stdout want/record-order
+
+# One job runs the plan in order; serial mode does too, whatever -j says.
+stew setup -j 1
+cp stdout out
+exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
+cmp stdout want/in-order
+cp cfg/serial.toml .stew/config.toml
+stew setup -j 4
+cp stdout out
+exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
+cmp stdout want/in-order
+
+# -j below 1 is a usage error, even with --dry-run.
+! stew build -j 0
+status 2
+stderr '^stew: invalid jobs 0: must be at least 1$'
+! stew run 'a:build' --dry-run -j 0
+status 2
+stderr '^stew: invalid jobs 0: must be at least 1$'
+
+# jobs in the config allows the same overlap with no -j, above the one CPU in-process stew has.
+rm a-started
+cp cfg/jobs.toml .stew/config.toml
+stew build
+cp stdout out
+exec sh -c 'sed -E -e "s/\(([0-9]+h)?([0-9]+m)?[0-9.]+s\)/(T)/" -e "s/^total: .*/total: T/" -e "s#runs/.*#runs/ID#" out'
+cmp stdout want/overlap
+
+-- .stew/config.toml --
+workspace_wrapper = ""
+workspace_trust = ""
+-- .stew/projects.toml --
+projects = ["a", "b"]
+-- a/stew.toml --
+name = "a"
+project_wrapper = ""
+project_trust = ""
+[setup]
+run = "true"
+[build]
+run = '''touch ../a-started; rec="$STEW_ROOT/.stew/runs/$STEW_RUN_ID/run.json"; i=0; while ! grep -q '"project": "b"' "$rec" && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; grep -q '"project": "b"' "$rec"'''
+-- b/stew.toml --
+name = "b"
+project_wrapper = ""
+project_trust = ""
+[setup]
+run = "true"
+[build]
+run = "i=0; while [ ! -f ../a-started ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; test -f ../a-started"
+-- cfg/jobs.toml --
+workspace_wrapper = ""
+workspace_trust = ""
+jobs = 2
+-- cfg/serial.toml --
+workspace_wrapper = ""
+workspace_trust = ""
+concurrency = "serial"
+-- want/overlap --
+==> a: build ... started
+==> b: build ... started
+==> b: build ... done (T)
+==> a: build ... done (T)
+┌─────────┬───────┐
+│ project │ build │
+├─────────┼───────┤
+│ a       │ done  │
+│ b       │ done  │
+└─────────┴───────┘
+total: T
+logs: .stew/runs/ID
+-- want/record-order --
+"project": "b"
+"project": "a"
+-- want/in-order --
+==> a: setup ... started
+==> a: setup ... done (T)
+==> b: setup ... started
+==> b: setup ... done (T)
+┌─────────┬───────┐
+│ project │ setup │
+├─────────┼───────┤
+│ a       │ done  │
+│ b       │ done  │
+└─────────┴───────┘
+total: T
+logs: .stew/runs/ID

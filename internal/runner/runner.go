@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -20,6 +22,7 @@ type Runner struct {
 	Now     func() time.Time
 	RunID   string // exported to commands as STEW_RUN_ID
 	Root    string // workspace root, exported to commands as STEW_ROOT
+	Jobs    int    // most sections running at once; at least 1
 }
 
 // env is what every command of section s gets on top of stew's own environment.
@@ -33,10 +36,15 @@ func (r *Runner) env(s Section) []string {
 	}
 }
 
-// Run executes the plan in order. It never returns early on failure: sections that do not require a failed one
-// keep running. After an interrupt (ctx cancelled with an Interrupt cause: Ctrl-C, SIGTERM, or SIGHUP)
-// no new section starts.
+// Run executes the plan. Whenever a section ends, and once at the start, it scans the sections not yet started, in
+// plan order, and starts each ready one while fewer than Jobs run; with Jobs 1 the plan runs in order. It never
+// returns early on failure: sections that do not require a failed one keep running. After an interrupt (ctx
+// cancelled with an Interrupt cause: Ctrl-C, SIGTERM, or SIGHUP) no new section starts, and Run returns once the
+// running ones end. Only Run's own goroutine calls Report and Record.
 func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
+	if r.Jobs < 1 {
+		panic("runner: Jobs must be at least 1")
+	}
 	res := &Results{Columns: plan.Columns}
 	column := make(map[string]int, len(plan.Columns))
 	for i, c := range plan.Columns {
@@ -47,58 +55,95 @@ func (r *Runner) Run(ctx context.Context, plan Plan) *Results {
 		row[p] = i
 		res.Rows = append(res.Rows, Row{Project: p, Cells: make([]Status, len(plan.Columns))})
 	}
-	ended := make(map[string]Status) // keys of sections that failed or were blocked
+	cell := func(s Section) *Status { return &res.Rows[row[s.Project]].Cells[column[s.Name]] }
 
-	for _, s := range plan.Sections {
-		if sig, ok := interruptSignal(ctx); ok {
-			res.Interrupted = sig
-			break
-		}
-		cell := &res.Rows[row[s.Project]].Cells[column[s.Name]]
+	type ending struct {
+		i   int
+		out Outcome
+	}
+	endings := make(chan ending)
+	status := make(map[string]Status, len(plan.Sections)) // keys of sections that ended or were blocked
+	started := make([]bool, len(plan.Sections))           // started or blocked
+	running := 0
 
-		var by, failed []string
-		for _, req := range s.Requires {
-			switch ended[req] {
-			case Fail:
-				by = append(by, req)
-				failed = append(failed, req)
-			case Blocked:
-				by = append(by, req)
+	scan := func() {
+		for i, s := range plan.Sections {
+			if started[i] {
+				continue
 			}
-		}
-		if len(by) > 0 {
-			_ = r.Record.Blocked(s, by)
-			if len(failed) > 0 {
-				r.Report.Blocked(s, failed)
+			if sig, ok := interruptSignal(ctx); ok {
+				res.Interrupted = sig
+				return
 			}
-			*cell = Blocked
-			ended[s.Key()] = Blocked
-			res.Failed = true
-			continue
+			if running >= r.Jobs {
+				return
+			}
+			if slices.ContainsFunc(s.Requires, func(req string) bool { _, ended := status[req]; return !ended }) {
+				continue
+			}
+			started[i] = true
+			if r.block(s, status) {
+				*cell(s) = Blocked
+				status[s.Key()] = Blocked
+				res.Failed = true
+				continue
+			}
+			running++
+			r.Report.SectionStart(s)
+			go func() {
+				begin := r.Now()
+				out := r.section(ctx, i, s)
+				out.Duration = r.Now().Sub(begin)
+				endings <- ending{i, out}
+			}()
 		}
+	}
 
-		r.Report.SectionStart(s)
-		start := r.Now()
-		out := r.section(ctx, s)
-		out.Duration = r.Now().Sub(start)
+	scan()
+	for running > 0 {
+		e := <-endings
+		running--
+		s, out := plan.Sections[e.i], e.out
 		if err := r.Record.SectionEnd(s, out); err != nil {
 			out = LogErrorOutcome(out, err)
 		}
 		r.Report.SectionEnd(s, out)
-		*cell = out.Status
-
+		*cell(s) = out.Status
+		status[s.Key()] = out.Status
 		switch out.Status {
 		case Interrupted:
 			if sig, ok := interruptSignal(ctx); ok {
 				res.Interrupted = sig
 			}
-			return res
 		case Fail:
-			ended[s.Key()] = Fail
 			res.Failed = true
 		}
+		scan()
 	}
 	return res
+}
+
+// block records s as blocked, and reports it when a direct requirement failed, if any requirement failed or was
+// blocked. It reports whether s is blocked.
+func (r *Runner) block(s Section, status map[string]Status) bool {
+	var by, failed []string
+	for _, req := range s.Requires {
+		switch status[req] {
+		case Fail:
+			by = append(by, req)
+			failed = append(failed, req)
+		case Blocked:
+			by = append(by, req)
+		}
+	}
+	if len(by) == 0 {
+		return false
+	}
+	_ = r.Record.Blocked(s, by)
+	if len(failed) > 0 {
+		r.Report.Blocked(s, failed)
+	}
+	return true
 }
 
 // interruptSignal reports the signal that stopped the run, if the context's cancellation cause is an Interrupt.
@@ -115,8 +160,8 @@ func interrupted(ctx context.Context) bool {
 	return ok
 }
 
-// section runs the section algorithm. Duration is filled in by the caller.
-func (r *Runner) section(ctx context.Context, s Section) (out Outcome) {
+// section runs the section algorithm for s, the i-th section of the plan. Duration is filled in by the caller.
+func (r *Runner) section(ctx context.Context, i int, s Section) (out Outcome) {
 	if s.Run == "" && s.Verify == "" {
 		return Outcome{Status: Skip}
 	}
@@ -132,7 +177,7 @@ func (r *Runner) section(ctx context.Context, s Section) (out Outcome) {
 	}()
 
 	env := r.env(s)
-	key := s.Project + "-" + s.Name
+	key := strconv.Itoa(i) + "-" + s.Project + "-" + s.Name
 	var steps []StepOutput
 	// run executes one step. done reports that the section ended early, with outcome end.
 	run := func(step, cmd string) (res Result, done bool, end Outcome) {

@@ -606,7 +606,7 @@ func TestNoWrappersRunsPlainShell(t *testing.T) {
 func TestWrappedStepRunsPreparedArgv(t *testing.T) {
 	t.Parallel()
 	out, h := runWrappedOne(t, Section{Run: "r"}, map[string][]fakeCmd{"r": {ok("")}})
-	if out.Status != Done || len(h.exec.argvs) != 1 || !slices.Equal(h.exec.argvs[0], []string{"fake-wrapped", "p-build", "r"}) {
+	if out.Status != Done || len(h.exec.argvs) != 1 || !slices.Equal(h.exec.argvs[0], []string{"fake-wrapped", "0-p-build", "r"}) {
 		t.Errorf("outcome = %+v, argvs = %q", out, h.exec.argvs)
 	}
 	want := []string{"outer {{STEW_STEP}}", "inner {{STEW_STEP}}"}
@@ -765,7 +765,7 @@ func TestStepKeysDifferPerSection(t *testing.T) {
 	h := newHarness(map[string][]fakeCmd{"s": {ok("")}, "b": {ok("")}, "q": {ok("")}})
 	runWrapped(context.Background(), h,
 		Section{Name: "setup", Run: "s"}, Section{Name: "build", Run: "b"}, Section{Name: "ci.quick", Run: "q"})
-	if want := []string{"p-setup", "p-build", "p-ci.quick"}; !slices.Equal(h.steps.prepared, want) {
+	if want := []string{"0-p-setup", "1-p-build", "2-p-ci.quick"}; !slices.Equal(h.steps.prepared, want) {
 		t.Errorf("keys = %q, want %q", h.steps.prepared, want)
 	}
 }

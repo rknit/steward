@@ -77,11 +77,11 @@ Prints registered projects sorted by name, with paths and dependencies derived f
 ## `stew run <regex>... [--dry-run]` and the Aliases
 
 ```text
-stew run <regex>... [--dry-run]
-stew setup [project...] [--dry-run]
-stew build [project...] [--dry-run]
-stew ci [project...] [-l/--level <level>] [--dry-run]
-stew setup-worktree [project...] [--dry-run]
+stew run <regex>... [--dry-run] [-j/--jobs <n>]
+stew setup [project...] [--dry-run] [-j/--jobs <n>]
+stew build [project...] [--dry-run] [-j/--jobs <n>]
+stew ci [project...] [-l/--level <level>] [--dry-run] [-j/--jobs <n>]
+stew setup-worktree [project...] [--dry-run] [-j/--jobs <n>]
 ```
 
 - Each regex must match a whole `<project>:<section>` key. `stew ci` runs `ci.full` unless `-l` names a level.
@@ -90,6 +90,8 @@ stew setup-worktree [project...] [--dry-run]
 - Before running, it checks trust (see `execution.md`).
 - `--dry-run` prints the order and exits 0. It skips the trust check, runs nothing, and writes no logs.
   Configuration and pattern errors still exit 2.
+- `-j/--jobs <n>` caps how many sections run at once. It beats `jobs` in `.stew/config.toml` and is ignored when
+  `concurrency = "serial"`. Below 1: `invalid jobs 0: must be at least 1`, exit 2.
 
 ## `stew exec [project] <command>`
 

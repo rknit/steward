@@ -42,12 +42,18 @@
 workspace_wrapper = "direnv exec . {{STEW_STEP}}"
 # Makes the wrapper usable in a new tree, e.g. "direnv allow .". Runs once per tree, with consent. "" means none.
 workspace_trust = "direnv allow ."
+# "parallel" runs independent sections at the same time; "serial" runs one at a time. Default "parallel".
+# concurrency = "parallel"
+# Most sections running at once in parallel mode. Default: the number of CPUs. stew run -j overrides it.
+# jobs = 8
 ```
 
 | Key | Required | Rule |
 | --- | --- | --- |
 | `workspace_wrapper` | yes | String. `""` means no wrapper. Otherwise see Wrapper Strings. |
 | `workspace_trust` | yes | String. `""` means no trust command. |
+| `concurrency` | no | `"parallel"` (default) or `"serial"`. Serial runs one section at a time. |
+| `jobs` | no | Integer ≥ 1. Most sections running at once. Default: the CPU count (the container's CPU limit, if any). `-j` overrides it. |
 
 - A missing file is an error. Unknown keys are rejected.
 
@@ -156,7 +162,7 @@ Every command except `init`, `git install`, `runs *`, and `skills *` loads and v
 Any error stops the command before anything runs, with exit 2 and a message that names the file:
 
 - `projects.toml` parses; paths are valid and unique; every path has a `stew.toml`.
-- `config.toml` parses; both keys present; wrapper checks pass.
+- `config.toml` parses; both required keys present; wrapper checks pass; `concurrency` and `jobs` are valid when set.
 - Every `stew.toml` parses with no unknown keys (`<file>: [build]: unknown key "foo"`), no missing required keys
   (`<file>: [build]: missing key "run"`), valid section names, and valid wrapper and `requires` entries.
 - Every `name` is valid and unique.

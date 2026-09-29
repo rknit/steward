@@ -133,7 +133,7 @@ func stewCmd(ts *testscript.TestScript, neg bool, args []string) {
 	}
 	loc, err := time.LoadLocation(ts.Getenv("TZ"))
 	ts.Check(err)
-	proc := process{dir: ts.MkAbs("."), env: env, loc: loc, stdout: ts.Stdout(), stderr: ts.Stderr()}
+	proc := process{dir: ts.MkAbs("."), env: env, cpus: 1, loc: loc, stdout: ts.Stdout(), stderr: ts.Stderr()}
 	code := run(proc, args)
 	*ts.Value(statusKey{}).(*int) = code
 	if code != 0 && !neg {

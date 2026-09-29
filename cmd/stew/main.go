@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -22,7 +23,7 @@ func main() {
 		os.Exit(1)
 	}
 	proc := process{
-		dir: dir, env: os.Environ(), loc: time.Local,
+		dir: dir, env: os.Environ(), cpus: runtime.GOMAXPROCS(0), loc: time.Local,
 		stdin: os.Stdin, interactive: isTerminal(os.Stdin) && isTerminal(os.Stdout),
 		stdout: os.Stdout, stderr: os.Stderr,
 	}
@@ -35,6 +36,7 @@ func main() {
 type process struct {
 	dir            string
 	env            []string
+	cpus           int // CPUs stew may use (GOMAXPROCS), the default job limit
 	loc            *time.Location
 	stdin          io.Reader
 	interactive    bool // stdin and stdout are terminals, so stew may ask a question

@@ -154,7 +154,7 @@ type SectionLog interface {
 
 // Steps prepares what a wrapped step runs, then reports how many times its command ran and how it exited.
 type Steps interface {
-	// Prepare writes the step's scripts for key ("<project>-<section>") and returns the argv that runs cmd
+	// Prepare writes the step's scripts for key ("<plan index>-<project>-<section>") and returns the argv that runs cmd
 	// inside wrappers, outermost first.
 	Prepare(key string, wrappers, env []string, cmd string) ([]string, error)
 	// Collect returns how many times the step's command ran and, when its last run finished, its exit status.

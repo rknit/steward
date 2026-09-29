@@ -6,7 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
+	"sync"
+	"testing"
 	"time"
 )
 
@@ -251,7 +254,126 @@ func newHarness(script map[string][]fakeCmd) *harness {
 	}
 	h.r = &Runner{
 		Exec: h.exec, Steps: h.steps, OpenLog: h.logs.Open, Report: h.rec, Record: h.record, Now: clock.Now,
-		RunID: "20260101T000000Z-abcd", Root: "/w",
+		RunID: "20260101T000000Z-abcd", Root: "/w", Jobs: 1,
 	}
 	return h
+}
+
+// gateExec holds each command until the test finishes it, or until ctx is done. Commands are told apart by their
+// command string, so each must be unique in a plan.
+type gateExec struct {
+	mu    sync.Mutex
+	gates map[string]chan Result
+}
+
+func (g *gateExec) gate(cmd string) chan Result {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.gates == nil {
+		g.gates = map[string]chan Result{}
+	}
+	if g.gates[cmd] == nil {
+		g.gates[cmd] = make(chan Result, 1)
+	}
+	return g.gates[cmd]
+}
+
+func (g *gateExec) Run(ctx context.Context, dir string, env []string, argv []string, stdout, stderr io.Writer) Result {
+	select {
+	case res := <-g.gate(argv[len(argv)-1]):
+		return res
+	case <-ctx.Done():
+		var i Interrupt
+		if errors.As(context.Cause(ctx), &i) {
+			return Result{Signal: signalName(i.Signal)}
+		}
+		return Result{Signal: "SIGTERM"}
+	}
+}
+
+// finish lets the command end with res.
+func (g *gateExec) finish(cmd string, res Result) { g.gate(cmd) <- res }
+
+// eventReporter sends reporter events, in order, as readable lines.
+type eventReporter struct{ ch chan<- string }
+
+func (e *eventReporter) SectionStart(s Section) { e.ch <- "start " + s.Key() }
+func (e *eventReporter) SectionEnd(s Section, out Outcome) {
+	e.ch <- "end " + s.Key() + " " + string(out.Status)
+}
+func (e *eventReporter) Blocked(s Section, failed []string) {
+	e.ch <- "blocked " + s.Key() + " by " + strings.Join(failed, ", ")
+}
+
+// gateHarness runs a plan on gated commands in the background and streams its reporter events.
+type gateHarness struct {
+	exec   *gateExec
+	events chan string
+	done   chan *Results
+}
+
+func startGated(ctx context.Context, jobs int, p Plan) *gateHarness {
+	g := &gateHarness{exec: &gateExec{}, events: make(chan string, 64), done: make(chan *Results, 1)}
+	r := &Runner{
+		Exec:    g.exec,
+		OpenLog: func(string, string) (SectionLog, error) { return &fakeLog{}, nil },
+		Report:  &eventReporter{ch: g.events},
+		Record:  &fakeRecord{failSection: map[string]bool{}},
+		Now:     time.Now,
+		RunID:   "20260101T000000Z-abcd",
+		Root:    "/w",
+		Jobs:    jobs,
+	}
+	go func() { g.done <- r.Run(ctx, p) }()
+	return g
+}
+
+// expect fails unless the next events are want, in order.
+func (g *gateHarness) expect(t *testing.T, want ...string) {
+	t.Helper()
+	for _, w := range want {
+		select {
+		case got := <-g.events:
+			if got != w {
+				t.Fatalf("event = %q, want %q", got, w)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("no event within 10s, want %q", w)
+		}
+	}
+}
+
+// expectAnyOrder fails unless the next len(want) events are want, in any order.
+func (g *gateHarness) expectAnyOrder(t *testing.T, want ...string) {
+	t.Helper()
+	var got []string
+	for range want {
+		select {
+		case e := <-g.events:
+			got = append(got, e)
+		case <-time.After(10 * time.Second):
+			t.Fatalf("events within 10s = %q, want %q", got, want)
+		}
+	}
+	slices.Sort(got)
+	want = slices.Sorted(slices.Values(want))
+	if !slices.Equal(got, want) {
+		t.Fatalf("events = %q, want %q in any order", got, want)
+	}
+}
+
+// wait returns the results once Run returns, and fails if an event was not read. Run sends every event before it
+// returns, so none can arrive later.
+func (g *gateHarness) wait(t *testing.T) *Results {
+	t.Helper()
+	select {
+	case res := <-g.done:
+		if len(g.events) > 0 {
+			t.Fatalf("unread event %q", <-g.events)
+		}
+		return res
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return within 10s")
+	}
+	return nil
 }

@@ -13,6 +13,8 @@ type Workspace struct {
 	Root     string
 	Wrapper  string     // workspace wrapper from .stew/config.toml; "" means none
 	Trust    string     // workspace trust command from .stew/config.toml; "" means none
+	Serial   bool       // concurrency = "serial" in .stew/config.toml
+	Jobs     int        // jobs from .stew/config.toml; 0 when unset
 	Projects []*Project // sorted by name
 	byName   map[string]*Project
 }
@@ -39,7 +41,7 @@ func Load(root string) (*Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	ws.Wrapper, ws.Trust = cfg.Wrapper, cfg.Trust
+	ws.Wrapper, ws.Trust, ws.Serial, ws.Jobs = cfg.Wrapper, cfg.Trust, cfg.Serial, cfg.Jobs
 	return ws, nil
 }
 

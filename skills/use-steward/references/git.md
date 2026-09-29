@@ -77,5 +77,5 @@ To set it up as the hook would, after the operator agrees to the trust commands:
   command that runs sections. The repository's own CI configuration is the consent.
 - Run a level: `stew ci` (`ci.full`) or `stew ci -l <level>`.
 - Exit 1 fails the job on a failed or blocked section. Exit 2 means a configuration or usage error.
-- A cancelled job sends SIGTERM: stew stops the running command and exits 143.
+- A cancelled job sends SIGTERM: stew stops the running commands and exits 143.
 - Keep `.stew/runs/` as a job artifact to inspect the logs later.
