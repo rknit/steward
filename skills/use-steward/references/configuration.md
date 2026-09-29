@@ -72,19 +72,19 @@ run = "npm ci"
 [build]
 run = "npm run build"
 verify = "test -f dist/index.js"
-requires = ["api:setup", "core:build"]
+requires = [":setup", "core:build"]
 
 [ci.full]
 run = "npm test"
-requires = ["api:build"]
+requires = [":build"]
 
 [ci.quick]
 run = "npm run lint"
-requires = ["api:build"]
+requires = [":build"]
 
 [ci.pre-commit]
 run = ""
-requires = ["api:ci.quick"]
+requires = [":ci.quick"]
 ```
 
 | Key | Required | Rule |
@@ -121,13 +121,13 @@ Keys inside a section:
 
 ## `requires`
 
-- Each entry is a key: `"<project>:<section>"`. A section of the same project still names its project:
-  `"api:setup"`.
+- Each entry is a key: `"<project>:<section>"`. `":<section>"` names a section of the same project:
+  in `api`, `":setup"` is `"api:setup"`. Both forms work. Checks and errors use the full key.
 - Load checks, with the error each gives:
 
   | Problem | Error |
   | --- | --- |
-  | Not one `:` | `<file>: [build]: requires "core": want <project>:<section>` |
+  | Not one `:` | `<file>: [build]: requires "core": want <project>:<section> or :<section>` |
   | Unknown project | `... requires "core:build": unknown project "core"` |
   | Unknown section | `... requires "core:build": core has no section "build"` |
   | Names itself | `... requires "api:build": section requires itself` |
@@ -177,7 +177,8 @@ project_trust = ""
 # Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose
 # <project>:<section> key matches; `stew build` is `stew run '.*:build'`.
 # skip_if exit 0 skips the section. verify runs after run and must exit 0.
-# requires lists sections that must succeed first, as "<project>:<section>".
+# requires lists sections that must succeed first, as "<project>:<section>",
+# or ":<section>" for a section of this project.
 #
 # [build]
 # run = ""

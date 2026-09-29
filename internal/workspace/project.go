@@ -185,18 +185,26 @@ func (p *Project) parseRequires(name string, v any) ([]Key, error) {
 		if !ok {
 			return nil, fmt.Errorf("[%s]: requires: want a list of strings", name)
 		}
-		k, ok := ParseKey(entry)
+		k, ok := p.parseRequire(entry)
 		switch {
 		case !ok:
-			return nil, fmt.Errorf("[%s]: requires %q: want <project>:<section>", name, entry)
+			return nil, fmt.Errorf("[%s]: requires %q: want <project>:<section> or :<section>", name, entry)
 		case k == self:
-			return nil, fmt.Errorf("[%s]: requires %q: section requires itself", name, entry)
+			return nil, fmt.Errorf("[%s]: requires %q: section requires itself", name, k)
 		case slices.Contains(keys, k):
-			return nil, fmt.Errorf("[%s]: duplicate requires %q", name, entry)
+			return nil, fmt.Errorf("[%s]: duplicate requires %q", name, k)
 		}
 		keys = append(keys, k)
 	}
 	return keys, nil
+}
+
+// parseRequire parses a requires entry. ":<section>" names a section of p.
+func (p *Project) parseRequire(entry string) (Key, bool) {
+	if strings.HasPrefix(entry, ":") {
+		entry = p.Name + entry
+	}
+	return ParseKey(entry)
 }
 
 // LoadProject reads and parses <root>/<rel>/stew.toml.
@@ -230,7 +238,8 @@ var templateLines = []string{
 	"# Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose",
 	"# <project>:<section> key matches; `stew build` is `stew run '.*:build'`.",
 	`# skip_if exit 0 skips the section. verify runs after run and must exit 0.`,
-	`# requires lists sections that must succeed first, as "<project>:<section>".`,
+	`# requires lists sections that must succeed first, as "<project>:<section>",`,
+	`# or ":<section>" for a section of this project.`,
 	`#`,
 	`# [build]`,
 	`# run = ""`,

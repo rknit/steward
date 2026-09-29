@@ -36,10 +36,10 @@ project_trust = ""
 run = "touch ran"
 [build]
 run = "touch ran"
-requires = ["api:setup", "core:build"]
+requires = [":setup", "core:build"]
 [ci.full]
 run = "touch ran"
-requires = ["api:build"]
+requires = [":build"]
 -- want/plan --
 ┌───┬──────────────┬───────────────────────┐
 │ # │ key          │ requires              │

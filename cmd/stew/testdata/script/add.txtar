@@ -60,7 +60,8 @@ project_trust = ""
 # Sections: any [name] with a `run` key. `stew run '<regex>'` runs sections whose
 # <project>:<section> key matches; `stew build` is `stew run '.*:build'`.
 # skip_if exit 0 skips the section. verify runs after run and must exit 0.
-# requires lists sections that must succeed first, as "<project>:<section>".
+# requires lists sections that must succeed first, as "<project>:<section>",
+# or ":<section>" for a section of this project.
 #
 # [build]
 # run = ""

@@ -17,7 +17,7 @@ run = "npm ci"
 [build]
 run = "npm run build"
 verify = "test -f dist/index.js"
-requires = ["api:setup", "core:build"]
+requires = [":setup", "core:build"]
 
 [ci.full]
 run = "npm test"
@@ -106,9 +106,13 @@ func TestParseProjectErrors(t *testing.T) {
 		{"section in section", head + "[ci]\nrun = \"\"\n[ci.full]\nrun = \"\"\n", "stew.toml: [ci]: a section cannot contain sections"},
 		{"quoted dot", head + "[\"ci.full\"]\nrun = \"\"\n", `stew.toml: invalid section name segment "ci.full" (want [a-z0-9][a-z0-9_-]*)`},
 		{"bad segment", head + "[Build]\nrun = \"\"\n", `stew.toml: invalid section name segment "Build" (want [a-z0-9][a-z0-9_-]*)`},
-		{"no colon", head + "[build]\nrun = \"\"\nrequires = [\"core\"]\n", `stew.toml: [build]: requires "core": want <project>:<section>`},
+		{"no colon", head + "[build]\nrun = \"\"\nrequires = [\"core\"]\n", `stew.toml: [build]: requires "core": want <project>:<section> or :<section>`},
+		{"colon only", head + "[build]\nrun = \"\"\nrequires = [\":\"]\n", `stew.toml: [build]: requires ":": want <project>:<section> or :<section>`},
+		{"two colons", head + "[build]\nrun = \"\"\nrequires = [\"::setup\"]\n", `stew.toml: [build]: requires "::setup": want <project>:<section> or :<section>`},
 		{"self", head + "[build]\nrun = \"\"\nrequires = [\"api:build\"]\n", `stew.toml: [build]: requires "api:build": section requires itself`},
+		{"self short", head + "[build]\nrun = \"\"\nrequires = [\":build\"]\n", `stew.toml: [build]: requires "api:build": section requires itself`},
 		{"duplicate", head + "[build]\nrun = \"\"\nrequires = [\"core:build\", \"core:build\"]\n", `stew.toml: [build]: duplicate requires "core:build"`},
+		{"duplicate short", head + "[build]\nrun = \"\"\nrequires = [\"api:setup\", \":setup\"]\n", `stew.toml: [build]: duplicate requires "api:setup"`},
 		{"toml syntax", "name = \n", "stew.toml: "},
 	}
 	for _, tt := range tests {
@@ -143,7 +147,8 @@ project_trust = ""
 # Sections: any [name] with a ` + "`run`" + ` key. ` + "`stew run '<regex>'`" + ` runs sections whose
 # <project>:<section> key matches; ` + "`stew build`" + ` is ` + "`stew run '.*:build'`" + `.
 # skip_if exit 0 skips the section. verify runs after run and must exit 0.
-# requires lists sections that must succeed first, as "<project>:<section>".
+# requires lists sections that must succeed first, as "<project>:<section>",
+# or ":<section>" for a section of this project.
 #
 # [build]
 # run = ""

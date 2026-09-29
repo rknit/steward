@@ -20,7 +20,7 @@ toolchain wrappers the workspace defines, and keeps the logs.
 | Project | Directory registered in `.stew/projects.toml`, with a `stew.toml` that gives it a `name`. |
 | Section | A table in `stew.toml` with a `run` key, e.g. `[build]` or `[ci.full]`. No name is special. |
 | Key | `<project>:<section>`, e.g. `core:ci.full`. Used in `requires`, patterns, logs, and output. |
-| `requires` | Keys that must succeed before a section runs. Selecting a section pulls them in. |
+| `requires` | Keys that must succeed first (`:<section>` is this project's). Selecting a section pulls them in. |
 | Wrapper | Shell code that provides the toolchain, e.g. `direnv exec . {{STEW_STEP}}`. Wraps every command. |
 | Trust | One-time commands per tree that make a wrapper usable, e.g. `direnv allow .`. Need consent. |
 | Run | One `stew run` (or alias) invocation. Logged in `.stew/runs/<run-id>/`. |

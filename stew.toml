@@ -11,26 +11,26 @@ run = "go mod tidy"
 
 [build]
 run = "go build ./..."
-requires = ["steward:setup"]
+requires = [":setup"]
 
 # New worktrees run this through the post-checkout hook (stew git install post-checkout).
 [worktree.setup]
 run = ""
-requires = ["steward:setup"]
+requires = [":setup"]
 
 [ci.full]
 run = "go test -race ./..."
-requires = ["steward:build"]
+requires = [":build"]
 
 [ci.quick]
 run = "go test ./..."
-requires = ["steward:build"]
+requires = [":build"]
 
 # The git hooks run these levels.
 [ci.pre-commit]
 run = ""
-requires = ["steward:ci.quick"]
+requires = [":ci.quick"]
 
 [ci.pre-push]
 run = ""
-requires = ["steward:ci.full"]
+requires = [":ci.full"]
