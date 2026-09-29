@@ -28,6 +28,7 @@ run = ""
 `
 
 func TestParseProjectValid(t *testing.T) {
+	t.Parallel()
 	p, err := ParseProject("stew.toml", []byte(validManifest))
 	if err != nil {
 		t.Fatal(err)
@@ -53,6 +54,7 @@ func TestParseProjectValid(t *testing.T) {
 }
 
 func TestParseProjectNoSections(t *testing.T) {
+	t.Parallel()
 	p, err := ParseProject("stew.toml", []byte("name = \"x\"\nproject_wrapper = \"\"\nproject_trust = \"\"\n[lint]\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -63,6 +65,7 @@ func TestParseProjectNoSections(t *testing.T) {
 }
 
 func TestParseProjectWrapper(t *testing.T) {
+	t.Parallel()
 	data := strings.Replace(validManifest, `project_wrapper = ""`, `project_wrapper = "tool run {{STEW_STEP}}"`, 1)
 	p, err := ParseProject("stew.toml", []byte(data))
 	if err != nil || p.Wrapper != "tool run {{STEW_STEP}}" {
@@ -71,22 +74,23 @@ func TestParseProjectWrapper(t *testing.T) {
 }
 
 func TestParseProjectWrapperErrors(t *testing.T) {
+	t.Parallel()
 	with := func(line string) string {
 		return strings.Replace(validManifest, `project_wrapper = ""`, line, 1)
 	}
-	tests := []struct{ data, want string }{
-		{with(`project_wrapper = "tool run"`), "stew.toml: project_wrapper: must contain {{STEW_STEP}} exactly once (found 0)"},
-		{with(`project_wrapper = "echo 'x {{STEW_STEP}}"`), "stew.toml: project_wrapper: sh: "},
+	_, err := ParseProject("stew.toml", []byte(with(`project_wrapper = "tool run"`)))
+	if want := "stew.toml: project_wrapper: must contain {{STEW_STEP}} exactly once (found 0)"; err == nil || err.Error() != want {
+		t.Errorf("err = %v, want %q", err, want)
 	}
-	for _, tt := range tests {
-		_, err := ParseProject("stew.toml", []byte(tt.data))
-		if err == nil || !strings.HasPrefix(err.Error(), tt.want) {
-			t.Errorf("err = %v, want prefix %q", err, tt.want)
-		}
+	// The rest of the message is the shell's own.
+	_, err = ParseProject("stew.toml", []byte(with(`project_wrapper = "echo 'x {{STEW_STEP}}"`)))
+	if want := "stew.toml: project_wrapper: sh: "; err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("err = %v, want prefix %q", err, want)
 	}
 }
 
 func TestParseProjectErrors(t *testing.T) {
+	t.Parallel()
 	const head = "name = \"api\"\nproject_wrapper = \"\"\nproject_trust = \"\"\n"
 	tests := []struct{ name, data, want string }{
 		{"missing name", "project_wrapper = \"\"\nproject_trust = \"\"\n", `stew.toml: missing key "name"`},
@@ -113,19 +117,29 @@ func TestParseProjectErrors(t *testing.T) {
 		{"self short", head + "[build]\nrun = \"\"\nrequires = [\":build\"]\n", `stew.toml: [build]: requires "api:build": section requires itself`},
 		{"duplicate", head + "[build]\nrun = \"\"\nrequires = [\"core:build\", \"core:build\"]\n", `stew.toml: [build]: duplicate requires "core:build"`},
 		{"duplicate short", head + "[build]\nrun = \"\"\nrequires = [\"api:setup\", \":setup\"]\n", `stew.toml: [build]: duplicate requires "api:setup"`},
-		{"toml syntax", "name = \n", "stew.toml: "},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			_, err := ParseProject("stew.toml", []byte(tt.data))
-			if err == nil || !strings.HasPrefix(err.Error(), tt.want) {
-				t.Errorf("err = %v, want prefix %q", err, tt.want)
+			if err == nil || err.Error() != tt.want {
+				t.Errorf("err = %v, want %q", err, tt.want)
 			}
 		})
 	}
 }
 
+func TestParseProjectTOMLError(t *testing.T) {
+	t.Parallel()
+	// The rest of the message is the TOML library's own.
+	_, err := ParseProject("stew.toml", []byte("name = \n"))
+	if want := "stew.toml: toml: "; err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("err = %v, want prefix %q", err, want)
+	}
+}
+
 func TestTemplateParses(t *testing.T) {
+	t.Parallel()
 	p, err := ParseProject("stew.toml", Template("my-app"))
 	if err != nil {
 		t.Fatal(err)
@@ -136,6 +150,7 @@ func TestTemplateParses(t *testing.T) {
 }
 
 func TestTemplateExact(t *testing.T) {
+	t.Parallel()
 	want := `name = "x"
 # Wraps every command of this project, inside the workspace wrapper.
 # {{STEW_STEP}} marks where the command goes. "" means none.

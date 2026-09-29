@@ -8,6 +8,7 @@ import (
 )
 
 func TestFindRoot(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, DirName), 0o755); err != nil {
 		t.Fatal(err)
@@ -29,6 +30,7 @@ func TestFindRoot(t *testing.T) {
 }
 
 func TestFindRootIgnoresStewFile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, DirName), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -39,12 +41,14 @@ func TestFindRootIgnoresStewFile(t *testing.T) {
 }
 
 func TestFindRootNotWorkspace(t *testing.T) {
+	t.Parallel()
 	if _, err := FindRoot(t.TempDir()); !errors.Is(err, ErrNotWorkspace) {
 		t.Fatalf("err = %v, want ErrNotWorkspace", err)
 	}
 }
 
 func TestFindRootFromInsideStewDir(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	runs := filepath.Join(root, DirName, "runs", "20260925T043601Z-3f9a")
 	if err := os.MkdirAll(runs, 0o755); err != nil {

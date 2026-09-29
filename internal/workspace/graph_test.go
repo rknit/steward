@@ -53,6 +53,7 @@ func example(t *testing.T) *Workspace {
 }
 
 func TestSelectOrderAndTieBreak(t *testing.T) {
+	t.Parallel()
 	ws := example(t)
 	got, err := ws.Select([]string{"web:e2e", "api:test", "docs:build", "core:lint"})
 	if err != nil {
@@ -69,6 +70,7 @@ func TestSelectOrderAndTieBreak(t *testing.T) {
 }
 
 func TestSelect(t *testing.T) {
+	t.Parallel()
 	ws := example(t)
 	tests := []struct {
 		patterns []string
@@ -94,6 +96,7 @@ func TestSelect(t *testing.T) {
 }
 
 func TestSelectErrors(t *testing.T) {
+	t.Parallel()
 	ws := example(t)
 	tests := []struct {
 		patterns []string
@@ -102,17 +105,18 @@ func TestSelectErrors(t *testing.T) {
 		{[]string{"web:setup"}, `pattern "web:setup" matches no section`},
 		{[]string{"api:build", `.*:ci\.pre-commit`}, `pattern ".*:ci\.pre-commit" matches no section`},
 		{[]string{"api"}, `pattern "api" matches no section`},
-		{[]string{"("}, "error parsing regexp"},
+		{[]string{"("}, "error parsing regexp: missing closing ): `(`"},
 	}
 	for _, tt := range tests {
 		_, err := ws.Select(tt.patterns)
-		if err == nil || !strings.HasPrefix(err.Error(), tt.want) {
-			t.Errorf("%q: err = %v, want prefix %q", tt.patterns, err, tt.want)
+		if err == nil || err.Error() != tt.want {
+			t.Errorf("%q: err = %v, want %q", tt.patterns, err, tt.want)
 		}
 	}
 }
 
 func TestProjectsSortedByName(t *testing.T) {
+	t.Parallel()
 	var names []string
 	for _, p := range example(t).Projects {
 		names = append(names, p.Name)
@@ -123,6 +127,7 @@ func TestProjectsSortedByName(t *testing.T) {
 }
 
 func TestValidationErrors(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		projects []*Project
@@ -148,6 +153,7 @@ func TestValidationErrors(t *testing.T) {
 }
 
 func TestCheckNewProject(t *testing.T) {
+	t.Parallel()
 	ws := example(t)
 	tests := []struct {
 		p    *Project
@@ -172,6 +178,7 @@ func TestCheckNewProject(t *testing.T) {
 }
 
 func TestLoad(t *testing.T) {
+	t.Parallel()
 	root := newRoot(t)
 	write := func(rel, content string) {
 		dir := filepath.Join(root, filepath.FromSlash(rel))
@@ -218,7 +225,7 @@ func TestLoad(t *testing.T) {
 	if err := SaveRegistry(root, []string{"libs/core", "missing"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(root); err == nil || !strings.Contains(err.Error(), `project "missing": missing stew.toml`) {
+	if _, err := Load(root); err == nil || err.Error() != `project "missing": missing stew.toml` {
 		t.Errorf("missing manifest: err = %v", err)
 	}
 }

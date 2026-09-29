@@ -20,6 +20,7 @@ func writeConfig(t *testing.T, content string) string {
 }
 
 func TestLoadConfig(t *testing.T) {
+	t.Parallel()
 	const trust = "\nworkspace_trust = \"\"\n"
 	for _, tc := range []struct {
 		content string
@@ -38,24 +39,32 @@ func TestLoadConfig(t *testing.T) {
 }
 
 func TestLoadConfigErrors(t *testing.T) {
-	for _, tc := range []struct{ name, content, want string }{
-		{"missing key", "", `config.toml: missing key "workspace_wrapper"`},
-		{"unknown key", "workspace_wrapper = \"\"\nworkspace_trust = \"\"\nshell = \"bash\"", `config.toml: unknown key "shell"`},
-		{"wrong type", `workspace_wrapper = ["tool"]`, "config.toml: "},
-		{"bad toml", `workspace_wrapper = "`, "config.toml: "},
-		{"syntax", `workspace_wrapper = 'tool "x {{STEW_STEP}}'` + "\nworkspace_trust = \"\"", "config.toml: workspace_wrapper: sh: "},
-		{"no placeholder", `workspace_wrapper = "tool exec ."` + "\nworkspace_trust = \"\"", "config.toml: workspace_wrapper: must contain {{STEW_STEP}} exactly once (found 0)"},
-		{"missing trust", `workspace_wrapper = ""`, `config.toml: missing key "workspace_trust"`},
-		{"trust type", "workspace_wrapper = \"\"\nworkspace_trust = 1", "config.toml: "},
+	t.Parallel()
+	// A prefix case ends where the TOML library's or the shell's own message begins.
+	for _, tc := range []struct {
+		name, content, want string
+		prefix              bool
+	}{
+		{"missing key", "", `missing key "workspace_wrapper"`, false},
+		{"unknown key", "workspace_wrapper = \"\"\nworkspace_trust = \"\"\nshell = \"bash\"", `unknown key "shell"`, false},
+		{"wrong type", `workspace_wrapper = ["tool"]`, "toml: ", true},
+		{"bad toml", `workspace_wrapper = "`, "toml: ", true},
+		{"syntax", `workspace_wrapper = 'tool "x {{STEW_STEP}}'` + "\nworkspace_trust = \"\"", "workspace_wrapper: sh: ", true},
+		{"no placeholder", `workspace_wrapper = "tool exec ."` + "\nworkspace_trust = \"\"", "workspace_wrapper: must contain {{STEW_STEP}} exactly once (found 0)", false},
+		{"missing trust", `workspace_wrapper = ""`, `missing key "workspace_trust"`, false},
+		{"trust type", "workspace_wrapper = \"\"\nworkspace_trust = 1", "toml: ", true},
 	} {
-		_, err := LoadConfig(writeConfig(t, tc.content))
-		if err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Errorf("%s: err = %v, want %q", tc.name, err, tc.want)
+		root := writeConfig(t, tc.content)
+		_, err := LoadConfig(root)
+		want := ConfigPath(root) + ": " + tc.want
+		if err == nil || (tc.prefix && !strings.HasPrefix(err.Error(), want)) || (!tc.prefix && err.Error() != want) {
+			t.Errorf("%s: err = %v, want %q (prefix %v)", tc.name, err, want, tc.prefix)
 		}
 	}
 }
 
 func TestLoadConfigMissingFile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	_, err := LoadConfig(root)
 	if err == nil || err.Error() != ConfigPath(root)+": missing" {

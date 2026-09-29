@@ -25,6 +25,7 @@ func writeRegistry(t *testing.T, root, content string) {
 }
 
 func TestSaveRegistrySortsAndRoundTrips(t *testing.T) {
+	t.Parallel()
 	root := newRoot(t)
 	paths := []string{"services/api", ".", `we"ird\dir`, "libs/core"}
 	if err := SaveRegistry(root, paths); err != nil {
@@ -55,6 +56,7 @@ func TestSaveRegistrySortsAndRoundTrips(t *testing.T) {
 }
 
 func TestSaveRegistryEmpty(t *testing.T) {
+	t.Parallel()
 	root := newRoot(t)
 	if err := SaveRegistry(root, nil); err != nil {
 		t.Fatal(err)
@@ -70,28 +72,40 @@ func TestSaveRegistryEmpty(t *testing.T) {
 }
 
 func TestLoadRegistryErrors(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, content, wantErr string
 	}{
 		{"missing key", "", `missing key "projects"`},
 		{"unknown key", "projects = []\nextra = 1\n", `unknown key "extra"`},
-		{"absolute", `projects = ["/abs"]`, "must be relative"},
-		{"escapes", `projects = ["../x"]`, "escapes the root"},
-		{"not clean", `projects = ["a/../b"]`, "not clean"},
-		{"trailing slash", `projects = ["a/"]`, "not clean"},
-		{"empty", `projects = [""]`, "empty"},
-		{"backslash", `projects = ["a\\b"]`, "must use /"},
+		{"absolute", `projects = ["/abs"]`, `invalid project path "/abs": must be relative`},
+		{"escapes", `projects = ["../x"]`, `invalid project path "../x": escapes the root`},
+		{"not clean", `projects = ["a/../b"]`, `invalid project path "a/../b": not clean (want "b")`},
+		{"trailing slash", `projects = ["a/"]`, `invalid project path "a/": not clean (want "a")`},
+		{"empty", `projects = [""]`, `invalid project path "": empty`},
+		{"backslash", `projects = ["a\\b"]`, `invalid project path "a\\b": must use /`},
 		{"duplicate", `projects = ["a", "a"]`, `duplicate project path "a"`},
-		{"bad toml", `projects = [`, "projects.toml"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			root := newRoot(t)
 			writeRegistry(t, root, tt.content)
 			_, err := LoadRegistry(root)
-			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-				t.Fatalf("err = %v, want containing %q", err, tt.wantErr)
+			if want := RegistryPath(root) + ": " + tt.wantErr; err == nil || err.Error() != want {
+				t.Fatalf("err = %v, want %q", err, want)
 			}
 		})
+	}
+}
+
+func TestLoadRegistryTOMLError(t *testing.T) {
+	t.Parallel()
+	root := newRoot(t)
+	writeRegistry(t, root, `projects = [`)
+	// The rest of the message is the TOML library's own.
+	_, err := LoadRegistry(root)
+	if want := RegistryPath(root) + ": toml: "; err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("err = %v, want prefix %q", err, want)
 	}
 }

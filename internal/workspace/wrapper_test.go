@@ -6,6 +6,7 @@ import (
 )
 
 func TestCheckWrapperAccepts(t *testing.T) {
+	t.Parallel()
 	for _, w := range []string{
 		"",
 		"tool exec . {{STEW_STEP}}",
@@ -25,16 +26,21 @@ func TestCheckWrapperAccepts(t *testing.T) {
 }
 
 func TestCheckWrapperRejects(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ wrapper, want string }{
 		{"tool exec .", "must contain {{STEW_STEP}} exactly once (found 0)"},
 		{"{{STEW_STEP}}; {{STEW_STEP}}", "must contain {{STEW_STEP}} exactly once (found 2)"},
 		{"{{STEW_STEP", "must contain {{STEW_STEP}} exactly once (found 0)"},
-		{`tool "unbalanced {{STEW_STEP}}`, "sh: "},
-		{"if true {{STEW_STEP}}", "sh: "},
 	} {
 		err := CheckWrapper(tc.wrapper)
-		if err == nil || !strings.Contains(err.Error(), tc.want) {
+		if err == nil || err.Error() != tc.want {
 			t.Errorf("CheckWrapper(%q) = %v, want %q", tc.wrapper, err, tc.want)
+		}
+	}
+	// The rest of the message is the shell's own.
+	for _, wrapper := range []string{`tool "unbalanced {{STEW_STEP}}`, "if true {{STEW_STEP}}"} {
+		if err := CheckWrapper(wrapper); err == nil || !strings.HasPrefix(err.Error(), "sh: ") {
+			t.Errorf("CheckWrapper(%q) = %v, want prefix %q", wrapper, err, "sh: ")
 		}
 	}
 }

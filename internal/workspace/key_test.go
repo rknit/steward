@@ -3,6 +3,7 @@ package workspace
 import "testing"
 
 func TestParseKey(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		in   string
 		want Key
@@ -27,6 +28,7 @@ func TestParseKey(t *testing.T) {
 }
 
 func TestValidSectionName(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"build", "ci.full", "ci.pre-commit", "a_b.c-d", "0"} {
 		if !ValidSectionName(name) {
 			t.Errorf("%q rejected", name)
@@ -40,6 +42,7 @@ func TestValidSectionName(t *testing.T) {
 }
 
 func TestCompileKeyPattern(t *testing.T) {
+	t.Parallel()
 	re, err := CompileKeyPattern(`api:.*`)
 	if err != nil {
 		t.Fatal(err)
