@@ -1,2 +1,4 @@
 .direnv/
 .claude/worktrees
+.superpowers/
+docs/superpowers/plans/
