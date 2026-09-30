@@ -100,8 +100,8 @@ FROM_WRAPPER=1
 ```
 
 - With regexes, the summary is left out, and every matched blocked section prints its `blocked by` line.
-- A run still going, or whose stew was killed, shows the last started section as `unfinished` with its partial
-  log, and `total: unfinished`. stew cannot tell those two cases apart.
+- A run still going, or whose stew was killed, shows every section that started but has no result as `unfinished`,
+  with its partial log, and `total: unfinished`. stew cannot tell those two cases apart.
 - `--porcelain`: one line per matched section, never paged:
 
   ```text
